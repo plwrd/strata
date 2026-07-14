@@ -295,6 +295,8 @@ export interface SearchResult {
   score: number;
   tags: string[];
   reasons: string[];
+  /** Per-signal contributions to the score. The reasons are derived from these. */
+  signals: Record<string, number>;
 }
 
 export interface SearchResponse {

@@ -56,12 +56,19 @@ describe("bridge client", () => {
       onRequest: (_object, _method, raw) => seen.push(raw),
     });
 
-    await bridge.search.query("encryption", 10);
+    await bridge.search.query("encryption", { limit: 10 });
 
     const request = JSON.parse(seen[0]!) as {
       payload: Record<string, unknown>;
     };
-    expect(request.payload).toEqual({ query: "encryption", limit: 10 });
+    expect(request.payload).toEqual({
+      query: "encryption",
+      limit: 10,
+      semantic: true,
+      near_object_id: null,
+      tags: null,
+      layer_ids: null,
+    });
   });
 
   it("turns an error envelope into a typed error carrying its code", async () => {

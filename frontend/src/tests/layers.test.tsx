@@ -211,6 +211,7 @@ describe("locking purges the frontend", () => {
           score: 1,
           tags: [],
           reasons: [],
+          signals: { lexical: 1 },
         },
       ],
       openNote: {

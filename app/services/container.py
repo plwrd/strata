@@ -53,9 +53,13 @@ class Services:
         )
         self.notes = NoteService(self.workspace)
         self.graph = GraphService(self.workspace, self.notes)
-        self.search = SearchService(self.notes)
+        self.search = SearchService(self.notes, self.workspace)
         self.exports = ContextExportService(self.workspace, self.notes, self.graph)
         self.jobs = JobService()
+
+        # Any change on disk invalidates the indexes. Rebuilding is lazy, so this is
+        # a flag, not a rebuild — the cost lands on the next search, off the write.
+        self.watcher.changed.connect(lambda _origin: self.search.invalidate())
 
         # Anything that caches decrypted private content must be torn down when a
         # layer locks. Registering here — at the one place that knows every

@@ -519,6 +519,52 @@
   font-size: 10px;
 }
 
+.search__options {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.search__toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.search__signals {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search__signal {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr 2.2rem;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.search__signal-bar {
+  height: 3px;
+  background: var(--accent-ai);
+  border-radius: 999px;
+  min-width: 2px;
+}
+
+.search__signal-value {
+  text-align: right;
+}
+
 /* --- graph list (accessible equivalent) ---------------------------------- */
 
 .graph-list__summary {

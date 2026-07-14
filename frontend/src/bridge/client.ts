@@ -382,8 +382,30 @@ export const bridge = {
   },
 
   search: {
-    query: (query: string, limit = 50) =>
-      call<SearchResponse>("search", "search", { query, limit }),
+    query: (
+      query: string,
+      options: {
+        limit?: number;
+        semantic?: boolean;
+        near_object_id?: string | null;
+        tags?: string[] | null;
+        layer_ids?: string[] | null;
+      } = {},
+    ) =>
+      call<SearchResponse>("search", "search", {
+        query,
+        limit: options.limit ?? 50,
+        semantic: options.semantic ?? true,
+        near_object_id: options.near_object_id ?? null,
+        tags: options.tags ?? null,
+        layer_ids: options.layer_ids ?? null,
+      }),
+    similar: (object_id: string, limit = 10) =>
+      call<SearchResponse>("search", "similar", { object_id, limit }),
+    clusters: (count = 6) =>
+      call<{ clusters: Record<string, number> }>("search", "clusters", {
+        count,
+      }),
   },
 
   ai: {

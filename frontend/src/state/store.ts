@@ -100,6 +100,7 @@ interface StrataState {
   searchQuery: string;
   searchResults: SearchResult[];
   searching: boolean;
+  semanticSearch: boolean;
 
   // composer
   prompt: string;
@@ -190,6 +191,8 @@ interface StrataState {
 
   runSearch: (query: string) => Promise<void>;
   selectSearchResults: () => void;
+  setSemanticSearch: (enabled: boolean) => Promise<void>;
+  findSimilar: (objectId: string) => Promise<void>;
 
   setPrompt: (prompt: string) => void;
   setTarget: (target: ExportTarget) => void;
@@ -255,6 +258,7 @@ export const useStore = create<StrataState>((set, get) => ({
   trash: [],
 
   searchQuery: "",
+  semanticSearch: true,
   searchResults: [],
   searching: false,
 
@@ -784,7 +788,12 @@ export const useStore = create<StrataState>((set, get) => ({
       return;
     }
     try {
-      const response = await bridge.search.query(query);
+      const response = await bridge.search.query(query, {
+        semantic: get().semanticSearch,
+        // Boost what is near the note being read: "what else is relevant to this"
+        // rather than "what contains this string".
+        near_object_id: get().activeNoteId,
+      });
       set({ searchResults: response.results, searching: false });
     } catch (error) {
       set({
@@ -792,6 +801,26 @@ export const useStore = create<StrataState>((set, get) => ({
         searchResults: [],
         connectionMessage: describeError(error),
       });
+    }
+  },
+
+  async setSemanticSearch(enabled) {
+    set({ semanticSearch: enabled });
+    const query = get().searchQuery;
+    if (query.trim()) await get().runSearch(query);
+  },
+
+  async findSimilar(objectId) {
+    set({ searching: true });
+    try {
+      const response = await bridge.search.similar(objectId);
+      set({
+        searchResults: response.results,
+        searching: false,
+        searchQuery: "",
+      });
+    } catch (error) {
+      set({ searching: false, connectionMessage: describeError(error) });
     }
   },
 
