@@ -17,6 +17,24 @@ _SeedNote = tuple[str, str, dict[str, object], str]
 
 DEMO_NOTES: Final[list[_SeedNote]] = [
     (
+        "",
+        "Start Here",
+        {"tags": ["strata"]},
+        """Welcome. These notes are ordinary Markdown files in a folder you own — open them in
+any editor, move them, or delete them. Nothing here is locked into Strata.
+
+Try this: switch to **Explore**, ctrl-click a few nodes in the graph, and watch the AI
+Context Composer on the right fill up. What you illuminate is exactly what a model would
+see — no more, no less.
+
+Then press **Export Markdown** and read the file it writes. That file is the whole
+contract: a prompt, the sources you picked, their relationships, and an instruction to
+the model that your notes are data and not commands.
+
+See [[Strata Overview]] to understand the pieces.
+""",
+    ),
+    (
         "Architecture",
         "Strata Overview",
         {"type": "decision", "status": "active", "tags": ["strata", "overview"]},
@@ -48,7 +66,11 @@ references:: [[Encryption Architecture]]
     (
         "Security",
         "Encryption Architecture",
-        {"type": "architecture-component", "status": "designed", "tags": ["encryption", "security"]},
+        {
+            "type": "architecture-component",
+            "status": "designed",
+            "tags": ["encryption", "security"],
+        },
         """Every private layer holds a random 256-bit layer data key. The password never *is*
 the key: Argon2id derives a key-encryption key that wraps the layer key.
 

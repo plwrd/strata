@@ -23,8 +23,8 @@ class NoteService:
         for layer in self._workspace.readable_layers():
             if layer_ids is not None and layer.id not in layer_ids:
                 continue
-            if layer.visibility != "public":
-                continue
+            if layer.storage != "markdown":
+                continue  # Milestone 3 storage; not readable through this store
             notes.extend(self._workspace.layer_store(layer.id).list_notes())
         return notes
 
@@ -33,8 +33,8 @@ class NoteService:
         for layer in self._workspace.readable_layers():
             if layer_ids is not None and layer.id not in layer_ids:
                 continue
-            if layer.visibility != "public":
-                continue
+            if layer.storage != "markdown":
+                continue  # Milestone 3 storage; not readable through this store
             folders.extend(self._workspace.layer_store(layer.id).list_folders())
         return folders
 

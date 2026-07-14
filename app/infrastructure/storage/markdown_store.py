@@ -79,9 +79,7 @@ def note_id_for(layer_id: str, relative_path: str) -> str:
     is what private layers are for), so a derived id is acceptable here and is
     explicitly *not* used for private layers — see ADR-0004.
     """
-    digest = hashlib.blake2b(
-        f"{layer_id}\x00{relative_path}".encode(), digest_size=16
-    ).hexdigest()
+    digest = hashlib.blake2b(f"{layer_id}\x00{relative_path}".encode(), digest_size=16).hexdigest()
     return digest
 
 
@@ -170,9 +168,7 @@ class MarkdownLayerStore:
                     name=path.name,
                     path=relative,
                     parent_id=(
-                        None
-                        if parent in ("", ".")
-                        else note_id_for(self.layer_id, parent + "/")
+                        None if parent in ("", ".") else note_id_for(self.layer_id, parent + "/")
                     ),
                 )
             )

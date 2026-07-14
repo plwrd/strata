@@ -18,6 +18,14 @@ LayerVisibility = Literal["public", "private"]
 LayerState = Literal["mounted", "unmounted", "locked", "unlocked"]
 LayerSharingMode = Literal["personal", "shared-password", "identity-managed"]
 
+# How a layer's bytes are kept on disk. Deliberately *not* the same axis as
+# visibility: "private" is a policy (who may read it, what the AI may do with it,
+# whether an export needs a confirmation), while storage is a mechanism. Keeping
+# them separate means the privacy rules are enforced and tested against the
+# descriptor today, and Milestone 3 only has to add a second storage backend
+# rather than re-thread every privacy check through the codebase.
+LayerStorage = Literal["markdown", "encrypted-objects"]
+
 AIAccess = Literal[
     "disabled",
     "local-only",
@@ -71,6 +79,7 @@ class LayerDescriptor(BaseModel):
     visibility: LayerVisibility = "public"
     state: LayerState = "mounted"
     sharing_mode: LayerSharingMode = "personal"
+    storage: LayerStorage = "markdown"
     storage_version: int = LAYER_STORAGE_VERSION
     created_at: str
     updated_at: str

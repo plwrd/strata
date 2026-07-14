@@ -32,8 +32,15 @@ def safe_filename(name: str) -> str:
     """Turn a user-supplied title into a filename that is safe on all targets."""
     name = unicodedata.normalize("NFC", name).strip()
     name = _UNSAFE.sub("-", name)
-    name = name.strip(". ")
+    # Collapse dot runs *after* the separators are gone: "../../evil" would
+    # otherwise sanitise to "-..-evil", which is harmless as a single component
+    # but leaves a traversal token in a name that later code may split again.
+    while ".." in name:
+        name = name.replace("..", "-")
+    name = name.strip("-. ")
     if not name:
+        # A name made only of dots, dashes and spaces is not a name. Refusing is
+        # better than inventing one the user did not choose.
         raise InvalidRequestError("Name is empty after sanitisation.")
     if name.upper().split(".")[0] in _RESERVED_WINDOWS:
         name = f"_{name}"

@@ -181,9 +181,17 @@ class WorkspaceService:
         return [layer for layer in self.descriptor.ordered_layers() if layer.is_locked]
 
     def layer_store(self, layer_id: str) -> MarkdownLayerStore:
+        """The Markdown store for a readable layer.
+
+        Keyed on *storage*, not visibility: an unlocked private layer is readable,
+        and in Milestone 3 it will resolve to the encrypted-object store instead.
+        """
         layer = self.require_readable_layer(layer_id)
-        if layer.visibility != "public":
-            raise UnsupportedError("Only public layers use Markdown storage today.")
+        if layer.storage != "markdown":
+            raise UnsupportedError(
+                "Encrypted object storage arrives in Milestone 3.",
+                details={"milestone": 3},
+            )
         if layer_id not in self._layer_stores:
             store = MarkdownLayerStore(layer_id, self._require_store().layer_root(layer_id))
             store.ensure()

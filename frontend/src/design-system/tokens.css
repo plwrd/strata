@@ -1,0 +1,202 @@
+/*
+ * Strata design tokens.
+ *
+ * Every colour, duration and elevation in the product comes from here. A feature
+ * component that hardcodes `#00e5ff` is a bug: the high-contrast theme, the
+ * low-GPU mode and the reduced-motion mode all work by re-pointing these tokens,
+ * so a hardcoded value silently opts out of all three.
+ *
+ * Roles, not hues: `--accent-ai` is violet today, but the component asks for
+ * "the AI accent", not "violet".
+ */
+
+:root {
+  /* --- surfaces: deep black-blue through graphite ------------------------ */
+  --surface-void: #04060d;
+  --surface-base: #080b16;
+  --surface-raised: #0e1322;
+  --surface-overlay: #141a2c;
+  --surface-glass: rgba(20, 26, 44, 0.72);
+  --surface-glass-strong: rgba(8, 11, 22, 0.92);
+
+  /* --- text ------------------------------------------------------------- */
+  --text-primary: #e8edf7;
+  --text-secondary: #93a1bd;
+  --text-tertiary: #5d6a86;
+  --text-inverse: #04060d;
+
+  /* --- accents ---------------------------------------------------------- */
+  --accent-primary: #22e0f5; /* neon cyan — interaction */
+  --accent-primary-dim: #0e7f8f;
+  --accent-ai: #a06bff; /* electric violet — anything a model touched */
+  --accent-ai-dim: #5a3aa0;
+  --accent-collaboration: #ff5cc8; /* magenta — other people */
+  --accent-collaboration-dim: #96387a;
+
+  /* --- status ----------------------------------------------------------- */
+  --status-success: #3ddc97;
+  --status-warning: #ffb547; /* amber — warnings, never security */
+  --status-danger: #ff4d6a; /* red — destructive or critical security only */
+  --status-info: var(--accent-primary);
+
+  /* --- layers ----------------------------------------------------------- */
+  --layer-public: #4dd0e1;
+  --layer-private: #a06bff;
+  --layer-locked: #6b7793;
+
+  /* --- graph ------------------------------------------------------------ */
+  --graph-background: #04060d;
+  --graph-node-default: #6f7fa8;
+  --graph-node-note: #7fe7f5;
+  --graph-node-folder: #ffb547;
+  --graph-node-tag: #3ddc97;
+  --graph-node-concept: #a06bff;
+  --graph-node-decision: #ff5cc8;
+  --graph-node-locked: #47506a;
+  --graph-node-selected: #ffffff;
+  --graph-edge-default: rgba(111, 127, 168, 0.35);
+  --graph-edge-selected: rgba(34, 224, 245, 0.95);
+  --graph-edge-ai: rgba(160, 107, 255, 0.8);
+
+  /* --- borders and lines ------------------------------------------------ */
+  --border-subtle: rgba(147, 161, 189, 0.14);
+  --border-strong: rgba(147, 161, 189, 0.3);
+  --border-accent: rgba(34, 224, 245, 0.55);
+  --glow-accent: 0 0 0 1px rgba(34, 224, 245, 0.35),
+    0 0 18px rgba(34, 224, 245, 0.18);
+  --glow-ai: 0 0 0 1px rgba(160, 107, 255, 0.4),
+    0 0 18px rgba(160, 107, 255, 0.2);
+
+  /* --- typography ------------------------------------------------------- */
+  --font-body: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Chakra Petch", "Rajdhani", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace,
+    monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+
+  /* --- space and radius -------------------------------------------------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  /* --- motion ------------------------------------------------------------ */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Effects that a user, a battery or a GPU can veto. The components read the
+     multiplier rather than checking a setting, so one switch turns off the lot. */
+  --effect-bloom: 1;
+  --effect-particles: 1;
+  --effect-glow-opacity: 1;
+
+  --z-graph: 0;
+  --z-panel: 10;
+  --z-overlay: 100;
+  --z-dialog: 1000;
+}
+
+/* Dimmer variant: same hues, lower luminance for long writing sessions. */
+:root[data-appearance="cyberpunk-dim"] {
+  --accent-primary: #16b5c8;
+  --accent-ai: #8257d6;
+  --accent-collaboration: #d14ba4;
+  --effect-bloom: 0.4;
+  --glow-accent: 0 0 0 1px rgba(22, 181, 200, 0.3);
+  --glow-ai: 0 0 0 1px rgba(130, 87, 214, 0.3);
+}
+
+/*
+ * High contrast: not a "darker dark". Meets WCAG AA for body text, drops the
+ * glass surfaces (translucency destroys contrast) and removes glow entirely so
+ * that focus rings are the only luminous thing on screen.
+ */
+:root[data-appearance="high-contrast"] {
+  --surface-void: #000000;
+  --surface-base: #000000;
+  --surface-raised: #101010;
+  --surface-overlay: #1a1a1a;
+  --surface-glass: #101010;
+  --surface-glass-strong: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #d8d8d8;
+  --text-tertiary: #b0b0b0;
+  --accent-primary: #4fe9ff;
+  --accent-ai: #c7a4ff;
+  --accent-collaboration: #ff9ad9;
+  --status-danger: #ff8a9c;
+  --status-warning: #ffcf7a;
+  --border-subtle: rgba(255, 255, 255, 0.35);
+  --border-strong: rgba(255, 255, 255, 0.6);
+  --glow-accent: 0 0 0 2px #4fe9ff;
+  --glow-ai: 0 0 0 2px #c7a4ff;
+  --effect-bloom: 0;
+  --effect-particles: 0;
+  --effect-glow-opacity: 0;
+  --graph-edge-default: rgba(255, 255, 255, 0.55);
+}
+
+/*
+ * Reduced motion. Driven by the OS *or* the in-app setting: `data-motion` is set
+ * on <html> from the settings store, and the media query covers the case where
+ * the user never opens Strata's settings at all.
+ *
+ * Durations collapse to ~1ms rather than 0 so that transitionend still fires and
+ * state machines that wait on it do not hang.
+ */
+:root[data-motion="reduced"],
+:root[data-motion="reduced"] * {
+  --motion-fast: 1ms;
+  --motion-base: 1ms;
+  --motion-slow: 1ms;
+  --effect-particles: 0;
+}
+
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) {
+    --motion-fast: 1ms;
+    --motion-base: 1ms;
+    --motion-slow: 1ms;
+    --effect-particles: 0;
+  }
+
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) *::before,
+  :root:not([data-motion="full"]) *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Low-GPU / battery saver: keep every colour, drop every expensive pixel. */
+:root[data-graph-quality="low-gpu"] {
+  --effect-bloom: 0;
+  --effect-particles: 0;
+  --surface-glass: var(--surface-raised);
+  --surface-glass-strong: var(--surface-base);
+}

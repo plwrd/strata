@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-appearance="cyberpunk-dark" data-motion="system" data-graph-quality="balanced">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--
+      The Content Security Policy is declared here *and* enforced by the Qt
+      scheme handler. `connect-src 'self'` means this page cannot reach the
+      network at all: every outbound request goes through Python, where the
+      per-layer AI policy is checked. `default-src 'none'` makes every other
+      directive an explicit allowance rather than an oversight.
+
+      Qt WebChannel talks to Python in-process (not over the network), so it is
+      unaffected by connect-src.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    />
+
+    <title>Strata</title>
+
+    <!--
+      qwebchannel.js is extracted from Qt's own resources at build time by
+      scripts/sync_qwebchannel.py, so it is served from our origin under
+      `script-src 'self'` rather than from `qrc:`.
+    -->
+    <script src="./qwebchannel.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Strata requires JavaScript to run.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

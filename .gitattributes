@@ -1,0 +1,29 @@
+# Normalise line endings in the repository to LF.
+#
+# This matters beyond tidiness: `packaging/linux/build.sh` and the AppImage
+# `AppRun` it generates are executed by /bin/sh on Linux, and a CRLF shebang makes
+# the kernel report "bad interpreter". Windows checkouts get CRLF where it helps
+# (PowerShell, Inno Setup) and LF where it must.
+
+* text=auto eol=lf
+
+# Must be LF, always — these are executed by a Unix shell.
+*.sh            text eol=lf
+*.desktop       text eol=lf
+
+# Windows-native tooling is happier with CRLF.
+*.ps1           text eol=crlf
+*.psm1          text eol=crlf
+*.iss           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Binary: never touched.
+*.png           binary
+*.ico           binary
+*.jpg           binary
+*.webp          binary
+*.woff          binary
+*.woff2         binary
+*.ttf           binary
+*.wasm          binary

@@ -90,17 +90,75 @@ seriously harm you in Strata until the encryption layer (M3) is implemented, rev
 
 <!-- COMMANDS:START -->
 
-_Placeholder — to be filled in with the exact, verified dev commands (bootstrap, run, frontend dev
-server, lint, typecheck, test, package). Do not guess these; run them first._
+Every command below has been run on Windows 11 with Python 3.10.11 and Node 24.
 
+**Bootstrap** (once):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+
+# Extracts qwebchannel.js from Qt's own resources into frontend/public/, so the
+# page loads it from its own origin under `script-src 'self'` (no `qrc:` in the CSP).
+.\.venv\Scripts\python.exe scripts\sync_qwebchannel.py
+.\.venv\Scripts\python.exe scripts\make_icons.py
+
+npm --prefix frontend ci
 ```
-# bootstrap:
-# run app:
-# frontend dev:
-# lint:
-# typecheck:
-# test:
-# package:
+
+**Run the app** (production mode — loads the bundled frontend over `strata://`):
+
+```powershell
+npm --prefix frontend run build      # required: without frontend/dist the window is blank
+.\.venv\Scripts\python.exe -m app.main
+```
+
+**Develop** (Vite hot-reload *and* the real Python bridge — dev mode does not mock Python):
+
+```powershell
+.\scripts\dev.ps1
+```
+
+**Every gate CI runs**, in one command:
+
+```powershell
+.\scripts\check.ps1          # add -Fix to apply formatting rather than only check it
+```
+
+…or individually:
+
+```powershell
+# Python
+.\.venv\Scripts\python.exe -m ruff check app tests scripts
+.\.venv\Scripts\python.exe -m ruff format --check app tests scripts
+.\.venv\Scripts\python.exe -m mypy app
+$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -m pytest tests/unit tests/integration tests/security -q
+
+# Frontend
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+npm --prefix frontend run format:check
+npm --prefix frontend test
+npm --prefix frontend run build
+
+# The desktop shell itself: loads the real bundle in Qt WebEngine and round-trips
+# a WebChannel call into Python. Needs frontend/dist to exist.
+$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -m pytest tests/e2e -q
+
+# Private storage must never contain plaintext (self-test until Milestone 3 lands)
+.\.venv\Scripts\python.exe scripts\scan_plaintext.py --self-test
+```
+
+**Package** (build on the platform you are targeting — PyInstaller does not cross-compile):
+
+```powershell
+# Windows: dist\Strata\Strata.exe, plus an installer if Inno Setup is on PATH
+.\packaging\windows\build.ps1 -Installer
+```
+
+```bash
+# Ubuntu / Linux
+./packaging/linux/build.sh --appimage --deb
 ```
 
 <!-- COMMANDS:END -->

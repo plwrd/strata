@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Strata
+GenericName=Knowledge Workspace
+Comment=Local-first, encrypted, spatial knowledge workspace
+Exec=strata %f
+Icon=strata
+Terminal=false
+Categories=Office;Utility;TextEditor;
+Keywords=notes;markdown;knowledge;graph;encryption;ai;
+MimeType=text/markdown;application/x-strata-workspace;
+StartupWMClass=Strata
+StartupNotify=true

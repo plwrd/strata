@@ -62,7 +62,7 @@ class RequestEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     v: int = Field(default=PROTOCOL_VERSION)
-    requestId: str = Field(min_length=1, max_length=128)  # noqa: N815 - wire format
+    requestId: str = Field(min_length=1, max_length=128)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -79,7 +79,7 @@ class ResponseEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     v: int = PROTOCOL_VERSION
-    requestId: str  # noqa: N815 - wire format
+    requestId: str
     ok: bool
     data: dict[str, Any] | None = None
     error: ErrorBody | None = None
@@ -175,7 +175,7 @@ def bridge_method(
                     request_id=request_id,
                 )
                 return _error_response(request_id, error)
-            except Exception:  # noqa: BLE001 - boundary: nothing escapes to the frontend
+            except Exception:
                 # The real exception (which may reference private paths or
                 # content) is logged locally and redacted from the response.
                 logger.exception("bridge.unhandled", method=handler.__qualname__)
