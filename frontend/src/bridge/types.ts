@@ -60,12 +60,16 @@ export interface LayerAIPolicy {
   may_process_attachments: boolean;
 }
 
+/** How a layer's bytes are kept. Not the same axis as visibility. */
+export type LayerStorage = "markdown" | "encrypted-objects";
+
 export interface LayerDescriptor {
   id: string;
   display_name: string;
   visibility: LayerVisibility;
   state: LayerState;
   sharing_mode: "personal" | "shared-password" | "identity-managed";
+  storage: LayerStorage;
   storage_version: number;
   created_at: string;
   updated_at: string;

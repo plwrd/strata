@@ -150,6 +150,35 @@ interface StrataState {
     base64: string,
   ) => Promise<string>;
 
+  // layers
+  //
+  // Passwords are parameters, never state. Nothing below retains one, so a
+  // devtools inspection of the store cannot reveal a layer password — and neither
+  // can a crash report that serialises it.
+  createLayer: (
+    name: string,
+    visibility: "public" | "private",
+    password: string | null,
+    withRecoveryKey: boolean,
+  ) => Promise<string | null>;
+  unlockLayer: (layerId: string, password: string) => Promise<void>;
+  unlockLayerWithRecoveryKey: (
+    layerId: string,
+    recoveryKey: string,
+  ) => Promise<void>;
+  lockLayer: (layerId: string) => Promise<void>;
+  lockAllLayers: () => Promise<void>;
+  changeLayerPassword: (
+    layerId: string,
+    oldPassword: string,
+    newPassword: string,
+  ) => Promise<void>;
+  reissueRecoveryKey: (layerId: string, password: string) => Promise<string>;
+  rotateLayerKey: (layerId: string, password: string) => Promise<number>;
+  forgetPrivateState: (layerId: string) => void;
+  refreshLayers: () => Promise<void>;
+  afterLockStateChanged: () => Promise<void>;
+
   select: (id: string) => void;
   toggleSelect: (id: string) => void;
   rangeSelect: (id: string) => void;
@@ -577,6 +606,117 @@ export const useStore = create<StrataState>((set, get) => ({
     );
     await get().reloadTree();
     return response.markdown;
+  },
+
+  // -- layers ---------------------------------------------------------------
+
+  async createLayer(name, visibility, password, withRecoveryKey) {
+    const response = await bridge.layers.create(
+      name,
+      visibility,
+      password,
+      withRecoveryKey,
+    );
+    await get().refreshLayers();
+    // Returned to the caller to display once, and never written into the store.
+    return response.recovery_key;
+  },
+
+  async unlockLayer(layerId, password) {
+    await bridge.layers.unlock(layerId, password);
+    await get().afterLockStateChanged();
+  },
+
+  async unlockLayerWithRecoveryKey(layerId, recoveryKey) {
+    await bridge.layers.unlockWithRecoveryKey(layerId, recoveryKey);
+    await get().afterLockStateChanged();
+  },
+
+  async lockLayer(layerId) {
+    await bridge.layers.lock(layerId);
+    get().forgetPrivateState(layerId);
+    await get().afterLockStateChanged();
+  },
+
+  async lockAllLayers() {
+    const locked = get()
+      .layers.filter(
+        (layer) => layer.visibility === "private" && layer.state === "unlocked",
+      )
+      .map((layer) => layer.id);
+    await bridge.layers.lockAll();
+    locked.forEach((layerId) => get().forgetPrivateState(layerId));
+    await get().afterLockStateChanged();
+  },
+
+  /**
+   * Drop everything in the *frontend* that came from a layer that just locked.
+   *
+   * Python forgets the key, but the tab that is open, the draft being typed, the
+   * search results on screen and the selected nodes are all decrypted content
+   * living in this process. Locking has to reach them too, or "locked" is a lie
+   * the UI is telling.
+   */
+  forgetPrivateState: (layerId) => {
+    const state = get();
+    const fromLayer = new Set(
+      (state.tree?.notes ?? [])
+        .filter((note) => note.layer_id === layerId)
+        .map((note) => note.id),
+    );
+
+    const openNoteWasPrivate =
+      state.openNote?.metadata.layer_id === layerId ||
+      (state.activeNoteId !== null && fromLayer.has(state.activeNoteId));
+
+    const dirty = { ...state.dirty };
+    for (const id of fromLayer) delete dirty[id];
+
+    set({
+      tabs: state.tabs.filter((tab) => !fromLayer.has(tab.id)),
+      dirty,
+      selectedIds: state.selectedIds.filter((id) => !fromLayer.has(id)),
+      searchResults: state.searchResults.filter(
+        (result) => result.layer_id !== layerId,
+      ),
+      plan: null,
+      ...(openNoteWasPrivate
+        ? {
+            openNote: null,
+            activeNoteId: null,
+            draft: null,
+            links: EMPTY_LINKS,
+            issues: [],
+            schemaId: null,
+          }
+        : {}),
+    });
+  },
+
+  async refreshLayers() {
+    const state = await bridge.workspace.getState();
+    set({ workspace: state, layers: state.workspace?.layers ?? [] });
+  },
+
+  async afterLockStateChanged() {
+    await get().refreshLayers();
+    await get().reloadTree();
+    await get().reloadGraph();
+  },
+
+  async changeLayerPassword(layerId, oldPassword, newPassword) {
+    await bridge.layers.changePassword(layerId, oldPassword, newPassword);
+  },
+
+  async reissueRecoveryKey(layerId, password) {
+    const response = await bridge.layers.reissueRecoveryKey(layerId, password);
+    return response.recovery_key;
+  },
+
+  async rotateLayerKey(layerId, password) {
+    const response = await bridge.layers.rotateKey(layerId, password);
+    await get().afterLockStateChanged();
+    return response.objects_reencrypted;
   },
 
   select: (id) => {

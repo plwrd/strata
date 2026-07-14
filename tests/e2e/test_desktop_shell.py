@@ -167,9 +167,7 @@ def test_the_app_renders_the_shell_and_the_selection_surface(qtbot: Any, shell: 
     assert "Encryption Architecture" in labels
 
 
-def test_the_editor_loads_a_real_note_and_saves_it_back_to_disk(
-    qtbot: Any, shell: Any
-) -> None:
+def test_the_editor_loads_a_real_note_and_saves_it_back_to_disk(qtbot: Any, shell: Any) -> None:
     """Milestone 2, end to end: CodeMirror mounts, and a save reaches the file.
 
     This is the test that would have caught a CodeMirror that fails to construct

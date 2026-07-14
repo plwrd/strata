@@ -81,6 +81,18 @@ declare global {
 
 let channelPromise: Promise<QWebChannelInstance> | null = null;
 
+/**
+ * Drop the memoised channel. **Tests only.**
+ *
+ * The channel is memoised because connecting twice over one transport corrupts the
+ * WebChannel protocol (both channels receive every reply and route it through their
+ * own callback table). That memoisation is module-level, so a test that swaps the
+ * fake transport underneath it would otherwise keep talking to the previous one.
+ */
+export function __resetChannelForTests(): void {
+  channelPromise = null;
+}
+
 function connect(): Promise<QWebChannelInstance> {
   if (channelPromise) return channelPromise;
 
@@ -235,21 +247,55 @@ export const bridge = {
     create: (
       display_name: string,
       visibility: "public" | "private" = "public",
+      password: string | null = null,
+      with_recovery_key = true,
     ) =>
-      call<{ layer: LayerDescriptor }>("layers", "create_layer", {
-        display_name,
-        visibility,
-      }),
+      call<{ layer: LayerDescriptor; recovery_key: string | null }>(
+        "layers",
+        "create_layer",
+        { display_name, visibility, password, with_recovery_key },
+      ),
     rename: (layer_id: string, display_name: string) =>
       call<{ layer: LayerDescriptor }>("layers", "rename_layer", {
         layer_id,
         display_name,
       }),
+
     unlock: (layer_id: string, password: string) =>
       call<{ layer: LayerDescriptor }>("layers", "unlock_layer", {
         layer_id,
         password,
       }),
+    unlockWithRecoveryKey: (layer_id: string, recovery_key: string) =>
+      call<{ layer: LayerDescriptor }>("layers", "unlock_with_recovery_key", {
+        layer_id,
+        recovery_key,
+      }),
+    lock: (layer_id: string) =>
+      call<{ layer: LayerDescriptor }>("layers", "lock_layer", { layer_id }),
+    lockAll: () => call<{ locked: number }>("layers", "lock_all_layers"),
+
+    changePassword: (
+      layer_id: string,
+      old_password: string,
+      new_password: string,
+    ) =>
+      call<{ layer: LayerDescriptor }>("layers", "change_password", {
+        layer_id,
+        old_password,
+        new_password,
+      }),
+    reissueRecoveryKey: (layer_id: string, password: string) =>
+      call<{ recovery_key: string }>("layers", "reissue_recovery_key", {
+        layer_id,
+        password,
+      }),
+    rotateKey: (layer_id: string, password: string) =>
+      call<{ objects_reencrypted: number; layer: LayerDescriptor }>(
+        "layers",
+        "rotate_key",
+        { layer_id, password },
+      ),
   },
 
   notes: {

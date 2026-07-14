@@ -33,7 +33,7 @@ def locked_layer(workspace: Services) -> LayerDescriptor:
     This simulates exactly the Milestone 3 state that matters: content exists, the
     app knows the layer exists, and the app does not hold the key.
     """
-    layer = workspace.workspace.create_layer("Deals")
+    layer, _recovery = workspace.workspace.create_layer("Deals")
     store = MarkdownLayerStore(layer.id, workspace.workspace.root / "layers" / layer.id)
     store.ensure()
     store.write_note(
@@ -185,12 +185,12 @@ def test_private_content_needs_an_explicit_acknowledgement_to_be_exported(
 
     from app.bridge.export_bridge import ExportBridge
 
-    layer = workspace.workspace.create_layer("Research")
-    store = workspace.workspace.layer_store(layer.id)
-    store.write_note(folder_path="", title="Private Finding", content="Sensitive result.")
-    # Unlocked private layer: readable, but flagged private.
-    layer.visibility = "private"
-    layer.state = "unlocked"
+    layer, _recovery = workspace.workspace.create_layer(
+        "Research", visibility="private", password="correct horse battery"
+    )
+    workspace.notes.create_note(
+        layer_id=layer.id, folder_path="", title="Private Finding", content="Sensitive result."
+    )
 
     note_id = next(
         note.metadata.id

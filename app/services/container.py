@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.services.context_export_service import ContextExportService
+from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
 from app.services.note_service import NoteService
@@ -44,12 +45,26 @@ class Services:
 
         self.settings = SettingsService(paths.settings_file)
         self.watcher = WatchService()
-        self.workspace = WorkspaceService(on_open=self.watcher.start, on_close=self.watcher.stop)
+        self.encryption = EncryptionService()
+        self.workspace = WorkspaceService(
+            on_open=self.watcher.start,
+            on_close=self.watcher.stop,
+            encryption=self.encryption,
+        )
         self.notes = NoteService(self.workspace)
         self.graph = GraphService(self.workspace, self.notes)
         self.search = SearchService(self.notes)
         self.exports = ContextExportService(self.workspace, self.notes, self.graph)
         self.jobs = JobService()
+
+        # Anything that caches decrypted private content must be torn down when a
+        # layer locks. Registering here — at the one place that knows every
+        # component — means a new cache cannot quietly forget to.
+        self.encryption.on_lock(self._forget_private_state)
+
+    def _forget_private_state(self, layer_id: str) -> None:
+        """Drop everything derived from a layer that has just locked."""
+        self.search.forget_layer(layer_id)
 
     @property
     def is_development(self) -> bool:

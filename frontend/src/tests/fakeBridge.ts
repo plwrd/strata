@@ -10,9 +10,11 @@
  * including the error shape, so a test can exercise the client's failure paths.
  */
 
+import { __resetChannelForTests } from "../bridge/client";
 import type {
   ContextPlan,
   GraphSnapshot,
+  LayerDescriptor,
   Note,
   NoteMetadata,
 } from "../bridge/types";
@@ -131,6 +133,36 @@ export function planFor(objectIds: string[], prompt = ""): ContextPlan {
   };
 }
 
+export const PUBLIC_LAYER: LayerDescriptor = {
+  id: "layer_a",
+  display_name: "Knowledge",
+  visibility: "public",
+  state: "mounted",
+  sharing_mode: "personal",
+  storage: "markdown",
+  storage_version: 1,
+  created_at: "",
+  updated_at: "",
+  color: "layer-public",
+  ai_policy: {} as LayerDescriptor["ai_policy"],
+};
+
+export const PRIVATE_LAYER: LayerDescriptor = {
+  id: "layer_p",
+  display_name: "Deals",
+  visibility: "private",
+  state: "locked",
+  sharing_mode: "personal",
+  storage: "encrypted-objects",
+  storage_version: 1,
+  created_at: "",
+  updated_at: "",
+  color: "layer-private",
+  ai_policy: {} as LayerDescriptor["ai_policy"],
+};
+
+export const FAKE_RECOVERY_KEY = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG";
+
 /** Note bodies the fake bridge was asked to persist, for autosave assertions. */
 export const saved: string[] = [];
 
@@ -176,6 +208,18 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   const graph = options.graph ?? SAMPLE_GRAPH;
   saved.length = 0;
   changeListeners.length = 0;
+  // The client memoises its channel, so a fresh fake must invalidate it or the
+  // client keeps talking to the previous test's transport.
+  __resetChannelForTests();
+
+  // The fake tracks lock state, because the store re-reads it after every
+  // lock/unlock — a fake that always answered "locked" would make an unlock look
+  // like it failed.
+  let privateState: LayerDescriptor["state"] = PRIVATE_LAYER.state;
+  const privateLayer = (): LayerDescriptor => ({
+    ...PRIVATE_LAYER,
+    state: privateState,
+  });
 
   const handlers: Record<string, Record<string, Handler | Signal>> = {
     workspace: {
@@ -217,7 +261,20 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
         lenses: [],
       }),
-      get_state: () => ({ is_open: true, workspace: null, lenses: [] }),
+      get_state: () => ({
+        is_open: true,
+        workspace: {
+          format_version: 1,
+          id: "ws_1",
+          name: "Test",
+          created_at: "",
+          updated_at: "",
+          layer_order: [PUBLIC_LAYER.id, PRIVATE_LAYER.id],
+          layers: [PUBLIC_LAYER, privateLayer()],
+          lenses: [],
+        },
+        lenses: [],
+      }),
     },
     settings: {
       get_settings: () => ({
@@ -412,6 +469,46 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     },
     search: {
       search: () => ({ results: [], total: 0, locked_layers_excluded: 1 }),
+    },
+    layers: {
+      list_layers: () => ({
+        layers: [PUBLIC_LAYER, privateLayer()],
+        layer_order: [PUBLIC_LAYER.id, PRIVATE_LAYER.id],
+      }),
+      create_layer: (payload) => ({
+        layer: {
+          ...(payload["visibility"] === "private"
+            ? PRIVATE_LAYER
+            : PUBLIC_LAYER),
+          id: "layer_new",
+          display_name: payload["display_name"] as string,
+          state: payload["visibility"] === "private" ? "unlocked" : "mounted",
+        },
+        recovery_key:
+          payload["visibility"] === "private" &&
+          payload["with_recovery_key"] !== false
+            ? FAKE_RECOVERY_KEY
+            : null,
+      }),
+      unlock_layer: () => {
+        privateState = "unlocked";
+        return { layer: privateLayer() };
+      },
+      unlock_with_recovery_key: () => {
+        privateState = "unlocked";
+        return { layer: privateLayer() };
+      },
+      lock_layer: () => {
+        privateState = "locked";
+        return { layer: privateLayer() };
+      },
+      lock_all_layers: () => {
+        privateState = "locked";
+        return { locked: 1 };
+      },
+      change_password: () => ({ layer: privateLayer() }),
+      reissue_recovery_key: () => ({ recovery_key: FAKE_RECOVERY_KEY }),
+      rotate_key: () => ({ objects_reencrypted: 12, layer: privateLayer() }),
     },
     ai: {
       list_providers: () => ({

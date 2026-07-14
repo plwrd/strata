@@ -118,7 +118,7 @@ def test_search_with_no_matches_is_empty_not_an_error(workspace: Services) -> No
     assert response["results"] == []
 
 
-def test_creating_a_private_layer_is_refused_honestly(workspace: Services) -> None:
+def test_creating_a_private_layer_without_a_password_is_rejected(workspace: Services) -> None:
     response = call(
         LayerBridge(workspace),
         "create_layer",
@@ -126,19 +126,63 @@ def test_creating_a_private_layer_is_refused_honestly(workspace: Services) -> No
     )
 
     assert response["ok"] is False
-    assert response["error"]["code"] == "unsupported"
-    assert response["error"]["details"]["milestone"] == 3
+    assert response["error"]["code"] == "invalid_request"
 
 
-def test_unlock_is_refused_rather_than_faked(workspace: Services) -> None:
+def test_creating_a_private_layer_returns_the_recovery_key_once(workspace: Services) -> None:
+    response = data(
+        call(
+            LayerBridge(workspace),
+            "create_layer",
+            {
+                "display_name": "Research",
+                "visibility": "private",
+                "password": "correct horse battery",
+            },
+        )
+    )
+
+    assert response["layer"]["visibility"] == "private"
+    assert response["layer"]["state"] == "unlocked"
+    assert response["recovery_key"]
+
+    # There is no endpoint that hands it back: no copy exists to hand back.
+    assert not hasattr(LayerBridge(workspace), "get_recovery_key")
+
+
+def test_unlocking_with_the_wrong_password_is_a_generic_failure(workspace: Services) -> None:
+    bridge = LayerBridge(workspace)
+    created = data(
+        call(
+            bridge,
+            "create_layer",
+            {"display_name": "R", "visibility": "private", "password": "correct horse battery"},
+        )
+    )
+    layer_id = created["layer"]["id"]
+    data(call(bridge, "lock_layer", {"layer_id": layer_id}))
+
+    response = call(bridge, "unlock_layer", {"layer_id": layer_id, "password": "wrong"})
+
+    assert response["ok"] is False
+    # It must not say "wrong password" vs "corrupt layer" vs "empty layer".
+    assert "password" not in response["error"]["message"].lower()
+
+    unlocked = data(
+        call(bridge, "unlock_layer", {"layer_id": layer_id, "password": "correct horse battery"})
+    )
+    assert unlocked["layer"]["state"] == "unlocked"
+
+
+def test_unlocking_a_layer_that_does_not_exist_says_not_found(workspace: Services) -> None:
     response = call(
         LayerBridge(workspace),
         "unlock_layer",
-        {"layer_id": "layer_x", "password": "hunter2"},
+        {"layer_id": "layer_does_not_exist", "password": "hunter2hunter2"},
     )
 
     assert response["ok"] is False
-    assert response["error"]["code"] == "unsupported"
+    assert response["error"]["code"] == "not_found"
 
 
 @pytest.mark.security()

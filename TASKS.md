@@ -118,19 +118,40 @@ from the UI.
 - [ ] Command palette (Ctrl+P). M10.
 - [ ] Bulk operations and favourites in the tree. M10.
 
-## Milestone 3 — Private encrypted layers
+## Milestone 3 — Private encrypted layers ✅
 
-- [ ] Layer key creation (random 256-bit LDK)
-- [ ] Argon2id KEK derivation with versioned parameters
-- [ ] Key wrapping; password change = rewrap; separate full key rotation
-- [ ] Encrypted object container (XChaCha20-Poly1305, AAD-bound, padded)
-- [ ] Opaque object storage (`objects/<xx>/<32-hex>`)
-- [ ] Encrypted manifest (names, tree, tags, properties, links, relationships)
-- [ ] Lock/unlock; key zeroisation; index/preview/graph-label teardown on lock
-- [ ] Recovery key (shown once, wraps the same LDK independently)
-- [ ] Private attachments
-- [ ] Corruption and wrong-password tests (generic error, no data loss, no existence oracle)
-- [ ] `scripts/scan_plaintext.py` run against a real private layer in CI
+- [x] Layer key creation (random 256-bit LDK — the password never *is* the key)
+- [x] Argon2id KEK derivation, versioned parameters (t=3, m=256 MiB, p=4)
+- [x] Key wrapping; password change = rewrap (instant); separate full key rotation
+- [x] Encrypted object container: XChaCha20-Poly1305, 71-byte header as AAD,
+      padding buckets. Binds layer + object id + type + format version, so objects
+      cannot be transplanted, swapped, type-confused or downgraded
+- [x] Opaque object storage (`objects/<xx>/<32-hex>`), random ids, no extensions
+- [x] Encrypted manifest: titles, folder tree, tags, properties, links, attachments
+- [x] Lock/unlock; key zeroisation; teardown hooks so caches cannot outlive a lock
+- [x] Recovery key (shown once, Crockford alphabet, wraps the same LDK; revoked on
+      rotation)
+- [x] Private attachments (opaque object ids, never a readable filename)
+- [x] Private trash: a deleted private note stays encrypted, never lands in the
+      workspace's plaintext trash folder
+- [x] Wrong-password behaviour: one generic error, no oracle, no corruption, no lockout
+- [x] `scripts/scan_plaintext.py` run against a real private layer, in the tests
+- [x] Frontend: create/unlock/lock dialogs, key management, recovery-key display,
+      and a lock that purges tabs, drafts, selection and search results
+- [x] 74 new tests (54 crypto/service, 20 end-to-end against real ciphertext)
+
+### Known gaps at the end of M3
+
+- [ ] Key rotation is not crash-atomic. If the process dies part-way, some objects
+      are under the new key and some under the old; the header is only written after
+      every object succeeds, so the old key still opens the un-rotated ones. Needs a
+      rotation journal — M11.
+- [ ] "Remember on this device" (OS keychain) is accepted by the bridge but not yet
+      wired to `keyring`. M7, with the credential store.
+- [ ] Private search is a live scan of the decrypted manifest, not an index. The
+      ephemeral in-memory index lands in M4.
+- [ ] Cross-layer link rewriting skips *locked* layers (we will not unlock a layer
+      to fix a link). The link goes stale until that layer is next unlocked.
 
 ## Milestone 4 — Search and indexes
 

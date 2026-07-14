@@ -1,5 +1,5 @@
-/**
- * Multi-node selection — the state the whole AI surface is built on.
+﻿/**
+ * Multi-node selection â€” the state the whole AI surface is built on.
  *
  * If selection is wrong, the context is wrong, and the wrong thing gets sent to a
  * model. These tests are the guard on that.
@@ -22,6 +22,7 @@ function reset(): void {
         visibility: "public",
         state: "mounted",
         sharing_mode: "personal",
+        storage: "markdown",
         storage_version: 1,
         created_at: "",
         updated_at: "",
@@ -34,6 +35,7 @@ function reset(): void {
         visibility: "private",
         state: "locked",
         sharing_mode: "personal",
+        storage: "markdown",
         storage_version: 1,
         created_at: "",
         updated_at: "",
@@ -83,7 +85,7 @@ describe("selection", () => {
     store.select("n4");
     useStore.getState().rangeSelect("n3");
 
-    // n4 — n1 — n2 — n3
+    // n4 â€” n1 â€” n2 â€” n3
     expect(useStore.getState().selectedIds).toEqual(["n4", "n1", "n2", "n3"]);
   });
 
@@ -124,7 +126,7 @@ describe("selection", () => {
     useStore.getState().selectMany(["locked:layer_p"]);
     await useStore.getState().refreshPlan();
 
-    // Nothing exportable was selected, so no plan is requested at all — the
+    // Nothing exportable was selected, so no plan is requested at all â€” the
     // locked node never even becomes a candidate.
     expect(useStore.getState().plan).toBeNull();
   });

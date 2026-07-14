@@ -337,6 +337,107 @@
   white-space: nowrap;
 }
 
+.layers__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.layers__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.layers__header-actions .button {
+  padding: 1px var(--space-2);
+  font-size: 10px;
+}
+
+.layers__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.layers__actions .button {
+  padding: 1px var(--space-2);
+  font-size: var(--text-xs);
+}
+
+/* --- dialogs (neutral variant) ------------------------------------------- */
+
+.dialog--neutral {
+  border-color: var(--border-strong);
+}
+
+.dialog__fieldset {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.dialog__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.dialog__choice strong {
+  color: var(--text-primary);
+}
+
+.dialog__choice--confirm {
+  margin-top: var(--space-4);
+  padding: var(--space-2);
+  background: var(--surface-base);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.dialog__warning {
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+  background: color-mix(in srgb, var(--status-warning) 10%, transparent);
+  border-left: 2px solid var(--status-warning);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.dialog__note {
+  margin: var(--space-2) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.dialog__actions--inline {
+  justify-content: flex-start;
+  margin-top: var(--space-2);
+}
+
+.recovery-key {
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  background: var(--surface-void);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  letter-spacing: 0.08em;
+  text-align: center;
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: all;
+}
+
 .layers__hint {
   margin: var(--space-2) 0 0;
   color: var(--text-tertiary);

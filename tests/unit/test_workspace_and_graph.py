@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.errors import InvalidRequestError, NotFoundError, UnsupportedError
+from app.domain.errors import InvalidRequestError, NotFoundError
 from app.domain.note import extract_links, extract_tags
 from app.infrastructure.storage.markdown_store import parse_frontmatter, render_frontmatter
 from app.services.container import Services
@@ -44,11 +44,22 @@ def test_creating_over_an_existing_workspace_is_refused(services: Services) -> N
         services.workspace.create(services.paths.default_workspace, "Two")
 
 
-def test_private_layers_are_refused_until_milestone_3(workspace: Services) -> None:
-    with pytest.raises(UnsupportedError) as error:
+def test_a_private_layer_needs_a_password(workspace: Services) -> None:
+    with pytest.raises(InvalidRequestError):
         workspace.workspace.create_layer("Secrets", visibility="private")
 
-    assert error.value.details["milestone"] == 3
+
+def test_a_private_layer_is_created_unlocked_with_a_recovery_key(workspace: Services) -> None:
+    layer, recovery = workspace.workspace.create_layer(
+        "Secrets", visibility="private", password="correct horse battery"
+    )
+
+    assert layer.visibility == "private"
+    assert layer.storage == "encrypted-objects"
+    assert layer.state == "unlocked"  # the user just proved they hold the password
+    assert recovery is not None
+    # A private layer must not default to sending content to a remote model.
+    assert layer.ai_policy.access == "local-only"
 
 
 def test_reordering_requires_every_layer(workspace: Services) -> None:

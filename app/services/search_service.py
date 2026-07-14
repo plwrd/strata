@@ -48,6 +48,15 @@ class SearchResult(BaseModel):
 class SearchService:
     def __init__(self, notes: NoteService) -> None:
         self._notes = notes
+        # Milestone 4 adds a persistent per-layer index. Until then the candidate
+        # set is read live from readable layers, so there is nothing cached that
+        # could survive a lock — but the hook exists now, and is called, so that the
+        # index cannot be added later without someone confronting this method.
+        self._cache: dict[str, object] = {}
+
+    def forget_layer(self, layer_id: str) -> None:
+        """Drop everything derived from a layer that just locked."""
+        self._cache.pop(layer_id, None)
 
     def search(
         self,
