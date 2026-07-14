@@ -16,6 +16,7 @@ from app.services.job_service import JobService
 from app.services.note_service import NoteService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
+from app.services.watch_service import WatchService
 from app.services.workspace_service import WorkspaceService
 
 APP_VERSION = "0.1.0"
@@ -42,7 +43,8 @@ class Services:
         self.app_version = APP_VERSION
 
         self.settings = SettingsService(paths.settings_file)
-        self.workspace = WorkspaceService()
+        self.watcher = WatchService()
+        self.workspace = WorkspaceService(on_open=self.watcher.start, on_close=self.watcher.stop)
         self.notes = NoteService(self.workspace)
         self.graph = GraphService(self.workspace, self.notes)
         self.search = SearchService(self.notes)

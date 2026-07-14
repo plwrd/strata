@@ -20,16 +20,33 @@ import type {
   GraphSnapshot,
   HealthResponse,
   LayerDescriptor,
+  LinkHealthResponse,
+  LinksResponse,
   Note,
+  NoteSchema,
   ProviderCapability,
   SearchResult,
+  TrashEntry,
   TreeResponse,
+  ValidationIssue,
   WorkspaceState,
 } from "../bridge/types";
 
 export type AppMode = "focus" | "explore" | "command";
 export type GraphDimension = "2d" | "3d";
 export type ConnectionState = "connecting" | "ready" | "unavailable";
+export type ViewMode = "source" | "live" | "reading";
+
+export interface Tab {
+  id: string;
+  title: string;
+}
+
+const EMPTY_LINKS: LinksResponse = {
+  backlinks: [],
+  unlinked_mentions: [],
+  outgoing: [],
+};
 
 export interface SelectionSummary {
   count: number;
@@ -62,7 +79,22 @@ interface StrataState {
   selectedIds: string[];
   lastAnchorId: string | null;
   hoveredId: string | null;
+
+  // editor
   openNote: Note | null;
+  activeNoteId: string | null;
+  tabs: Tab[];
+  viewMode: ViewMode;
+  draft: string | null;
+  dirty: Record<string, boolean>;
+  saving: boolean;
+  externalChange: boolean;
+  links: LinksResponse;
+  linkHealth: LinkHealthResponse;
+  schemas: NoteSchema[];
+  schemaId: string | null;
+  issues: ValidationIssue[];
+  trash: TrashEntry[];
 
   // search
   searchQuery: string;
@@ -88,7 +120,35 @@ interface StrataState {
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
 
   reloadGraph: () => Promise<void>;
+  reloadTree: () => Promise<void>;
+
+  // editor + files
   openNoteById: (noteId: string) => Promise<void>;
+  closeTab: (noteId: string) => void;
+  setViewMode: (mode: ViewMode) => void;
+  setDraft: (noteId: string, content: string) => void;
+  saveNote: (noteId: string, content: string) => Promise<void>;
+  saveProperties: (
+    noteId: string,
+    properties: Record<string, unknown>,
+  ) => Promise<void>;
+  reloadOpenNote: () => Promise<void>;
+  keepLocalEdits: () => void;
+
+  createNote: (layerId: string, folderPath: string) => Promise<void>;
+  renameNote: (noteId: string, title: string) => Promise<void>;
+  moveNote: (noteId: string, folderPath: string) => Promise<void>;
+  duplicateNote: (noteId: string) => Promise<void>;
+  deleteNote: (noteId: string) => Promise<void>;
+  restoreNote: (entry: string) => Promise<void>;
+  createFolder: (layerId: string, folderPath: string) => Promise<void>;
+  renameFolder: (folderId: string, name: string) => Promise<void>;
+  deleteFolder: (folderId: string) => Promise<void>;
+  attachFile: (
+    layerId: string,
+    filename: string,
+    base64: string,
+  ) => Promise<string>;
 
   select: (id: string) => void;
   toggleSelect: (id: string) => void;
@@ -122,6 +182,15 @@ function describeError(error: unknown): string {
   return "Something went wrong.";
 }
 
+/** "Untitled", "Untitled 2", … — never a name that collides with an existing one. */
+function uniqueTitle(existing: string[], base = "Untitled"): string {
+  const taken = new Set(existing);
+  if (!taken.has(base)) return base;
+  let counter = 2;
+  while (taken.has(`${base} ${counter}`)) counter += 1;
+  return `${base} ${counter}`;
+}
+
 export const useStore = create<StrataState>((set, get) => ({
   connection: "connecting",
   connectionMessage: "",
@@ -140,7 +209,21 @@ export const useStore = create<StrataState>((set, get) => ({
 
   ...initialSelection,
   hoveredId: null,
+
   openNote: null,
+  activeNoteId: null,
+  tabs: [],
+  viewMode: "live",
+  draft: null,
+  dirty: {},
+  saving: false,
+  externalChange: false,
+  links: EMPTY_LINKS,
+  linkHealth: { broken: [], orphans: [] },
+  schemas: [],
+  schemaId: null,
+  issues: [],
+  trash: [],
 
   searchQuery: "",
   searchResults: [],
@@ -163,6 +246,7 @@ export const useStore = create<StrataState>((set, get) => ({
       const settings = (await bridge.settings.get()).settings;
       const state = await bridge.workspace.openDefault();
       const providers = (await bridge.ai.providers()).providers;
+      const schemas = (await bridge.notes.schemas()).schemas;
 
       set({
         connection: "ready",
@@ -171,10 +255,29 @@ export const useStore = create<StrataState>((set, get) => ({
         workspace: state,
         layers: state.workspace?.layers ?? [],
         providers,
+        schemas,
         activeLensId: settings.default_lens_id,
       });
       applyDocumentSettings(settings);
+
+      // The file on disk is the truth, so a change out there invalidates what we
+      // are showing. An *external* change while the user has unsaved edits is the
+      // one case we refuse to resolve silently.
+      await bridge.notes.onChanged((origin) => {
+        if (origin === "external") {
+          const { activeNoteId, dirty } = get();
+          if (activeNoteId && dirty[activeNoteId]) {
+            set({ externalChange: true });
+            return;
+          }
+          void get().reloadOpenNote();
+        }
+        void get().reloadTree();
+        void get().reloadGraph();
+      });
+
       await get().reloadGraph();
+      await get().reloadTree();
     } catch (error) {
       set({
         connection: "unavailable",
@@ -205,13 +308,275 @@ export const useStore = create<StrataState>((set, get) => ({
     }
   },
 
-  async openNoteById(noteId) {
+  async reloadTree() {
     try {
-      const { note } = await bridge.notes.get(noteId);
-      set({ openNote: note, mode: "focus" });
+      const [tree, linkHealth, trash] = await Promise.all([
+        bridge.notes.tree(),
+        bridge.notes.linkHealth(),
+        bridge.notes.listTrash(),
+      ]);
+      set({ tree, linkHealth, trash: trash.entries });
     } catch (error) {
       set({ connectionMessage: describeError(error) });
     }
+  },
+
+  async openNoteById(noteId) {
+    try {
+      const response = await bridge.notes.get(noteId);
+      const tabs = get().tabs.some((tab) => tab.id === noteId)
+        ? get().tabs
+        : [...get().tabs, { id: noteId, title: response.note.metadata.title }];
+
+      set({
+        openNote: response.note,
+        activeNoteId: noteId,
+        schemaId: response.schema_id,
+        issues: response.issues,
+        tabs,
+        // A freshly-opened note has no pending draft; keeping one from the previous
+        // note is how an edit ends up written into the wrong file.
+        draft: null,
+        externalChange: false,
+        mode: "focus",
+      });
+
+      const links = await bridge.notes.links(noteId);
+      set({ links });
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  closeTab: (noteId) => {
+    const tabs = get().tabs.filter((tab) => tab.id !== noteId);
+    const wasActive = get().activeNoteId === noteId;
+    const dirty = { ...get().dirty };
+    delete dirty[noteId];
+
+    set({ tabs, dirty });
+    if (!wasActive) return;
+
+    const next = tabs[tabs.length - 1];
+    if (next) {
+      void get().openNoteById(next.id);
+    } else {
+      set({
+        openNote: null,
+        activeNoteId: null,
+        draft: null,
+        links: EMPTY_LINKS,
+      });
+    }
+  },
+
+  setViewMode: (viewMode) => set({ viewMode }),
+
+  setDraft: (noteId, content) => {
+    const clean = get().openNote?.content === content;
+    set({
+      draft: content,
+      dirty: { ...get().dirty, [noteId]: !clean },
+    });
+  },
+
+  async saveNote(noteId, content) {
+    if (get().saving) return;
+    set({ saving: true });
+    try {
+      const response = await bridge.notes.update(noteId, content);
+      set({
+        openNote: response.note,
+        schemaId: response.schema_id,
+        issues: response.issues,
+        draft: null,
+        saving: false,
+        dirty: { ...get().dirty, [noteId]: false },
+      });
+      // Saving changes links and tags, so the graph and the tree are now stale.
+      void get().reloadTree();
+      void get().reloadGraph();
+      const links = await bridge.notes.links(noteId);
+      set({ links });
+    } catch (error) {
+      set({ saving: false, connectionMessage: describeError(error) });
+    }
+  },
+
+  async saveProperties(noteId, properties) {
+    try {
+      const response = await bridge.notes.updateProperties(noteId, properties);
+      set({
+        openNote: response.note,
+        schemaId: response.schema_id,
+        issues: response.issues,
+      });
+      void get().reloadTree();
+      void get().reloadGraph();
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async reloadOpenNote() {
+    const noteId = get().activeNoteId;
+    if (!noteId) return;
+    try {
+      const response = await bridge.notes.get(noteId);
+      set({
+        openNote: response.note,
+        schemaId: response.schema_id,
+        issues: response.issues,
+        draft: null,
+        externalChange: false,
+        dirty: { ...get().dirty, [noteId]: false },
+      });
+    } catch {
+      // The note is gone (deleted or moved outside Strata). Close its tab rather
+      // than leaving a phantom editor pointing at nothing.
+      get().closeTab(noteId);
+    }
+  },
+
+  keepLocalEdits: () => {
+    // The user chose their buffer over the disk. Persist it now, so the two agree
+    // again and the next external event is not a false alarm.
+    const { activeNoteId, draft } = get();
+    set({ externalChange: false });
+    if (activeNoteId && draft !== null)
+      void get().saveNote(activeNoteId, draft);
+  },
+
+  async createNote(layerId, folderPath) {
+    try {
+      const title = uniqueTitle(
+        get().tree?.notes.map((note) => note.title) ?? [],
+      );
+      const response = await bridge.notes.create(
+        layerId,
+        title,
+        folderPath,
+        "",
+      );
+      await get().reloadTree();
+      await get().reloadGraph();
+      await get().openNoteById(response.note.metadata.id);
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async renameNote(noteId, title) {
+    try {
+      const { note } = await bridge.notes.rename(noteId, title);
+      // The id is derived from the path, so a rename produces a *new* id: the tab
+      // and the open note must follow it or they point at a file that is gone.
+      const newId = note.metadata.id;
+      set({
+        tabs: get().tabs.map((tab) =>
+          tab.id === noteId ? { id: newId, title: note.metadata.title } : tab,
+        ),
+      });
+      await get().reloadTree();
+      await get().reloadGraph();
+      if (get().activeNoteId === noteId) await get().openNoteById(newId);
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async moveNote(noteId, folderPath) {
+    try {
+      const response = await bridge.notes.move(noteId, folderPath);
+      const newId = response.note.metadata.id;
+      set({
+        tabs: get().tabs.map((tab) =>
+          tab.id === noteId ? { ...tab, id: newId } : tab,
+        ),
+      });
+      await get().reloadTree();
+      await get().reloadGraph();
+      if (get().activeNoteId === noteId) await get().openNoteById(newId);
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async duplicateNote(noteId) {
+    try {
+      const response = await bridge.notes.duplicate(noteId);
+      await get().reloadTree();
+      await get().reloadGraph();
+      await get().openNoteById(response.note.metadata.id);
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async deleteNote(noteId) {
+    try {
+      await bridge.notes.remove(noteId);
+      get().closeTab(noteId);
+      await get().reloadTree();
+      await get().reloadGraph();
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async restoreNote(entry) {
+    try {
+      const response = await bridge.notes.restore(entry);
+      await get().reloadTree();
+      await get().reloadGraph();
+      await get().openNoteById(response.note.metadata.id);
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async createFolder(layerId, folderPath) {
+    try {
+      const existing = (get().tree?.folders ?? []).map((folder) => folder.name);
+      await bridge.notes.createFolder(
+        layerId,
+        folderPath,
+        uniqueTitle(existing, "New folder"),
+      );
+      await get().reloadTree();
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async renameFolder(folderId, name) {
+    try {
+      await bridge.notes.renameFolder(folderId, name);
+      await get().reloadTree();
+      await get().reloadGraph();
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async deleteFolder(folderId) {
+    try {
+      await bridge.notes.deleteFolder(folderId);
+      await get().reloadTree();
+      await get().reloadGraph();
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async attachFile(layerId, filename, base64) {
+    const response = await bridge.notes.saveAttachment(
+      layerId,
+      filename,
+      base64,
+    );
+    await get().reloadTree();
+    return response.markdown;
   },
 
   select: (id) => {

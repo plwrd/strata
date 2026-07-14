@@ -21,7 +21,13 @@ import type {
   HealthResponse,
   JobRecord,
   LayerDescriptor,
+  LinkHealthResponse,
+  LinksResponse,
   Note,
+  NoteResponse,
+  NoteSchema,
+  TrashEntry,
+  TreeFolder,
   ProviderCapability,
   ResponseEnvelope,
   SearchResponse,
@@ -164,6 +170,34 @@ async function call<T>(
   return envelope.data as T;
 }
 
+/**
+ * Subscribe to a Qt Signal exposed on a bridge object.
+ *
+ * Signals are the *only* way Python pushes to the frontend; everything else is
+ * request/response. Payloads are strings, and the callers below parse them —
+ * there is no channel through which Python can hand the page an object it did not
+ * ask for.
+ */
+async function subscribe(
+  objectName: string,
+  signalName: string,
+  listener: (payload: string) => void,
+): Promise<void> {
+  const channel = await connect();
+  const target = channel.objects[objectName];
+  const signal = target?.[signalName];
+  if (
+    !signal ||
+    typeof signal === "function" ||
+    typeof signal.connect !== "function"
+  ) {
+    throw new BridgeUnavailableError(
+      `Bridge signal "${objectName}.${signalName}" does not exist.`,
+    );
+  }
+  signal.connect(listener);
+}
+
 export interface ExportRequest {
   object_ids: string[];
   prompt: string;
@@ -222,14 +256,71 @@ export const bridge = {
     tree: (layer_ids: string[] | null = null) =>
       call<TreeResponse>("notes", "get_tree", { layer_ids }),
     get: (note_id: string) =>
-      call<{ note: Note }>("notes", "get_note", { note_id }),
-    create: (layer_id: string, title: string, folder_path = "", content = "") =>
-      call<{ note: Note }>("notes", "create_note", {
+      call<NoteResponse>("notes", "get_note", { note_id }),
+    create: (
+      layer_id: string,
+      title: string,
+      folder_path = "",
+      content = "",
+      schema_id: string | null = null,
+    ) =>
+      call<NoteResponse>("notes", "create_note", {
         layer_id,
         title,
         folder_path,
         content,
+        schema_id,
       }),
+    update: (note_id: string, content: string) =>
+      call<NoteResponse>("notes", "update_note", { note_id, content }),
+    updateProperties: (note_id: string, properties: Record<string, unknown>) =>
+      call<NoteResponse>("notes", "update_properties", { note_id, properties }),
+    rename: (note_id: string, title: string) =>
+      call<{ note: Note; links_rewritten: number }>("notes", "rename_note", {
+        note_id,
+        title,
+      }),
+    move: (note_id: string, folder_path: string) =>
+      call<NoteResponse>("notes", "move_note", { note_id, folder_path }),
+    duplicate: (note_id: string) =>
+      call<NoteResponse>("notes", "duplicate_note", { note_id }),
+    remove: (note_id: string) =>
+      call<{ trash_entry: string }>("notes", "delete_note", { note_id }),
+
+    listTrash: () => call<{ entries: TrashEntry[] }>("notes", "list_trash"),
+    restore: (entry: string) =>
+      call<NoteResponse>("notes", "restore_note", { entry }),
+    emptyTrash: () => call<{ count: number }>("notes", "empty_trash"),
+
+    createFolder: (layer_id: string, folder_path: string, name: string) =>
+      call<{ folder: TreeFolder }>("notes", "create_folder", {
+        layer_id,
+        folder_path,
+        name,
+      }),
+    renameFolder: (folder_id: string, name: string) =>
+      call<{ folder: TreeFolder }>("notes", "rename_folder", {
+        folder_id,
+        name,
+      }),
+    deleteFolder: (folder_id: string) =>
+      call<{ count: number }>("notes", "delete_folder", { folder_id }),
+
+    links: (note_id: string) =>
+      call<LinksResponse>("notes", "get_links", { note_id }),
+    linkHealth: () => call<LinkHealthResponse>("notes", "get_link_health"),
+    schemas: () => call<{ schemas: NoteSchema[] }>("notes", "list_schemas"),
+
+    saveAttachment: (layer_id: string, filename: string, data_base64: string) =>
+      call<{ path: string; markdown: string }>("notes", "save_attachment", {
+        layer_id,
+        filename,
+        data_base64,
+      }),
+
+    /** Push channel: the workspace changed on disk (by Strata, or externally). */
+    onChanged: (listener: (origin: string) => void) =>
+      subscribe("notes", "changed", listener),
   },
 
   graph: {

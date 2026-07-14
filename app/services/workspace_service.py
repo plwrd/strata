@@ -7,6 +7,7 @@ check cannot be forgotten by a caller.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from app.domain.errors import (
@@ -27,10 +28,19 @@ logger = get_logger(__name__)
 
 
 class WorkspaceService:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        on_open: Callable[[Path], None] | None = None,
+        on_close: Callable[[], None] | None = None,
+    ) -> None:
         self._store: WorkspaceStore | None = None
         self._descriptor: WorkspaceDescriptor | None = None
         self._layer_stores: dict[str, MarkdownLayerStore] = {}
+        # Injected rather than imported: the workspace does not know a file watcher
+        # exists, it just says when it opened and closed.
+        self._on_open = on_open
+        self._on_close = on_close
 
     # -- state ---------------------------------------------------------------
 
@@ -79,6 +89,8 @@ class WorkspaceService:
             seed_demo_workspace(self.layer_store(layer.id))
         self._install_default_lenses()
         logger.info("workspace.created", workspace_id=descriptor.id)
+        if self._on_open:
+            self._on_open(root)
         return self.descriptor
 
     def open(self, root: Path) -> WorkspaceDescriptor:
@@ -88,6 +100,8 @@ class WorkspaceService:
         self._descriptor = descriptor
         self._layer_stores = {}
         logger.info("workspace.opened", workspace_id=descriptor.id, layers=len(descriptor.layers))
+        if self._on_open:
+            self._on_open(root)
         return descriptor
 
     def open_or_create(self, root: Path, name: str) -> WorkspaceDescriptor:
@@ -97,6 +111,8 @@ class WorkspaceService:
         return self.create(root, name, seed_demo=True)
 
     def close(self) -> None:
+        if self._on_close:
+            self._on_close()
         self._store = None
         self._descriptor = None
         self._layer_stores = {}

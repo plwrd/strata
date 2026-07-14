@@ -10,9 +10,15 @@
  * including the error shape, so a test can exercise the client's failure paths.
  */
 
-import type { ContextPlan, GraphSnapshot } from "../bridge/types";
+import type {
+  ContextPlan,
+  GraphSnapshot,
+  Note,
+  NoteMetadata,
+} from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
+type Signal = { connect: (listener: (value: string) => void) => void };
 
 export interface FakeBridgeOptions {
   graph?: GraphSnapshot;
@@ -125,10 +131,53 @@ export function planFor(objectIds: string[], prompt = ""): ContextPlan {
   };
 }
 
+/** Note bodies the fake bridge was asked to persist, for autosave assertions. */
+export const saved: string[] = [];
+
+/** Listeners registered against the `notes.changed` signal. */
+export const changeListeners: ((value: string) => void)[] = [];
+
+/** Fire the external-change signal the way the file watcher would. */
+export function emitChanged(origin: "strata" | "external"): void {
+  for (const listener of changeListeners) listener(origin);
+}
+
+function noteMeta(id: string, title: string): NoteMetadata {
+  return {
+    id,
+    layer_id: "layer_a",
+    parent_id: null,
+    title,
+    folder_path: "Security",
+    aliases: [],
+    tags: ["security"],
+    properties: { type: "decision", status: "proposed" },
+    links: [],
+    created_at: "2026-07-14T10:00:00+00:00",
+    updated_at: "2026-07-14T10:00:00+00:00",
+    size_bytes: 100,
+    word_count: 20,
+  };
+}
+
+function fakeNote(
+  id: string,
+  content = "# Body\n\nLinks to [[Threat Model]].\n",
+  title?: string,
+): Note {
+  const found = SAMPLE_GRAPH.nodes.find((node) => node.id === id);
+  return {
+    metadata: noteMeta(id, title ?? found?.label ?? "Untitled"),
+    content,
+  };
+}
+
 export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   const graph = options.graph ?? SAMPLE_GRAPH;
+  saved.length = 0;
+  changeListeners.length = 0;
 
-  const handlers: Record<string, Record<string, Handler>> = {
+  const handlers: Record<string, Record<string, Handler | Signal>> = {
     workspace: {
       health: () => ({
         ok: true,
@@ -217,10 +266,149 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     },
     notes: {
       get_tree: () => ({
-        folders: [],
-        notes: [],
+        folders: [
+          {
+            id: "f1",
+            layer_id: "layer_a",
+            name: "Security",
+            path: "Security",
+            parent_id: null,
+          },
+        ],
+        notes: [
+          noteMeta("n1", "Encryption Architecture"),
+          noteMeta("n2", "Threat Model"),
+        ],
         locked_layer_ids: ["layer_p"],
       }),
+      get_note: (payload) => ({
+        note: fakeNote(payload["note_id"] as string),
+        schema_id: "decision",
+        issues: [],
+      }),
+      update_note: (payload) => {
+        saved.push(payload["content"] as string);
+        return {
+          note: fakeNote(
+            payload["note_id"] as string,
+            payload["content"] as string,
+          ),
+          schema_id: "decision",
+          issues: [],
+        };
+      },
+      update_properties: (payload) => ({
+        note: fakeNote(payload["note_id"] as string),
+        schema_id: "decision",
+        issues: [],
+      }),
+      create_note: () => ({
+        note: fakeNote("n9"),
+        schema_id: null,
+        issues: [],
+      }),
+      rename_note: (payload) => ({
+        note: fakeNote("n1-renamed", "body", payload["title"] as string),
+        links_rewritten: 2,
+      }),
+      move_note: () => ({
+        note: fakeNote("n1-moved"),
+        schema_id: null,
+        issues: [],
+      }),
+      duplicate_note: () => ({
+        note: fakeNote("n1-copy"),
+        schema_id: null,
+        issues: [],
+      }),
+      delete_note: () => ({
+        trash_entry: "layer_a__Security__Threat Model.md",
+      }),
+      list_trash: () => ({ entries: [] }),
+      restore_note: () => ({
+        note: fakeNote("n2"),
+        schema_id: null,
+        issues: [],
+      }),
+      empty_trash: () => ({ count: 0 }),
+      create_folder: () => ({
+        folder: {
+          id: "f2",
+          layer_id: "layer_a",
+          name: "New folder",
+          path: "New folder",
+          parent_id: null,
+        },
+      }),
+      rename_folder: () => ({
+        folder: {
+          id: "f1",
+          layer_id: "layer_a",
+          name: "Renamed",
+          path: "Renamed",
+          parent_id: null,
+        },
+      }),
+      delete_folder: () => ({ count: 1 }),
+      get_links: () => ({
+        backlinks: [
+          {
+            source_id: "n2",
+            source_title: "Threat Model",
+            layer_id: "layer_a",
+            relationship: "contradicts",
+            context: "…the threat model says…",
+          },
+        ],
+        unlinked_mentions: [
+          {
+            source_id: "n4",
+            source_title: "Knowledge Graph",
+            layer_id: "layer_a",
+            context: "…mentions encryption architecture in prose…",
+          },
+        ],
+        outgoing: [{ target: "Threat Model", relationship: "depends_on" }],
+      }),
+      get_link_health: () => ({
+        broken: [{ source_id: "n1", target: "Nowhere" }],
+        orphans: [],
+      }),
+      list_schemas: () => ({
+        schemas: [
+          {
+            id: "decision",
+            name: "Decision record",
+            icon: "◇",
+            node_style: "decision",
+            builtin: true,
+            template: "",
+            allowed_relationships: [],
+            properties: [
+              {
+                key: "status",
+                label: "Status",
+                type: "status",
+                required: true,
+                default: "proposed",
+                options: ["proposed", "accepted", "rejected"],
+                minimum: null,
+                maximum: null,
+                formula: "",
+                description: "",
+              },
+            ],
+          },
+        ],
+      }),
+      save_attachment: () => ({
+        path: "attachments/a.png",
+        markdown: "![a.png](attachments/a.png)",
+      }),
+      changed: {
+        connect: (listener: (value: string) => void) =>
+          changeListeners.push(listener),
+      },
     },
     search: {
       search: () => ({ results: [], total: 0, locked_layers_excluded: 1 }),
@@ -285,6 +473,12 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   for (const [objectName, methods] of Object.entries(handlers)) {
     const target: Record<string, unknown> = {};
     for (const [methodName, handler] of Object.entries(methods)) {
+      // Qt Signals appear on the channel as objects with `.connect`, not as
+      // callable slots, so they pass straight through.
+      if (typeof handler !== "function") {
+        target[methodName] = handler;
+        continue;
+      }
       target[methodName] = (
         raw: string,
         callback: (response: string) => void,

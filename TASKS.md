@@ -78,7 +78,7 @@ from the UI.
 
 ### Known gaps at the end of M1 (deliberate, not forgotten)
 
-- [ ] The editor is read-only. CodeMirror 6, live preview and autosave are M2.
+- [x] The editor is read-only. CodeMirror 6, live preview and autosave are M2. — **done in M2**
 - [ ] `LayerBridge.create_layer(visibility="private")` refuses with `unsupported`. M3.
 - [ ] `AIComposerBridge.send_request` refuses with `unsupported`. M7.
 - [ ] `SnapshotBridge.create_snapshot` refuses with `unsupported`. M8.
@@ -90,19 +90,33 @@ from the UI.
 
 ---
 
-## Milestone 2 — Public Markdown workspace (next)
+## Milestone 2 — Public Markdown workspace ✅
 
-- [ ] CodeMirror 6 editor: source, live preview, reading mode
-- [ ] Wiki-link, heading, tag and property autocomplete
-- [ ] Slash commands and the command palette
-- [ ] Autosave and crash recovery
-- [ ] Tabs, split panes, focus mode
-- [ ] File tree: create, rename, move, copy, delete, trash, restore, drag and drop
-- [ ] Automatic link updates on rename
-- [ ] Backlinks, unlinked mentions, broken links, orphan notes
-- [ ] Attachment drag-and-drop
-- [ ] File watching and external-modification handling
-- [ ] Property editor and reusable schemas
+- [x] CodeMirror 6 editor: source, live (split) and reading modes
+- [x] Wiki-link, tag and property autocomplete
+- [x] Slash commands (15 Markdown + typed-relationship snippets)
+- [x] Autosave (debounced, off the keystroke path) and flush-on-unmount
+- [x] Tabs, with a dirty marker and a per-note undo history
+- [x] File tree: create, rename, move (drag and drop), duplicate, delete, restore
+- [x] Trash — deleting is never destruction
+- [x] Automatic wiki-link rewriting on rename (aliases and heading anchors too),
+      and prose is never rewritten
+- [x] Backlinks, unlinked mentions, broken links, orphan notes
+- [x] Attachments (path-sanitised, stored inside the layer)
+- [x] File watching (watchdog, coalesced) and external-modification handling
+- [x] Safe Markdown rendering: DOMPurify allowlist, Mermaid `securityLevel: strict`,
+      KaTeX, and wiki links that carry no `href`
+- [x] Property editor with 18 property types and 10 reusable schemas
+- [x] Schema validation that *reports* rather than rewrites the user's file
+- [x] 75 new tests (30 note-operation, 16 notes-bridge, 29 frontend)
+
+### Known gaps at the end of M2
+
+- [ ] Crash recovery beyond autosave (an unsaved buffer is lost if the process is
+      killed between debounce ticks). Needs a WAL; scheduled with snapshots in M8.
+- [ ] Split panes (two notes side by side). The *modes* split; the panes do not. M10.
+- [ ] Command palette (Ctrl+P). M10.
+- [ ] Bulk operations and favourites in the tree. M10.
 
 ## Milestone 3 — Private encrypted layers
 

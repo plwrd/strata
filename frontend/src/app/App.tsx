@@ -8,7 +8,10 @@
 
 import { useEffect, useState } from "react";
 import { AIComposerPanel } from "../features/ai-composer/AIComposerPanel";
-import { NoteView } from "../features/editor/NoteView";
+import { EditorPane } from "../features/editor/EditorPane";
+import { FileTree } from "../features/explorer/FileTree";
+import { LinksPanel } from "../features/links/LinksPanel";
+import { PropertiesPanel } from "../features/properties/PropertiesPanel";
 import { Graph2D } from "../features/graph-2d/Graph2D";
 import { GraphScene } from "../features/graph-3d/GraphScene";
 import { GraphErrorBoundary } from "../features/graph/GraphErrorBoundary";
@@ -23,11 +26,26 @@ import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useStore } from "../state/store";
 import { SelectionRing } from "./SelectionRing";
 
+type InspectorTab = "ai" | "properties" | "links";
+
+const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
+  { value: "ai", label: "AI" },
+  { value: "properties", label: "Properties" },
+  { value: "links", label: "Links" },
+];
+
 export function App(): JSX.Element {
   const state = useStore();
   const reducedMotion = useReducedMotion();
   const [navOpen, setNavOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("ai");
+
+  // Focus mode is about the note, so the inspector follows: it shows the note's
+  // properties rather than an AI panel the user did not ask for.
+  useEffect(() => {
+    setInspectorTab(state.mode === "focus" ? "properties" : "ai");
+  }, [state.mode]);
 
   useEffect(() => {
     void state.initialise();
@@ -101,6 +119,7 @@ export function App(): JSX.Element {
         >
           <div className="scroll-y navigator__scroll">
             <LayerPanel />
+            <FileTree />
             <SearchPanel />
             {state.graph && (
               <GraphList
@@ -116,7 +135,7 @@ export function App(): JSX.Element {
 
         <main className="stage" aria-label="Workspace">
           {state.mode === "focus" ? (
-            <NoteView />
+            <EditorPane />
           ) : (
             <div className="stage__graph">
               {state.loadingGraph || computing ? (
@@ -194,7 +213,30 @@ export function App(): JSX.Element {
           className={`inspector ${inspectorOpen ? "" : "inspector--closed"}`}
           aria-label="Inspector"
         >
-          <AIComposerPanel />
+          <div
+            className="inspector__tabs"
+            role="tablist"
+            aria-label="Inspector panels"
+          >
+            {INSPECTOR_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={inspectorTab === tab.value}
+                className={`inspector__tab ${inspectorTab === tab.value ? "inspector__tab--active" : ""}`}
+                onClick={() => setInspectorTab(tab.value)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="inspector__body scroll-y">
+            {inspectorTab === "ai" && <AIComposerPanel />}
+            {inspectorTab === "properties" && <PropertiesPanel />}
+            {inspectorTab === "links" && <LinksPanel />}
+          </div>
         </aside>
       </div>
 

@@ -194,6 +194,94 @@ export interface TreeResponse {
   locked_layer_ids: string[];
 }
 
+export type PropertyType =
+  | "text"
+  | "number"
+  | "boolean"
+  | "date"
+  | "datetime"
+  | "tags"
+  | "relation"
+  | "url"
+  | "email"
+  | "select"
+  | "multi-select"
+  | "formula"
+  | "status"
+  | "person"
+  | "location"
+  | "duration"
+  | "rating"
+  | "progress";
+
+export interface PropertyDefinition {
+  key: string;
+  label: string;
+  type: PropertyType;
+  required: boolean;
+  default: unknown;
+  options: string[];
+  minimum: number | null;
+  maximum: number | null;
+  formula: string;
+  description: string;
+}
+
+export interface NoteSchema {
+  id: string;
+  name: string;
+  icon: string;
+  node_style: string;
+  properties: PropertyDefinition[];
+  allowed_relationships: string[];
+  template: string;
+  builtin: boolean;
+}
+
+export interface ValidationIssue {
+  key: string;
+  problem: string;
+}
+
+export interface NoteResponse {
+  note: Note;
+  schema_id: string | null;
+  issues: ValidationIssue[];
+}
+
+export interface TrashEntry {
+  entry: string;
+  layer_id: string;
+  folder_path: string;
+  title: string;
+}
+
+export interface Backlink {
+  source_id: string;
+  source_title: string;
+  layer_id: string;
+  relationship: string;
+  context: string;
+}
+
+export interface UnlinkedMention {
+  source_id: string;
+  source_title: string;
+  layer_id: string;
+  context: string;
+}
+
+export interface LinksResponse {
+  backlinks: Backlink[];
+  unlinked_mentions: UnlinkedMention[];
+  outgoing: { target: string; relationship: string }[];
+}
+
+export interface LinkHealthResponse {
+  broken: { source_id: string; target: string }[];
+  orphans: string[];
+}
+
 export interface SearchResult {
   object_id: string;
   layer_id: string;

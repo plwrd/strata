@@ -101,6 +101,8 @@ def test_the_webchannel_transport_is_present(qtbot: Any, shell: Any) -> None:
     # qwebchannel.js is served from our own origin under `script-src 'self'`.
     assert _run_js(qtbot, window, "typeof window.QWebChannel") == "function"
     assert _run_js(qtbot, window, "!!window.qt && !!window.qt.webChannelTransport") is True
+    # The app connected its own channel; tests reuse it (see the health test).
+    assert _run_js(qtbot, window, "!!window.__strataBridge") is True
 
 
 def test_a_health_call_round_trips_from_javascript_into_python(qtbot: Any, shell: Any) -> None:
@@ -108,17 +110,18 @@ def test_a_health_call_round_trips_from_javascript_into_python(qtbot: Any, shell
     _app, window, _services = shell
     _wait_for_load(qtbot, window)
 
-    # `runJavaScript` does not await promises, so the reply is latched on `window`
-    # and polled for.
+    # Deliberately reuse the page's own channel rather than constructing a second
+    # QWebChannel over the same transport. Two channels sharing one transport both
+    # receive every reply and route it through their own callback table, so the
+    # second one throws "execCallbacks[message.id] is not a function" and corrupts
+    # the first one's in-flight calls. `runJavaScript` also does not await
+    # promises, so the reply is latched on `window` and polled for.
     window._page.runJavaScript(
         """
         window.__health = null;
-        new QWebChannel(qt.webChannelTransport, (channel) => {
-          channel.objects.workspace.health(
-            JSON.stringify({ v: 1, requestId: 'req_e2e', payload: {} }),
-            (reply) => { window.__health = reply; },
-          );
-        });
+        window.__strataBridge.workspace.health()
+          .then((data) => { window.__health = JSON.stringify(data); })
+          .catch((e) => { window.__health = JSON.stringify({ error: e.message }); });
         """,
         0,
         lambda _result: None,
@@ -128,13 +131,12 @@ def test_a_health_call_round_trips_from_javascript_into_python(qtbot: Any, shell
         lambda: bool(_run_js(qtbot, window, "window.__health || ''")),
         timeout=20_000,
     )
-    raw = _run_js(qtbot, window, "window.__health")
-    response = json.loads(raw)
+    response = json.loads(_run_js(qtbot, window, "window.__health"))
 
-    assert response["ok"] is True
-    assert response["requestId"] == "req_e2e"
-    assert response["data"]["app"] == "strata"
-    assert response["data"]["protocol_version"] == 1
+    assert response.get("ok") is True
+    assert response["app"] == "strata"
+    assert response["protocol_version"] == 1
+    assert response["python_version"].startswith("3.")
 
 
 def test_the_app_renders_the_shell_and_the_selection_surface(qtbot: Any, shell: Any) -> None:
@@ -163,6 +165,59 @@ def test_the_app_renders_the_shell_and_the_selection_surface(qtbot: Any, shell: 
         ".map(n => n.textContent).join('|')",
     )
     assert "Encryption Architecture" in labels
+
+
+def test_the_editor_loads_a_real_note_and_saves_it_back_to_disk(
+    qtbot: Any, shell: Any
+) -> None:
+    """Milestone 2, end to end: CodeMirror mounts, and a save reaches the file.
+
+    This is the test that would have caught a CodeMirror that fails to construct
+    under the CSP, or an autosave that never reaches Python.
+    """
+    _app, window, services = shell
+    _wait_for_load(qtbot, window)
+
+    qtbot.waitUntil(
+        lambda: _run_js(qtbot, window, "document.querySelectorAll('[role=treeitem]').length") > 0,
+        timeout=20_000,
+    )
+
+    # Open the first note through the app's own store, exactly as a click would.
+    note_id = next(
+        note.metadata.id
+        for note in services.notes.list_notes()
+        if note.metadata.title == "Encryption Architecture"
+    )
+    window._page.runJavaScript(
+        f"""
+        window.__saved = null;
+        const store = window.__strataStore;
+        store.getState().openNoteById({note_id!r}).then(() => {{
+          store.getState().setMode('focus');
+          return store.getState().saveNote({note_id!r}, '# Rewritten by the e2e test\\n');
+        }}).then(() => {{ window.__saved = 'ok'; }})
+          .catch((e) => {{ window.__saved = 'error: ' + e.message; }});
+        """,
+        0,
+        lambda _result: None,
+    )
+
+    qtbot.waitUntil(
+        lambda: bool(_run_js(qtbot, window, "window.__saved || ''")),
+        timeout=20_000,
+    )
+    assert _run_js(qtbot, window, "window.__saved") == "ok"
+
+    # The claim under test: the bytes are on disk.
+    reread = services.notes.get_note(note_id)
+    assert reread.content.strip() == "# Rewritten by the e2e test"
+
+    # And CodeMirror actually mounted — the editor is not a textarea stub.
+    qtbot.waitUntil(
+        lambda: _run_js(qtbot, window, "!!document.querySelector('.cm-editor')") is True,
+        timeout=20_000,
+    )
 
 
 @pytest.mark.security()
