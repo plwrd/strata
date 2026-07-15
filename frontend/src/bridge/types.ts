@@ -543,6 +543,83 @@ export interface SnapshotRecord {
   note_count: number;
 }
 
+// --- structured views -----------------------------------------------------
+
+export type ViewType =
+  | "table"
+  | "list"
+  | "cards"
+  | "kanban"
+  | "calendar"
+  | "timeline"
+  | "gallery";
+
+export type FilterOperator =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "is_empty"
+  | "is_not_empty"
+  | "greater_than"
+  | "less_than"
+  | "before"
+  | "after"
+  | "in";
+
+export interface ViewFilter {
+  field: string;
+  operator: FilterOperator;
+  value: string;
+}
+
+export interface ViewSort {
+  field: string;
+  direction: "asc" | "desc";
+}
+
+export interface ViewConfig {
+  id: string;
+  name: string;
+  type: ViewType;
+  layer_ids: string[];
+  folder_scope: string;
+  filters: ViewFilter[];
+  sort: ViewSort[];
+  group_by: string;
+  visible_properties: string[];
+  date_field: string;
+}
+
+export interface ViewRow {
+  object_id: string;
+  layer_id: string;
+  layer_name: string;
+  is_private: boolean;
+  title: string;
+  folder_path: string;
+  tags: string[];
+  properties: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  snippet: string;
+}
+
+export interface ViewGroup {
+  key: string;
+  label: string;
+  rows: ViewRow[];
+}
+
+export interface ViewResult {
+  config: ViewConfig;
+  rows: ViewRow[];
+  groups: ViewGroup[];
+  total: number;
+  available_properties: string[];
+  locked_layers_excluded: number;
+}
+
 export interface AppSettings {
   format_version: number;
   appearance: "cyberpunk-dark" | "cyberpunk-dim" | "high-contrast";

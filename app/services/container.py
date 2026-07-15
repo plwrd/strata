@@ -21,6 +21,7 @@ from app.services.operation_service import OperationService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
 from app.services.snapshot_service import SnapshotService
+from app.services.view_service import ViewService
 from app.services.watch_service import WatchService
 from app.services.workspace_service import WorkspaceService
 
@@ -63,6 +64,7 @@ class Services:
         self.snapshots = SnapshotService(self.workspace)
         self.operations = OperationService(self.workspace, self.notes, self.snapshots)
         self.ai_generation = AIGenerationService(self.ai)
+        self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()
 
         # Any change on disk invalidates the indexes. Rebuilding is lazy, so this is

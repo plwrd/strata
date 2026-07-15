@@ -568,6 +568,90 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           planListeners.push(listener),
       },
     },
+    views: {
+      run_view: (payload) => ({
+        result: {
+          config: payload["config"],
+          rows: [
+            {
+              object_id: "n1",
+              layer_id: "layer_a",
+              layer_name: "Knowledge",
+              is_private: false,
+              title: "Alpha",
+              folder_path: "Projects",
+              tags: ["security"],
+              properties: { status: "in progress", priority: "3" },
+              created_at: "2026-07-14T10:00:00+00:00",
+              updated_at: "2026-07-14T10:00:00+00:00",
+              snippet: "Alpha body",
+            },
+            {
+              object_id: "n2",
+              layer_id: "layer_a",
+              layer_name: "Knowledge",
+              is_private: false,
+              title: "Beta",
+              folder_path: "Projects",
+              tags: [],
+              properties: { status: "done", priority: "1" },
+              created_at: "2026-07-14T10:00:00+00:00",
+              updated_at: "2026-07-14T10:00:00+00:00",
+              snippet: "Beta body",
+            },
+          ],
+          groups:
+            (payload["config"] as { group_by?: string }).group_by === "status"
+              ? [
+                  {
+                    key: "in progress",
+                    label: "in progress",
+                    rows: [
+                      {
+                        object_id: "n1",
+                        layer_id: "layer_a",
+                        layer_name: "Knowledge",
+                        is_private: false,
+                        title: "Alpha",
+                        folder_path: "Projects",
+                        tags: ["security"],
+                        properties: { status: "in progress" },
+                        created_at: "",
+                        updated_at: "",
+                        snippet: "Alpha body",
+                      },
+                    ],
+                  },
+                  {
+                    key: "done",
+                    label: "done",
+                    rows: [
+                      {
+                        object_id: "n2",
+                        layer_id: "layer_a",
+                        layer_name: "Knowledge",
+                        is_private: false,
+                        title: "Beta",
+                        folder_path: "Projects",
+                        tags: [],
+                        properties: { status: "done" },
+                        created_at: "",
+                        updated_at: "",
+                        snippet: "Beta body",
+                      },
+                    ],
+                  },
+                ]
+              : [],
+          total: 2,
+          available_properties: ["priority", "status", "tags", "title"],
+          locked_layers_excluded: 0,
+        },
+      }),
+      list_saved_views: () => ({ views: [] }),
+      save_view: (payload) => ({ view: payload["view"] }),
+      delete_view: () => ({ deleted: true }),
+    },
     snapshots: {
       list_snapshots: () => ({ snapshots: [] }),
       create_snapshot: (payload) => ({

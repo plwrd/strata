@@ -21,6 +21,7 @@ from app.bridge.operations_bridge import OperationsBridge
 from app.bridge.search_bridge import SearchBridge
 from app.bridge.settings_bridge import SettingsBridge
 from app.bridge.snapshot_bridge import SnapshotBridge
+from app.bridge.views_bridge import ViewsBridge
 from app.bridge.workspace_bridge import WorkspaceBridge
 from app.services.container import Services
 
@@ -37,6 +38,7 @@ BRIDGE_NAMES = (
     "settings",
     "snapshots",
     "operations",
+    "views",
     "jobs",
 )
 
@@ -55,6 +57,7 @@ def build_channel(services: Services, parent: QObject | None = None) -> QWebChan
         "settings": SettingsBridge(services, parent),
         "snapshots": SnapshotBridge(services, parent),
         "operations": OperationsBridge(services, parent),
+        "views": ViewsBridge(services, parent),
         "jobs": JobBridge(services, parent),
     }
     assert set(bridges) == set(BRIDGE_NAMES)

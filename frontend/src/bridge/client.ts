@@ -36,6 +36,8 @@ import type {
   SnapshotRecord,
   TrashEntry,
   TreeFolder,
+  ViewConfig,
+  ViewResult,
   ResponseEnvelope,
   SearchResponse,
   AppSettings,
@@ -522,6 +524,16 @@ export const bridge = {
       call<{ deleted: boolean }>("snapshots", "delete_snapshot", {
         snapshot_id,
       }),
+  },
+
+  views: {
+    run: (config: ViewConfig) =>
+      call<{ result: ViewResult }>("views", "run_view", { config }),
+    listSaved: () => call<{ views: ViewConfig[] }>("views", "list_saved_views"),
+    save: (view: ViewConfig) =>
+      call<{ view: ViewConfig }>("views", "save_view", { view }),
+    remove: (view_id: string) =>
+      call<{ deleted: boolean }>("views", "delete_view", { view_id }),
   },
 
   jobs: {

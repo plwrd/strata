@@ -83,7 +83,6 @@ export function OperationsPanel(): JSX.Element {
       }
       void reviewPlan(event.plan);
     });
-     
   }, []);
 
   const generate = async (): Promise<void> => {

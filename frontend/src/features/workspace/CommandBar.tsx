@@ -5,6 +5,7 @@ import { useStore, type AppMode } from "../../state/store";
 const MODES: { value: AppMode; label: string; hint: string }[] = [
   { value: "focus", label: "Focus", hint: "Read and write" },
   { value: "explore", label: "Explore", hint: "Navigate the graph" },
+  { value: "views", label: "Views", hint: "Table, kanban, calendar, timeline" },
   { value: "command", label: "Command", hint: "AI and bulk operations" },
 ];
 

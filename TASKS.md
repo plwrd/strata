@@ -240,11 +240,24 @@ from the UI.
 - [ ] Encrypted sync; relay never sees plaintext
 - [ ] Offline merge, conflict surfaces, comments, presence, history
 
-## Milestone 10 — Structured views
+## Milestone 10 — Structured views ✅
 
-- [ ] Table, Kanban, calendar, timeline, gallery
-- [ ] Schemas, templates, relations, rollups, formulas
-- [ ] Knowledge Lens switching without a workspace reload
+- [x] Table, cards/gallery, kanban, calendar, timeline views over the notes
+- [x] Filters (11 operators: equals, contains, is-empty, numeric, date, in…), sort,
+      group-by — all computed in Python, over the *live* notes
+- [x] Markdown stays the source of truth: a view is a query, never a stored table
+- [x] Saved views persisted in the workspace descriptor
+- [x] A view never surfaces a locked note — the candidate set is readable-only
+- [x] "Views" mode in the command bar; opening a row jumps to the note
+- [x] 19 new tests (13 query/service, 6 UI)
+
+### Known gaps at the end of M10
+
+- [ ] Inline property editing *inside* a table cell (edit opens the note for now). M11.
+- [ ] Rollups and formulas across relations (the property type exists; evaluation is
+      deferred). M11.
+- [ ] Drag between kanban columns to change a status property. M11.
+- [ ] Schemas and templates shipped in M2; the reusable-schema *builder* UI is M11.
 
 ## Milestone 11 — Production hardening
 

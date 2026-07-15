@@ -24,6 +24,7 @@ from app.domain.layer import (
     LayerStorage,
     LayerVisibility,
 )
+from app.domain.views import ViewConfig
 from app.domain.workspace import KnowledgeLens, WorkspaceDescriptor
 from app.infrastructure.encryption.layer_header import LayerHeader
 from app.infrastructure.logging.logger import get_logger
@@ -427,3 +428,26 @@ class WorkspaceService:
             descriptor.lenses[existing] = lens
         self._save()
         return lens
+
+    # -- saved views ---------------------------------------------------------
+
+    def saved_views(self) -> list[ViewConfig]:
+        return list(self.descriptor.saved_views)
+
+    def save_view(self, view: ViewConfig) -> ViewConfig:
+        descriptor = self.descriptor
+        existing = next(
+            (index for index, saved in enumerate(descriptor.saved_views) if saved.id == view.id),
+            None,
+        )
+        if existing is None:
+            descriptor.saved_views.append(view)
+        else:
+            descriptor.saved_views[existing] = view
+        self._save()
+        return view
+
+    def delete_view(self, view_id: str) -> None:
+        descriptor = self.descriptor
+        descriptor.saved_views = [v for v in descriptor.saved_views if v.id != view_id]
+        self._save()

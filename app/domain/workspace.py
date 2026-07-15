@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.layer import LayerDescriptor
+from app.domain.views import ViewConfig
 
 WORKSPACE_FORMAT_VERSION = 1
 
@@ -51,6 +52,7 @@ class WorkspaceDescriptor(BaseModel):
     layer_order: list[str] = Field(default_factory=list)
     layers: list[LayerDescriptor] = Field(default_factory=list)
     lenses: list[KnowledgeLens] = Field(default_factory=list)
+    saved_views: list[ViewConfig] = Field(default_factory=list)
 
     def layer(self, layer_id: str) -> LayerDescriptor | None:
         return next((layer for layer in self.layers if layer.id == layer_id), None)

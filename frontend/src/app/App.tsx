@@ -21,6 +21,7 @@ import { useGraphLayout } from "../features/graph/useGraphLayout";
 import { isWebGLAvailable } from "../features/graph/webgl";
 import { LayerPanel } from "../features/layers/LayerPanel";
 import { SearchPanel } from "../features/search/SearchPanel";
+import { ViewsStage } from "../features/views/ViewsStage";
 import { CommandBar } from "../features/workspace/CommandBar";
 import { StatusBar } from "../features/workspace/StatusBar";
 import { useReducedMotion } from "../hooks/useReducedMotion";
@@ -44,7 +45,7 @@ export function App(): JSX.Element {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("ai");
 
   // The inspector follows the mode: Focus is about the note (properties), Command
-  // is about bulk AI change (Changes), Explore is about selection (AI composer).
+  // is about bulk AI change (Changes), Explore/Views are about selection (AI).
   useEffect(() => {
     setInspectorTab(
       state.mode === "focus"
@@ -144,6 +145,8 @@ export function App(): JSX.Element {
         <main className="stage" aria-label="Workspace">
           {state.mode === "focus" ? (
             <EditorPane />
+          ) : state.mode === "views" ? (
+            <ViewsStage />
           ) : (
             <div className="stage__graph">
               {state.loadingGraph || computing ? (

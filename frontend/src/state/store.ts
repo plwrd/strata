@@ -35,7 +35,7 @@ import type {
   WorkspaceState,
 } from "../bridge/types";
 
-export type AppMode = "focus" | "explore" | "command";
+export type AppMode = "focus" | "explore" | "command" | "views";
 export type GraphDimension = "2d" | "3d";
 export type ConnectionState = "connecting" | "ready" | "unavailable";
 export type ViewMode = "source" | "live" | "reading";
