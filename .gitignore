@@ -66,3 +66,6 @@ frontend/public/qwebchannel.js
 *.strata-workspace/
 sbom-*.json
 *.log
+
+# Hypothesis (property-based testing) example database
+.hypothesis/
