@@ -555,7 +555,9 @@ def test_creating_a_private_layer_writes_only_opaque_files(tmp_path: Path) -> No
     service = EncryptionService()
     root = tmp_path / "layer_a"
 
-    header, recovery = service.create_layer(layer_id="layer_a", root=root, password="correct horse")
+    _header, recovery = service.create_layer(
+        layer_id="layer_a", root=root, password="correct horse"
+    )
 
     assert recovery is not None
     assert service.is_unlocked("layer_a")
@@ -638,7 +640,9 @@ def test_changing_the_password_does_not_re_encrypt_objects(tmp_path: Path) -> No
 
     service = EncryptionService()
     root = tmp_path / "layer_a"
-    header, _recovery = service.create_layer(layer_id="layer_a", root=root, password="old password")
+    _header, _recovery = service.create_layer(
+        layer_id="layer_a", root=root, password="old password"
+    )
     store = EncryptedLayerStore("layer_a", root)
     before = {oid: store._object_path(oid).read_bytes() for oid in store.object_ids()}
 

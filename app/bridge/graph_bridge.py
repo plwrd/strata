@@ -68,7 +68,7 @@ class GraphBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LoadGraphRequest)
     def load_graph(self, request: LoadGraphRequest) -> GraphResponse:
         clusters = (
@@ -89,7 +89,7 @@ class GraphBridge(QObject):
         )
         return GraphResponse(graph=snapshot)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(NeighboursRequest)
     def expand_neighbours(self, request: NeighboursRequest) -> NeighboursResponse:
         snapshot = self._services.graph.build()
@@ -97,7 +97,7 @@ class GraphBridge(QObject):
             node_ids=self._services.graph.neighbours(request.node_id, snapshot)
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ShortestPathRequest)
     def shortest_path(self, request: ShortestPathRequest) -> PathResponse:
         snapshot = self._services.graph.build(include_tags=False, include_folders=False)
@@ -107,7 +107,7 @@ class GraphBridge(QObject):
             )
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ClusterNodesRequest)
     def cluster_of(self, request: ClusterNodesRequest) -> NeighboursResponse:
         """Every node in the same semantic cluster as the given one."""

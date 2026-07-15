@@ -175,7 +175,8 @@
   position: relative;
   min-width: 0;
   min-height: 0;
-  background: radial-gradient(
+  background:
+    radial-gradient(
       circle at 30% 20%,
       rgba(34, 224, 245, 0.05),
       transparent 45%
@@ -1435,7 +1436,7 @@
       rgba(2, 4, 10, 0.55) 100%
     ),
     /* …and HUD corner brackets frame it like an instrument. */
-      linear-gradient(var(--border-accent), var(--border-accent)) top 10px left
+    linear-gradient(var(--border-accent), var(--border-accent)) top 10px left
       10px / 26px 1px,
     linear-gradient(var(--border-accent), var(--border-accent)) top 10px left
       10px / 1px 26px,

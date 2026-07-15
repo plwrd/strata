@@ -65,16 +65,16 @@
   --border-subtle: rgba(147, 161, 189, 0.14);
   --border-strong: rgba(147, 161, 189, 0.3);
   --border-accent: rgba(34, 224, 245, 0.55);
-  --glow-accent: 0 0 0 1px rgba(34, 224, 245, 0.35),
-    0 0 18px rgba(34, 224, 245, 0.18);
-  --glow-ai: 0 0 0 1px rgba(160, 107, 255, 0.4),
-    0 0 18px rgba(160, 107, 255, 0.2);
+  --glow-accent:
+    0 0 0 1px rgba(34, 224, 245, 0.35), 0 0 18px rgba(34, 224, 245, 0.18);
+  --glow-ai:
+    0 0 0 1px rgba(160, 107, 255, 0.4), 0 0 18px rgba(160, 107, 255, 0.2);
 
   /* --- typography ------------------------------------------------------- */
   --font-body: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-display: "Chakra Petch", "Rajdhani", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace,
-    monospace;
+  --font-mono:
+    "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace, monospace;
 
   --text-xs: 0.6875rem;
   --text-sm: 0.8125rem;

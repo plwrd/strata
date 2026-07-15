@@ -424,7 +424,7 @@ class NoteService:
         if private is not None:
             return private.rename_folder(folder_id, name)
 
-        store, folder, path = self._locate_folder(folder_id)
+        store, _folder, path = self._locate_folder(folder_id)
         destination = path.parent / safe_filename(name)
         if destination.exists():
             raise ConflictError("A folder with that name already exists.")
