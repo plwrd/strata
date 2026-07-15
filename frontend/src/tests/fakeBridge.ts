@@ -10,6 +10,7 @@
  * including the error shape, so a test can exercise the client's failure paths.
  */
 
+import * as Y from "yjs";
 import { __resetChannelForTests } from "../bridge/client";
 import type {
   ContextPlan,
@@ -86,10 +87,7 @@ function personal(layerId: string): FakeCollabState {
 }
 
 /** A stateful in-memory collaboration fake, enough to drive the panel's flow. */
-function makeCollaboration(): Record<
-  string,
-  (payload: Record<string, unknown>) => unknown
-> {
+function makeCollaboration(): Record<string, Handler | Signal> {
   const states = new Map<string, FakeCollabState>();
   const conflicts = new Map<string, unknown[]>();
 
@@ -182,7 +180,48 @@ function makeCollaboration(): Record<
       peers: stateOf(p["layer_id"] as string).peers,
     }),
     compact: () => ({ reclaimed: 1 }),
+
+    // A real Yjs authority so the client session can be tested end to end: the
+    // fake holds a Y.Doc per layer, hands out its state, and merges what it gets.
+    get_document: (p) => {
+      const doc = docFor(p["layer_id"] as string);
+      return { update: encodeBytes(Y.encodeStateAsUpdate(doc)) };
+    },
+    apply_update: (p) => {
+      const doc = docFor(p["layer_id"] as string);
+      Y.applyUpdate(doc, decodeBytes(p["update"] as string));
+      return { state: stateOf(p["layer_id"] as string), conflicts: [] };
+    },
+
+    collabEvent: {
+      connect: (listener: (value: string) => void) =>
+        collabListeners.push(listener),
+    },
   };
+}
+
+const _docs = new Map<string, Y.Doc>();
+function docFor(layerId: string): Y.Doc {
+  let doc = _docs.get(layerId);
+  if (!doc) {
+    doc = new Y.Doc();
+    _docs.set(layerId, doc);
+  }
+  return doc;
+}
+
+function encodeBytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1)
+    binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
+}
+
+function decodeBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 function node(
@@ -308,6 +347,15 @@ export const aiListeners: ((value: string) => void)[] = [];
 /** Listeners registered against the `operations.planEvent` signal. */
 export const planListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `collaboration.collabEvent` signal. */
+export const collabListeners: ((value: string) => void)[] = [];
+
+/** Fire a collaboration event (remote change / conflict) the way Python would. */
+export function emitCollabEvent(payload: Record<string, unknown>): void {
+  const raw = JSON.stringify(payload);
+  for (const listener of collabListeners) listener(raw);
+}
+
 /** Fire an AI stream event the way Python would. */
 export function emitAIEvent(payload: Record<string, unknown>): void {
   const raw = JSON.stringify(payload);
@@ -361,6 +409,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   changeListeners.length = 0;
   aiListeners.length = 0;
   planListeners.length = 0;
+  collabListeners.length = 0;
+  _docs.clear();
   // The client memoises its channel, so a fresh fake must invalidate it or the
   // client keeps talking to the previous test's transport.
   __resetChannelForTests();
@@ -443,6 +493,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_lens_id: "lens_all",
           last_workspace_path: "",
           developer_tools: false,
+          relay_url: "",
         },
       }),
       update_settings: (payload) => ({
@@ -458,6 +509,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_lens_id: "lens_all",
           last_workspace_path: "",
           developer_tools: false,
+          relay_url: "",
           ...(payload["values"] as object),
         },
       }),

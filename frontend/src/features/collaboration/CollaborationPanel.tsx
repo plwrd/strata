@@ -38,6 +38,7 @@ export function CollaborationPanel(): JSX.Element | null {
   return (
     <section className="panel collab" aria-label="Collaboration">
       <h2 className="panel__title">Collaboration</h2>
+      <RelayConfig />
       <ul className="collab__list">
         {readable.map((layer) => (
           <CollabRow
@@ -49,6 +50,57 @@ export function CollaborationPanel(): JSX.Element | null {
         ))}
       </ul>
     </section>
+  );
+}
+
+/** Choose where collaboration syncs: a local shared folder, or a network relay. */
+function RelayConfig(): JSX.Element {
+  const settings = useStore((s) => s.settings);
+  const applySettings = useStore((s) => s.applySettings);
+  const current = settings?.relay_url ?? "";
+  const [value, setValue] = useState(current);
+  const [saved, setSaved] = useState(false);
+
+  const dirty = value.trim() !== current;
+
+  return (
+    <form
+      className="collab__relay"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void applySettings({ relay_url: value.trim() }).then(() =>
+          setSaved(true),
+        );
+      }}
+    >
+      <label className="collab__relay-label" htmlFor="relay-url">
+        Sync relay {current ? "(network)" : "(local folder)"}
+      </label>
+      <div className="collab__relay-row">
+        <input
+          id="relay-url"
+          className="input input--small"
+          placeholder="https://relay.example/ — blank for local"
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setSaved(false);
+          }}
+        />
+        <button
+          type="submit"
+          className="button button--small"
+          disabled={!dirty}
+        >
+          Save
+        </button>
+      </div>
+      <p className="collab__relay-hint mono">
+        {saved
+          ? "Saved — applies to new sessions. The relay only ever sees ciphertext."
+          : "A relay forwards encrypted blobs between machines; it never sees your data."}
+      </p>
+    </form>
   );
 }
 
