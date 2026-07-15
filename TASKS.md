@@ -206,13 +206,32 @@ from the UI.
 - [ ] Token estimates use the character-ratio fallback; a provider's own tokeniser is
       used only where it streams usage back. Fine for budgeting, noted for M11 polish.
 
-## Milestone 8 — Transactional AI operations
+## Milestone 8 — Transactional AI operations ✅
 
-- [ ] Declarative operation plans + schema and security validation
-- [ ] Visual diff, per-operation approval, transactional apply, undo
-- [ ] Workspace generation from a description
-- [ ] Snapshots and branches
-- [ ] AI audit log and privacy receipts
+- [x] Declarative operation plans (14 operation types), extra="forbid" schema
+- [x] Security validation: the AI cannot target a layer outside the user's scope,
+      cannot touch a locked layer, and cannot reference a note that does not exist
+- [x] Visual diff (before/after + rationale per operation), per-operation approval
+- [x] Destructive operations flagged and *not* pre-approved — no deletion hidden in
+      a wall of green
+- [x] Transactional apply: snapshot first, all-or-nothing, roll back on any failure
+- [x] Undo (restores the pre-plan snapshot) and an AI audit log
+- [x] Re-validation at apply time — a workspace that changed since review is a conflict
+- [x] AI plan generation from a prompt (defensive JSON parsing; a bad answer is an
+      empty plan, not a rogue edit), through the M7 policy gate
+- [x] Workspace snapshots: create, list, restore (itself undoable), delete
+- [x] A snapshot of a private layer stores only ciphertext; restore relocks it
+- [x] Frontend: Command-mode plan review with per-op checkboxes, apply, undo
+- [x] 34 new tests (operations, snapshots, bridge, UI), incl. rollback and containment
+
+### Known gaps at the end of M8
+
+- [ ] Named branches / merge (beyond linear snapshots). The snapshot engine supports
+      it; the branch UI is deferred to M10.
+- [ ] The audit log is in-memory (lost on restart). Persisting it — encrypted for
+      private-layer operations — is an M11 item.
+- [ ] Structured-output mode (asking the provider for guaranteed JSON) is used where
+      the provider supports it, but the parser tolerates prose-wrapped JSON either way.
 
 ## Milestone 9 — Collaboration
 

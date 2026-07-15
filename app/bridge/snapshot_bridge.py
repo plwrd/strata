@@ -1,17 +1,13 @@
-"""Workspace snapshots.
-
-Milestone 1 lists snapshots (there are none) and refuses to create or restore
-them. Snapshots exist to make AI reorganisations recoverable, so they land with
-the transactional AI change engine in Milestone 8.
-"""
+"""Workspace snapshots: create, list, restore, delete."""
 
 from __future__ import annotations
+
+from dataclasses import asdict
 
 from pydantic import BaseModel, ConfigDict, Field
 from PySide6.QtCore import QObject, Slot
 
 from app.bridge.envelope import EmptyRequest, bridge_method
-from app.domain.errors import UnsupportedError
 from app.services.container import Services
 
 
@@ -22,19 +18,38 @@ class SnapshotRecord(BaseModel):
     name: str
     created_at: str
     kind: str = "manual"
+    layer_count: int = 0
+    note_count: int = 0
 
 
 class SnapshotListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     snapshots: list[SnapshotRecord] = Field(default_factory=list)
-    milestone: int = 8
 
 
 class CreateSnapshotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
+
+
+class SnapshotIdRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: str = Field(min_length=1, max_length=128)
+
+
+class SnapshotResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot: SnapshotRecord
+
+
+class DeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deleted: bool = True
 
 
 class SnapshotBridge(QObject):
@@ -45,12 +60,24 @@ class SnapshotBridge(QObject):
     @Slot(str, result=str)  # type: ignore[arg-type]
     @bridge_method(EmptyRequest)
     def list_snapshots(self, _request: EmptyRequest) -> SnapshotListResponse:
-        return SnapshotListResponse()
+        return SnapshotListResponse(
+            snapshots=[SnapshotRecord(**asdict(info)) for info in self._services.snapshots.list()]
+        )
 
     @Slot(str, result=str)  # type: ignore[arg-type]
     @bridge_method(CreateSnapshotRequest)
-    def create_snapshot(self, _request: CreateSnapshotRequest) -> SnapshotListResponse:
-        raise UnsupportedError(
-            "Snapshots arrive with the transactional AI change engine in Milestone 8.",
-            details={"milestone": 8},
-        )
+    def create_snapshot(self, request: CreateSnapshotRequest) -> SnapshotResponse:
+        info = self._services.snapshots.create(request.name)
+        return SnapshotResponse(snapshot=SnapshotRecord(**asdict(info)))
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(SnapshotIdRequest)
+    def restore_snapshot(self, request: SnapshotIdRequest) -> SnapshotResponse:
+        info = self._services.snapshots.restore(request.snapshot_id)
+        return SnapshotResponse(snapshot=SnapshotRecord(**asdict(info)))
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(SnapshotIdRequest)
+    def delete_snapshot(self, request: SnapshotIdRequest) -> DeleteResponse:
+        self._services.snapshots.delete(request.snapshot_id)
+        return DeleteResponse()

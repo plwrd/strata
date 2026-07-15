@@ -17,6 +17,7 @@ import type {
   LayerDescriptor,
   Note,
   NoteMetadata,
+  PlanReview,
 } from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
@@ -25,6 +26,7 @@ type Signal = { connect: (listener: (value: string) => void) => void };
 export interface FakeBridgeOptions {
   graph?: GraphSnapshot;
   plan?: ContextPlan;
+  review?: PlanReview;
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
@@ -172,10 +174,19 @@ export const changeListeners: ((value: string) => void)[] = [];
 /** Listeners registered against the `ai.aiEvent` signal. */
 export const aiListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `operations.planEvent` signal. */
+export const planListeners: ((value: string) => void)[] = [];
+
 /** Fire an AI stream event the way Python would. */
 export function emitAIEvent(payload: Record<string, unknown>): void {
   const raw = JSON.stringify(payload);
   for (const listener of aiListeners) listener(raw);
+}
+
+/** Fire a plan-generation event the way Python would. */
+export function emitPlanEvent(payload: Record<string, unknown>): void {
+  const raw = JSON.stringify(payload);
+  for (const listener of planListeners) listener(raw);
 }
 
 /** Fire the external-change signal the way the file watcher would. */
@@ -218,6 +229,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   saved.length = 0;
   changeListeners.length = 0;
   aiListeners.length = 0;
+  planListeners.length = 0;
   // The client memoises its channel, so a fresh fake must invalidate it or the
   // client keeps talking to the previous test's transport.
   __resetChannelForTests();
@@ -479,6 +491,106 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     },
     search: {
       search: () => ({ results: [], total: 0, locked_layers_excluded: 1 }),
+    },
+    operations: {
+      generate_plan: () => ({ request_id: "req_plan_1" }),
+      review_plan: (payload) => ({
+        review: options.review ?? {
+          plan: payload["plan"],
+          entries: [
+            {
+              index: 0,
+              type: "create_note",
+              layer_id: "layer_a",
+              layer_name: "Knowledge",
+              is_private: false,
+              is_destructive: false,
+              title: "Proposed Note",
+              summary: "create note: Proposed Note",
+              rationale: "capture the idea",
+              before: "",
+              after: "# Proposed Note",
+              valid: true,
+              problem: "",
+            },
+            {
+              index: 1,
+              type: "delete_note",
+              layer_id: "layer_a",
+              layer_name: "Knowledge",
+              is_private: false,
+              is_destructive: true,
+              title: "Old Note",
+              summary: "delete note: Old Note",
+              rationale: "no longer needed",
+              before: "Old Note",
+              after: "",
+              valid: true,
+              problem: "",
+            },
+          ],
+          valid_count: 2,
+          invalid_count: 0,
+          destructive_count: 1,
+          private_layers_touched: [],
+          warnings: ["1 operation(s) change or remove existing content."],
+        },
+      }),
+      apply_plan: () => ({
+        applied: {
+          plan_id: "plan_test",
+          snapshot_id: "snap_1",
+          applied_at: "",
+          results: [],
+          summary: "Proposed plan",
+          provider: "ollama",
+          model: "llama3",
+          prompt: "",
+          undone: false,
+        },
+      }),
+      undo_plan: () => ({
+        applied: {
+          plan_id: "plan_test",
+          snapshot_id: "snap_1",
+          applied_at: "",
+          results: [],
+          summary: "Proposed plan",
+          provider: "ollama",
+          model: "llama3",
+          prompt: "",
+          undone: true,
+        },
+      }),
+      audit_log: () => ({ entries: [] }),
+      planEvent: {
+        connect: (listener: (value: string) => void) =>
+          planListeners.push(listener),
+      },
+    },
+    snapshots: {
+      list_snapshots: () => ({ snapshots: [] }),
+      create_snapshot: (payload) => ({
+        snapshot: {
+          id: "snap_new",
+          name: payload["name"] as string,
+          created_at: "",
+          kind: "manual",
+          layer_count: 1,
+          note_count: 5,
+        },
+      }),
+      restore_snapshot: () => ({
+        snapshot: {
+          id: "snap_new",
+          name: "Checkpoint",
+          created_at: "",
+          kind: "manual",
+          layer_count: 1,
+          note_count: 5,
+        },
+      }),
+      delete_snapshot: () => ({ deleted: true }),
     },
     layers: {
       list_layers: () => ({

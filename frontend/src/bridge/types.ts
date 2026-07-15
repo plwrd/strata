@@ -455,6 +455,94 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+// --- transactional AI operations ------------------------------------------
+
+export interface Operation {
+  type: string;
+  layer_id: string;
+  note_id?: string | null;
+  folder_path: string;
+  title: string;
+  content: string;
+  target_note_id?: string | null;
+  target_title: string;
+  relationship: string;
+  property_key: string;
+  property_value: string;
+  tag: string;
+  rationale: string;
+}
+
+export interface OperationPlan {
+  id: string;
+  summary: string;
+  operations: Operation[];
+  created_at: string;
+  provider: string;
+  model: string;
+  prompt: string;
+}
+
+export interface DiffEntry {
+  index: number;
+  type: string;
+  layer_id: string;
+  layer_name: string;
+  is_private: boolean;
+  is_destructive: boolean;
+  title: string;
+  summary: string;
+  rationale: string;
+  before: string;
+  after: string;
+  valid: boolean;
+  problem: string;
+}
+
+export interface PlanReview {
+  plan: OperationPlan;
+  entries: DiffEntry[];
+  valid_count: number;
+  invalid_count: number;
+  destructive_count: number;
+  private_layers_touched: string[];
+  warnings: string[];
+}
+
+export interface AppliedPlan {
+  plan_id: string;
+  snapshot_id: string;
+  applied_at: string;
+  results: {
+    index: number;
+    type: string;
+    applied: boolean;
+    detail: string;
+    error: string;
+  }[];
+  summary: string;
+  provider: string;
+  model: string;
+  prompt: string;
+  undone: boolean;
+}
+
+export interface PlanStreamEvent {
+  requestId: string;
+  kind: "plan" | "error";
+  plan?: OperationPlan;
+  error?: string;
+}
+
+export interface SnapshotRecord {
+  id: string;
+  name: string;
+  created_at: string;
+  kind: string;
+  layer_count: number;
+  note_count: number;
+}
+
 export interface AppSettings {
   format_version: number;
   appearance: "cyberpunk-dark" | "cyberpunk-dim" | "high-contrast";

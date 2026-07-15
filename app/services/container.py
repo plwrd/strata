@@ -10,14 +10,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.services.ai_generation_service import AIGenerationService
 from app.services.ai_service import AIService
 from app.services.context_export_service import ContextExportService
 from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
 from app.services.note_service import NoteService
+from app.services.operation_service import OperationService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
+from app.services.snapshot_service import SnapshotService
 from app.services.watch_service import WatchService
 from app.services.workspace_service import WorkspaceService
 
@@ -57,6 +60,9 @@ class Services:
         self.search = SearchService(self.notes, self.workspace)
         self.exports = ContextExportService(self.workspace, self.notes, self.graph)
         self.ai = AIService(self.workspace, self.settings)
+        self.snapshots = SnapshotService(self.workspace)
+        self.operations = OperationService(self.workspace, self.notes, self.snapshots)
+        self.ai_generation = AIGenerationService(self.ai)
         self.jobs = JobService()
 
         # Any change on disk invalidates the indexes. Rebuilding is lazy, so this is

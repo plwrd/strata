@@ -23,13 +23,17 @@ import type {
   LayerDescriptor,
   LinkHealthResponse,
   LinksResponse,
+  AppliedPlan,
   Note,
   NoteResponse,
   NoteSchema,
+  OperationPlan,
+  PlanReview,
   PolicyView,
   PrivacyReceipt,
   ProviderHealthView,
   ProviderView,
+  SnapshotRecord,
   TrashEntry,
   TreeFolder,
   ResponseEnvelope,
@@ -469,6 +473,54 @@ export const bridge = {
     update: (values: Partial<AppSettings>) =>
       call<{ settings: AppSettings }>("settings", "update_settings", {
         values,
+      }),
+  },
+
+  operations: {
+    generate: (request: {
+      provider_id: string;
+      model: string;
+      prompt: string;
+      object_ids: string[];
+      layer_ids: string[];
+      confirmed_remote?: boolean;
+    }) => call<{ request_id: string }>("operations", "generate_plan", request),
+    review: (plan: OperationPlan, allowed_layer_ids: string[]) =>
+      call<{ review: PlanReview }>("operations", "review_plan", {
+        plan,
+        allowed_layer_ids,
+      }),
+    apply: (
+      plan: OperationPlan,
+      approved_indexes: number[],
+      allowed_layer_ids: string[],
+    ) =>
+      call<{ applied: AppliedPlan }>("operations", "apply_plan", {
+        plan,
+        approved_indexes,
+        allowed_layer_ids,
+      }),
+    undo: (plan_id: string) =>
+      call<{ applied: AppliedPlan }>("operations", "undo_plan", { plan_id }),
+    auditLog: () => call<{ entries: AppliedPlan[] }>("operations", "audit_log"),
+    onPlan: (listener: (payload: string) => void) =>
+      subscribe("operations", "planEvent", listener),
+  },
+
+  snapshots: {
+    list: () =>
+      call<{ snapshots: SnapshotRecord[] }>("snapshots", "list_snapshots"),
+    create: (name: string) =>
+      call<{ snapshot: SnapshotRecord }>("snapshots", "create_snapshot", {
+        name,
+      }),
+    restore: (snapshot_id: string) =>
+      call<{ snapshot: SnapshotRecord }>("snapshots", "restore_snapshot", {
+        snapshot_id,
+      }),
+    remove: (snapshot_id: string) =>
+      call<{ deleted: boolean }>("snapshots", "delete_snapshot", {
+        snapshot_id,
       }),
   },
 

@@ -11,6 +11,7 @@ import { AIComposerPanel } from "../features/ai-composer/AIComposerPanel";
 import { EditorPane } from "../features/editor/EditorPane";
 import { FileTree } from "../features/explorer/FileTree";
 import { LinksPanel } from "../features/links/LinksPanel";
+import { OperationsPanel } from "../features/operations/OperationsPanel";
 import { PropertiesPanel } from "../features/properties/PropertiesPanel";
 import { Graph2D } from "../features/graph-2d/Graph2D";
 import { GraphScene } from "../features/graph-3d/GraphScene";
@@ -26,10 +27,11 @@ import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useStore } from "../state/store";
 import { SelectionRing } from "./SelectionRing";
 
-type InspectorTab = "ai" | "properties" | "links";
+type InspectorTab = "ai" | "operations" | "properties" | "links";
 
 const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
   { value: "ai", label: "AI" },
+  { value: "operations", label: "Changes" },
   { value: "properties", label: "Properties" },
   { value: "links", label: "Links" },
 ];
@@ -41,10 +43,16 @@ export function App(): JSX.Element {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("ai");
 
-  // Focus mode is about the note, so the inspector follows: it shows the note's
-  // properties rather than an AI panel the user did not ask for.
+  // The inspector follows the mode: Focus is about the note (properties), Command
+  // is about bulk AI change (Changes), Explore is about selection (AI composer).
   useEffect(() => {
-    setInspectorTab(state.mode === "focus" ? "properties" : "ai");
+    setInspectorTab(
+      state.mode === "focus"
+        ? "properties"
+        : state.mode === "command"
+          ? "operations"
+          : "ai",
+    );
   }, [state.mode]);
 
   useEffect(() => {
@@ -234,6 +242,7 @@ export function App(): JSX.Element {
 
           <div className="inspector__body scroll-y">
             {inspectorTab === "ai" && <AIComposerPanel />}
+            {inspectorTab === "operations" && <OperationsPanel />}
             {inspectorTab === "properties" && <PropertiesPanel />}
             {inspectorTab === "links" && <LinksPanel />}
           </div>
