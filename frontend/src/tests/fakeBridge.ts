@@ -379,7 +379,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       health: () => ({
         ok: true,
         app: "strata",
-        version: "0.1.0",
+        version: "1.0.0",
         protocol_version: 1,
         environment: "test",
         python_version: "3.10.11",

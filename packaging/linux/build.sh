@@ -17,7 +17,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-VERSION="0.1.0"
+VERSION="1.0.0"
 PYTHON="${PYTHON:-python3}"
 [ -x ".venv/bin/python" ] && PYTHON=".venv/bin/python"
 

@@ -28,7 +28,7 @@ from app.services.view_service import ViewService
 from app.services.watch_service import WatchService
 from app.services.workspace_service import WorkspaceService
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "1.0.0"
 
 
 @dataclass(frozen=True)
