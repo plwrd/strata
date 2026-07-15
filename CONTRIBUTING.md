@@ -149,6 +149,31 @@ that lag the code are worse than no specs.
 
 ---
 
+## Branching and releases
+
+Two long-lived branches:
+
+| Branch | Meaning | Who writes to it |
+| --- | --- | --- |
+| `main` | **Production.** Every commit is a released, tagged state. | Only the release merge from `dev`. |
+| `dev` | **Integration.** The next release as it accumulates. | Only squash-merges of feature PRs. |
+
+The flow for a unit of work (typically one milestone):
+
+1. Branch from `dev`: `feat/m5-advanced-graph`, `fix/cross-platform-paths`, `chore/…`.
+2. Open a PR **into `dev`**. CI runs the full gate (see the [`ci.yml`](.github/workflows/ci.yml)
+   jobs: Python matrix, frontend, e2e desktop shell, no-plaintext, dependency audit).
+3. Enable **auto-merge (squash)**. The PR merges itself the moment the required checks are green;
+   the branch is deleted automatically. Nothing merges red.
+4. **Release** cuts `dev` → `main` and tags it `vMAJOR.MINOR.PATCH` (one minor per milestone), with a
+   GitHub Release summarising what shipped. `main` never receives a direct push.
+
+The dependency audit is **advisory** — it reports but does not block the merge, because CVEs surface
+independently of any PR. A production-affecting advisory (the Markdown sanitizer, a crypto library) is
+fixed by bumping the dependency in its own PR, never by muting the check.
+
+---
+
 ## Definition of Done
 
 A change is not done until **every** box is true. "I'll do it in a follow-up" is how a security product

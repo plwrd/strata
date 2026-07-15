@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from app.domain.errors import InvalidRequestError
 
@@ -52,7 +52,19 @@ def resolve_within(root: Path, *parts: str) -> Path:
     for part in parts:
         if not part:
             continue
-        if Path(part).is_absolute() or ".." in Path(part).parts:
+        # Judge every component against *both* path flavours, so hostile input is
+        # refused identically on every platform. A POSIX host treats "C:\\Windows"
+        # or "a\\..\\b" as an ordinary filename; a Windows host treats them as a
+        # drive path and a traversal. Neither is ever a legitimate component here.
+        windows = PureWindowsPath(part)
+        if (
+            Path(part).is_absolute()
+            or windows.is_absolute()
+            or windows.drive
+            or "\\" in part
+            or ".." in Path(part).parts
+            or ".." in windows.parts
+        ):
             raise InvalidRequestError("Path is not permitted.")
     candidate = root.joinpath(*[p for p in parts if p])
     root_resolved = root.resolve()

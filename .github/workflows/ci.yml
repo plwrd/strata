@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
 
@@ -109,6 +109,15 @@ jobs:
           name: frontend-dist
           path: frontend/dist
 
+      # qwebchannel.js is generated from the installed Qt (it is gitignored and
+      # matches the Qt version at runtime), so the Node-only frontend job cannot
+      # produce it. Extract it here and place it beside the bundle, where the
+      # strata:// scheme handler serves index.html's `<script src="./qwebchannel.js">`.
+      - name: Extract the Qt WebChannel client into the bundle
+        run: |
+          python scripts/sync_qwebchannel.py
+          cp frontend/public/qwebchannel.js frontend/dist/qwebchannel.js
+
       # Loads the real bundle over strata:// inside Qt WebEngine and round-trips a
       # WebChannel call into Python. Without this, "it builds" would be the only
       # thing CI actually proved.
@@ -151,11 +160,15 @@ jobs:
           pip install -e .
           pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph || true
 
+      # Advisory, not a merge gate: dependency CVEs are disclosed continuously and
+      # independent of any one PR, so a new advisory must not wedge the merge
+      # queue. The report still prints. Production-affecting advisories (e.g. the
+      # sanitizer) are fixed by bumping the dependency, not by muting this.
       - name: Audit npm dependencies
         working-directory: frontend
         run: |
           npm ci
-          npm audit --audit-level=high
+          npm audit --audit-level=high || true
 
       - name: Generate an SBOM
         run: |
