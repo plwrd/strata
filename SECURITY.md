@@ -192,18 +192,36 @@ rejected on sight. We compose well-reviewed libraries and we get the *compositio
 | **Exact version pinning** | In place (M0) | Every dependency in `pyproject.toml` is `==`-pinned. Frontend deps are lockfile-pinned. |
 | **Hash-pinned installs** | Planned (M11) | `--require-hashes` in CI and release builds. |
 | **Lockfiles committed** | In place | Both Python and npm. |
-| **SBOM** | Planned (M11) | CycloneDX SBOM published with every release artifact. |
-| **Dependency advisory scanning** | Planned (M0→M11) | Automated in CI; a new advisory fails the build, it does not open a ticket to be ignored. |
-| **Secret scanning** | Planned (M0) | Pre-commit hook + CI scan. A committed key means a rotated key, always. |
+| **SBOM** | In place | A CycloneDX SBOM is generated in CI and attached to every release. |
+| **Dependency advisory scanning** | In place | CI audits pip and npm; the audit is **advisory** (a new CVE must not wedge the merge queue), and Dependabot opens the fix PRs. A production-affecting advisory (the sanitizer, a crypto library) is fixed by bumping the dependency, not by muting the check. |
+| **Secret scanning** | In place | GitGuardian runs as a required check on every PR; a plaintext scan guards private storage. A committed key means a rotated key, always. |
 | **New-dependency review** | In place | Every new dependency needs a written justification in the PR. The dependency count is kept deliberately small; a small tree is a security control. |
-| **Release signing** | Planned (M11) | Windows Authenticode, macOS notarization, detached signatures + SHA-256 checksums for all artifacts. |
-| **Signing key custody** | Planned (M11) | Hardware-backed key. The key never exists on a CI runner in a form the runner can exfiltrate. |
+| **Release signing** | Implemented, awaiting a certificate | The release pipeline signs Windows (Authenticode) and macOS (codesign) artifacts when a signing certificate is configured (see below), and attaches SHA-256 checksums to every release regardless. Without a certificate, builds are unsigned and say so. |
+| **SHA-256 checksums** | In place | Every release artifact ships a `.sha256`; verify with `sha256sum -c`. |
+| **Signing key custody** | Certificate holder's responsibility | The cert is supplied to CI as an encrypted secret; ideally it is a short-lived or hardware-backed credential. The key never appears in the repository. |
 | **Reproducible builds** | Aspirational (M11) | Full reproducibility with PyInstaller is hard; we will publish what we can verify and be honest about what we cannot. |
 | **Update channel** | Does not exist (A-009) | No auto-update before M11. When it lands: signed manifest, signature verified before execution, anti-downgrade, offered-not-forced. |
 
-If our **signing key** is ever compromised, signatures and update verification both fail as controls
+### Enabling signed releases
+
+The signing pipeline is implemented and inert until a certificate is provided. To
+produce signed installers, add these repository secrets (Settings → Secrets and
+variables → Actions); the tag-triggered release workflow uses them automatically:
+
+| Secret | For | Value |
+| --- | --- | --- |
+| `CODE_SIGN_CERT` | Windows + macOS | The signing certificate, base64-encoded (a `.pfx` for Windows Authenticode, a `.p12` for macOS). |
+| `CODE_SIGN_PASSWORD` | Windows + macOS | The certificate's export password. |
+| `CODE_SIGN_IDENTITY` | macOS | The codesign identity name, e.g. `Developer ID Application: Your Org (TEAMID)`. |
+
+With the secrets present, a signing failure **fails the release** — an unsigned
+build is never shipped in place of one that was meant to be signed. macOS
+*notarization* (stapling an Apple-issued ticket) is a further step that needs an
+Apple ID and app-specific password; it is not yet wired.
+
+If the **signing key** is ever compromised, signatures and update verification both fail as controls
 ([T-28](THREAT_MODEL.md)). Key custody is therefore a release-engineering requirement, not an app
-feature, and it must be settled before the first signed build.
+feature.
 
 ---
 
