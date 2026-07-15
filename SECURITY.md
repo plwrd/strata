@@ -78,6 +78,16 @@ Strata cannot stop your OS from writing your memory to a swap or hibernation fil
 ([T-07](THREAT_MODEL.md)). BitLocker / FileVault / LUKS is the mitigation for that, and it is the OS's
 job, not ours. **Strata is not a substitute for full-disk encryption.**
 
+### Deleting text from a shared (collaborative) layer
+
+A collaborative layer is a CRDT (M9, [ADR-0006](docs/adr/0006-crdt-selection.md)). Deleting text there
+does **not** erase it immediately: a CRDT retains deleted content as a tombstone until the document is
+**compacted**, so recently-deleted text may persist in the layer's (encrypted) update history for a
+while. It is never plaintext on disk — every update is sealed under the layer key — and the relay only
+ever sees ciphertext. But if you need a specific passage *gone*, delete it and then run compaction;
+until then, treat it as still present in the history. This applies only to shared layers; a personal
+private layer has no CRDT and no tombstones.
+
 ---
 
 ## Non-negotiable security rules

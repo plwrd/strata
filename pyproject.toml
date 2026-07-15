@@ -13,6 +13,7 @@ authors = [{ name = "pluto", email = "valcano103@gmail.com" }]
 
 dependencies = [
     "PySide6==6.8.1",
+    "pycrdt==0.14.1",
     "pydantic==2.10.4",
     "cryptography==44.0.0",
     "argon2-cffi==23.1.0",

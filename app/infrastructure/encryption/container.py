@@ -59,9 +59,22 @@ TYPE_NOTE: Final = 2
 TYPE_ATTACHMENT: Final = 3
 TYPE_INDEX: Final = 4
 TYPE_EMBEDDING: Final = 5
+# M9: a CRDT update object (a Yjs binary update, sealed) and a compacted CRDT
+# base state. Distinct types so a note can never be served as a CRDT update or
+# vice versa, and so the relay's blobs are typed at the AAD.
+TYPE_CRDT_UPDATE: Final = 6
+TYPE_CRDT_STATE: Final = 7
 
 OBJECT_TYPES: Final = frozenset(
-    {TYPE_MANIFEST, TYPE_NOTE, TYPE_ATTACHMENT, TYPE_INDEX, TYPE_EMBEDDING}
+    {
+        TYPE_MANIFEST,
+        TYPE_NOTE,
+        TYPE_ATTACHMENT,
+        TYPE_INDEX,
+        TYPE_EMBEDDING,
+        TYPE_CRDT_UPDATE,
+        TYPE_CRDT_STATE,
+    }
 )
 
 _HEADER_STRUCT: Final = struct.Struct(">7sBBBB16s16s24sI")

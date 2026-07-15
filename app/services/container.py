@@ -10,8 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.domain.collaboration import TreeNode
+from app.infrastructure.crdt.relay import DirectoryRelay
 from app.services.ai_generation_service import AIGenerationService
 from app.services.ai_service import AIService
+from app.services.collaboration_service import CollaborationService
 from app.services.context_export_service import ContextExportService
 from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
@@ -68,6 +71,7 @@ class Services:
         self.ai_generation = AIGenerationService(self.ai)
         self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()
+        self.collaboration = self._build_collaboration()
 
         # Any change on disk invalidates the indexes. Rebuilding is lazy, so this is
         # a flag, not a rebuild — the cost lands on the next search, off the write.
@@ -81,6 +85,57 @@ class Services:
     def _forget_private_state(self, layer_id: str) -> None:
         """Drop everything derived from a layer that has just locked."""
         self.search.forget_layer(layer_id)
+        self.collaboration.forget_layer(layer_id)
+
+    def _build_collaboration(self) -> CollaborationService:
+        """Wire the collaboration service to the workspace and key holder.
+
+        The relay is a persistent shared-directory relay under the data dir: it
+        forwards only sealed blobs, so two Strata instances that see the same
+        directory (a synced folder, a LAN mount) converge. A hosted network relay
+        would implement the same interface; it is future work, not more trust.
+        """
+
+        def key_for(layer_id: str) -> bytes:
+            return self.encryption.keys.key_for(layer_id)
+
+        def doc_root_for(layer_id: str) -> Path:
+            return self.workspace.layer_root(layer_id) / "crdt"
+
+        def ensure_readable(layer_id: str) -> None:
+            self.workspace.require_readable_layer(layer_id)
+
+        def seed_content(layer_id: str) -> tuple[list[TreeNode], dict[str, str]]:
+            nodes: list[TreeNode] = [
+                TreeNode(
+                    node_id=folder.id,
+                    name=folder.name,
+                    parent=folder.parent_id,
+                    is_note=False,
+                )
+                for folder in self.notes.list_folders([layer_id])
+            ]
+            bodies: dict[str, str] = {}
+            for note in self.notes.list_notes([layer_id]):
+                nodes.append(
+                    TreeNode(
+                        node_id=note.metadata.id,
+                        name=note.metadata.title,
+                        parent=note.metadata.parent_id,
+                        is_note=True,
+                    )
+                )
+                bodies[note.metadata.id] = note.content
+            return nodes, bodies
+
+        relay = DirectoryRelay(self.paths.data_dir / "relay")
+        return CollaborationService(
+            key_for=key_for,
+            doc_root_for=doc_root_for,
+            ensure_readable=ensure_readable,
+            seed_content=seed_content,
+            relay=relay,
+        )
 
     @property
     def is_development(self) -> bool:
