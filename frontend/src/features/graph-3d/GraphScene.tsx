@@ -21,6 +21,13 @@ import * as THREE from "three";
 import type { GraphSnapshot } from "../../bridge/types";
 import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
+import { EdgeParticles, NodeGlow, NodeLabels, Starfield } from "./effects";
+import {
+  buildEdgeParticles,
+  buildNodeGlow,
+  buildStarfield,
+  pickLabelled,
+} from "./galaxy";
 
 interface SceneProps {
   graph: GraphSnapshot;
@@ -28,10 +35,25 @@ interface SceneProps {
   selectedIds: string[];
   hoveredId: string | null;
   reducedMotion: boolean;
+  /** From settings: flow particles + star drift on/off. */
+  particles?: boolean;
+  /** From settings: scales the additive glow (our bloom). */
+  bloom?: boolean;
+  quality?: "high" | "balanced" | "low-gpu";
   onSelect: (id: string, modifiers: { ctrl: boolean; shift: boolean }) => void;
   onHover: (id: string | null) => void;
   onOpen: (id: string) => void;
 }
+
+// Everything in the scene lives at layout coordinates * SCALE.
+const SCALE = 0.1;
+
+// Budgets by quality tier. The galaxy must degrade gracefully, not disappear.
+const TIERS = {
+  high: { stars: 2200, labels: 22, perEdge: 3, particleCap: 6000 },
+  balanced: { stars: 1200, labels: 14, perEdge: 2, particleCap: 3000 },
+  "low-gpu": { stars: 0, labels: 8, perEdge: 0, particleCap: 0 },
+} as const;
 
 const UP = new THREE.Object3D();
 
@@ -194,7 +216,52 @@ function CameraRig({ nodeCount }: { nodeCount: number }): null {
 }
 
 export function GraphScene(props: SceneProps): JSX.Element {
-  const { graph, reducedMotion } = props;
+  const {
+    graph,
+    positions,
+    selectedIds,
+    hoveredId,
+    reducedMotion,
+    particles = true,
+    bloom = true,
+    quality = "balanced",
+  } = props;
+  const tier = TIERS[quality];
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  const starfield = useMemo(
+    () => (tier.stars > 0 ? buildStarfield(tier.stars, 160, 340) : null),
+    [tier.stars],
+  );
+
+  const glow = useMemo(
+    () => buildNodeGlow(graph.nodes, positions, selected, SCALE),
+    [graph.nodes, positions, selected],
+  );
+
+  // Flow particles cost a mount, so they honour both the setting and reduced
+  // motion: a static dot mid-edge is noise, not information.
+  const flow = useMemo(
+    () =>
+      particles && !reducedMotion && tier.perEdge > 0
+        ? buildEdgeParticles(
+            graph.edges,
+            positions,
+            selected,
+            SCALE,
+            tier.perEdge,
+            tier.particleCap,
+          )
+        : null,
+    [graph.edges, positions, selected, particles, reducedMotion, tier],
+  );
+
+  const labelled = useMemo(
+    () =>
+      pickLabelled(graph.nodes, positions, selected, hoveredId, tier.labels),
+    [graph.nodes, positions, selected, hoveredId, tier.labels],
+  );
+
   return (
     <Canvas
       camera={{ fov: 55, near: 0.1, far: 4000, position: [0, 0, 40] }}
@@ -211,17 +278,33 @@ export function GraphScene(props: SceneProps): JSX.Element {
       <pointLight position={[30, 30, 30]} intensity={1.1} />
       <pointLight position={[-30, -20, -20]} intensity={0.5} color="#a06bff" />
       <CameraRig nodeCount={graph.nodes.length} />
+      {starfield && (
+        <Starfield data={starfield} reducedMotion={reducedMotion} />
+      )}
       <Edges
         graph={graph}
-        positions={props.positions}
+        positions={positions}
         selectedIds={props.selectedIds}
       />
+      {flow && <EdgeParticles data={flow} />}
+      <NodeGlow data={glow} reducedMotion={reducedMotion} bloom={bloom} />
       <Nodes {...props} />
+      <NodeLabels
+        nodes={labelled}
+        positions={positions}
+        selectedIds={selected}
+        hoveredId={hoveredId}
+        scale={SCALE}
+      />
       <OrbitControls
         enableDamping={!reducedMotion}
         dampingFactor={0.08}
         rotateSpeed={0.7}
         zoomSpeed={0.9}
+        // The idle galaxy drifts; the moment something is selected (or motion is
+        // reduced) it holds still and lets the user work.
+        autoRotate={!reducedMotion && selectedIds.length === 0}
+        autoRotateSpeed={0.35}
         makeDefault
       />
     </Canvas>

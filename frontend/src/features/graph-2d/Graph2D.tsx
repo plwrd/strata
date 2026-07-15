@@ -9,7 +9,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphSnapshot } from "../../bridge/types";
-import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
+import {
+  edgeColor,
+  glowColor,
+  nodeColor,
+  nodeRadius,
+} from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
 
 interface Graph2DProps {
@@ -114,10 +119,15 @@ export function Graph2D({
       const [x, y] = project(point, clientWidth, clientHeight);
       const radius = nodeRadius(node) * (isSelected ? 1.4 : 1) * 1.8;
 
+      // The same glow language as the 3D galaxy: a halo in the node's own hue,
+      // shifting to ignition-gold when selected.
+      context.shadowColor = glowColor(node, isSelected);
+      context.shadowBlur = isSelected ? 22 : 10;
       context.fillStyle = nodeColor(node, isSelected);
       context.beginPath();
       context.arc(x, y, radius, 0, Math.PI * 2);
       context.fill();
+      context.shadowBlur = 0;
 
       if (isSelected) {
         context.strokeStyle = "#ffffff";
