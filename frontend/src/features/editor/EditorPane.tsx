@@ -9,6 +9,7 @@
  */
 
 import { useMemo } from "react";
+import { useCollabText } from "../collaboration/useCollabText";
 import { useStore, type ViewMode } from "../../state/store";
 import { MarkdownEditor, type EditorSuggestions } from "./MarkdownEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
@@ -56,6 +57,12 @@ export function EditorPane(): JSX.Element {
     }
     return index;
   }, [tree]);
+
+  // If the open note lives in a shared layer, bind the editor to the collaborative
+  // document; otherwise this is null and the editor stays in ordinary local mode.
+  const layerId = openNote?.metadata.layer_id ?? null;
+  const shared = layerId ? (state.collab[layerId]?.enabled ?? false) : false;
+  const collab = useCollabText(layerId, activeNoteId, shared);
 
   if (!openNote || !activeNoteId) {
     return (
@@ -157,6 +164,7 @@ export function EditorPane(): JSX.Element {
             noteId={activeNoteId}
             initialContent={openNote.content}
             suggestions={suggestions}
+            collab={collab}
             onChange={(value) => state.setDraft(activeNoteId, value)}
             onSave={(value) => void state.saveNote(activeNoteId, value)}
           />

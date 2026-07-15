@@ -10,6 +10,7 @@
 
 import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
+import { dropSession } from "../features/collaboration/collabDoc";
 import type {
   AIStreamEvent,
   AppSettings,
@@ -744,6 +745,7 @@ export const useStore = create<StrataState>((set, get) => ({
       )
       .map((layer) => layer.id);
     await bridge.layers.lockAll();
+    locked.forEach((layerId) => dropSession(layerId));
     locked.forEach((layerId) => get().forgetPrivateState(layerId));
     await get().afterLockStateChanged();
   },
@@ -978,6 +980,7 @@ export const useStore = create<StrataState>((set, get) => ({
 
   async leaveCollab(layerId) {
     const { state } = await bridge.collaboration.leave(layerId);
+    dropSession(layerId); // tear down the client Y.Doc for this layer
     set((s) => ({
       collab: { ...s.collab, [layerId]: state },
       collabConflicts: { ...s.collabConflicts, [layerId]: [] },

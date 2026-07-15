@@ -562,6 +562,20 @@ export const bridge = {
       call<{ state: CollaborationState }>("collaboration", "get_status", {
         layer_id,
       }),
+    // The full authoritative document as a base64 Yjs update, for the renderer's
+    // client Doc to load (idempotent to re-apply).
+    getDocument: (layer_id: string) =>
+      call<{ update: string }>("collaboration", "get_document", { layer_id }),
+    // A base64 Yjs update the renderer's editor produced.
+    applyUpdate: (layer_id: string, update: string) =>
+      call<{ state: CollaborationState; conflicts: ConflictRecord[] }>(
+        "collaboration",
+        "apply_update",
+        { layer_id, update },
+      ),
+    // Remote changes, conflicts, and presence updates are pushed here.
+    onEvent: (listener: (payload: string) => void) =>
+      subscribe("collaboration", "collabEvent", listener),
     share: (layer_id: string, role: ShareRole = "owner") =>
       call<{ state: CollaborationState }>("collaboration", "share_layer", {
         layer_id,
