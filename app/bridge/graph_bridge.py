@@ -117,8 +117,6 @@ class GraphBridge(QObject):
             return NeighboursResponse(node_ids=[request.node_id])
         return NeighboursResponse(
             node_ids=[
-                object_id
-                for object_id, cluster in clusters.items()
-                if cluster == target_cluster
+                object_id for object_id, cluster in clusters.items() if cluster == target_cluster
             ]
         )

@@ -153,12 +153,8 @@ class GraphService:
             # explicit link. They stay within readable layers by construction (the
             # similarity source only sees readable notes).
             note_ids = {note.metadata.id for note in notes}
-            seen_pairs = {
-                frozenset((edge.source, edge.target)) for edge in edges
-            }
-            for source_id, target_id, score in self._similarity(
-                list(note_ids), semantic_threshold
-            ):
+            seen_pairs = {frozenset((edge.source, edge.target)) for edge in edges}
+            for source_id, target_id, score in self._similarity(list(note_ids), semantic_threshold):
                 if source_id == target_id or frozenset((source_id, target_id)) in seen_pairs:
                     continue
                 if source_id not in nodes or target_id not in nodes:

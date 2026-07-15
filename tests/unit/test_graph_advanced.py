@@ -56,8 +56,7 @@ def test_semantic_edges_do_not_duplicate_an_explicit_link(workspace: Services) -
         semantic_for_pair = [
             edge
             for edge in snapshot.edges
-            if frozenset((edge.source, edge.target)) == pair
-            and edge.type == "semantic_similarity"
+            if frozenset((edge.source, edge.target)) == pair and edge.type == "semantic_similarity"
         ]
         assert semantic_for_pair == []
     assert len(pairs) >= len(explicit_pairs)
