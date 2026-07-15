@@ -493,6 +493,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_lens_id: "lens_all",
           last_workspace_path: "",
           developer_tools: false,
+          relay_url: "",
         },
       }),
       update_settings: (payload) => ({
@@ -508,6 +509,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_lens_id: "lens_all",
           last_workspace_path: "",
           developer_tools: false,
+          relay_url: "",
           ...(payload["values"] as object),
         },
       }),

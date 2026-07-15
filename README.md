@@ -226,6 +226,23 @@ strata/
 
 ---
 
+## Collaboration relay (self-hosted)
+
+Collaboration syncs through a **relay** — a dumb forwarder of already-encrypted
+blobs that never holds a key or sees plaintext ([ADR-0006](docs/adr/0006-crdt-selection.md)).
+By default peers sync through a shared folder (a synced directory or LAN mount).
+To collaborate across the internet, run the bundled relay on any host both peers
+can reach:
+
+```
+python -m app.infrastructure.crdt.relay_server --host 0.0.0.0 --port 8787
+```
+
+Then set **Sync relay** in the Collaboration panel (or the `relay_url` setting) to
+`https://your-host:8787/`. Put TLS in front in production: the relay only ever
+handles ciphertext, but TLS also hides blob sizes and timing from the network
+path. The relay is untrusted by design — it cannot read anything it forwards.
+
 ## Documentation
 
 | Document | What it covers |

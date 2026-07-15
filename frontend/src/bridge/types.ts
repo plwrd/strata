@@ -633,6 +633,7 @@ export interface AppSettings {
   default_lens_id: string;
   last_workspace_path: string;
   developer_tools: boolean;
+  relay_url: string;
 }
 
 export interface JobRecord {
