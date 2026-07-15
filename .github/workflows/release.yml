@@ -167,7 +167,7 @@ jobs:
         with:
           path: artifacts
       - name: Attach artifacts to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: artifacts/**/*
           fail_on_unmatched_files: false
