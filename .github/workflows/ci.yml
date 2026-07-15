@@ -109,6 +109,15 @@ jobs:
           name: frontend-dist
           path: frontend/dist
 
+      # qwebchannel.js is generated from the installed Qt (it is gitignored and
+      # matches the Qt version at runtime), so the Node-only frontend job cannot
+      # produce it. Extract it here and place it beside the bundle, where the
+      # strata:// scheme handler serves index.html's `<script src="./qwebchannel.js">`.
+      - name: Extract the Qt WebChannel client into the bundle
+        run: |
+          python scripts/sync_qwebchannel.py
+          cp frontend/public/qwebchannel.js frontend/dist/qwebchannel.js
+
       # Loads the real bundle over strata:// inside Qt WebEngine and round-trips a
       # WebChannel call into Python. Without this, "it builds" would be the only
       # thing CI actually proved.
