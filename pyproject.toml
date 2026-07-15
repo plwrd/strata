@@ -23,7 +23,7 @@ dependencies = [
     "keyring==25.7.0",
     "watchdog==6.0.0",
     "httpx==0.28.1",
-    "structlog==24.4.0",
+    "structlog==26.1.0",
     "PyYAML==6.0.3",
 ]
 
