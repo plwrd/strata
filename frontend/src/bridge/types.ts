@@ -650,3 +650,39 @@ export interface JobRecord {
   error_code: string | null;
   error_message: string | null;
 }
+
+// --- Collaboration (M9) -------------------------------------------------
+
+export type ShareRole = "owner" | "editor" | "viewer";
+
+export type ConflictKind = "move_cycle" | "move_vs_delete" | "edit_vs_delete";
+
+export interface PresencePeer {
+  peer_id: string;
+  display_name: string;
+  color: string;
+  active_note_id: string | null;
+  cursor: number | null;
+}
+
+export interface ConflictRecord {
+  conflict_id: string;
+  kind: ConflictKind;
+  node_ids: string[];
+  peers: string[];
+  detected_at: string;
+  previous_parent: string | null;
+  summary: string;
+  resolved: boolean;
+}
+
+export interface CollaborationState {
+  layer_id: string | null;
+  mode: "personal" | "shared";
+  enabled: boolean;
+  role: ShareRole;
+  doc_id: string | null;
+  peers: PresencePeer[];
+  pending_conflicts: number;
+  uncompacted_updates: number;
+}

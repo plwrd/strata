@@ -19,11 +19,11 @@ because time passed.
 | M2 | Public Markdown workspace | Planned |
 | M3 | Private encrypted layers | Planned |
 | M4 | Search & indexes | Planned |
-| M5 | 2D/3D graph | Planned |
+| M5 | 2D/3D graph | Shipped (v0.1.0) |
 | M6 | AI Context Composer & export | Planned |
 | M7 | AI providers | Planned |
 | M8 | Transactional AI operations | Planned |
-| M9 | Collaboration | Planned |
+| M9 | Collaboration | Shipped (v0.2.0) |
 | M10 | Structured views | Planned |
 | M11 | Production hardening | Planned |
 
