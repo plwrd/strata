@@ -1,13 +1,16 @@
 # ADR-0006: CRDT selection (Yjs semantics via `pycrdt`)
 
-**Status:** Accepted (provisional), 2026-07-14
+**Status:** Accepted (validated), 2026-07-14 · spike passed in M9
 
-> **Provisional** means: this is a design-time decision made now, in M0, because it constrains the
-> storage format (ADR-0004), the bridge protocol (ADR-0003), and the editor integration (ADR-0002) —
-> all of which ship long before collaboration does. It has **not** been validated against a working
-> multi-peer spike. A validation spike is scheduled as the first task of **M9** (see "Validation spike"
-> below). If the spike fails, this ADR is superseded, and the cost of that is bounded to the M9
-> transport and merge layers because nothing before M9 depends on the *specific* CRDT library.
+> Was provisional through M0–M8; the M9 validation spike has now run and passed, so this ADR is
+> **confirmed**. `pycrdt==0.14.1` is adopted. The spike lives as executable exit criteria in
+> `tests/unit/test_crdt_spike.py` — two- and three-peer convergence (including a peer that goes
+> offline), a 5,000-node backlog merging well under the 2 s budget, all three conflict classes
+> detectable post-merge, order-independence/idempotency, and sealed-update security
+> (`tests/security/test_crdt_encryption.py`). The implementation is `app/infrastructure/crdt/`
+> (document, updates, store, conflicts, relay) with `app/services/collaboration_service.py`
+> orchestrating share/join/sync/rescue over an untrusted relay. If any exit criterion later regresses,
+> the fallback remains Automerge; nothing before M9 depends on the specific library.
 
 ## Context
 

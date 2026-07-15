@@ -13,6 +13,8 @@ import { bridge, BridgeCallError } from "../bridge/client";
 import type {
   AIStreamEvent,
   AppSettings,
+  CollaborationState,
+  ConflictRecord,
   ContentMode,
   ContextDepth,
   ContextPlan,
@@ -81,6 +83,10 @@ interface StrataState {
   // graph display options
   semanticEdges: boolean;
   clusterColors: boolean;
+
+  // collaboration (M9)
+  collab: Record<string, CollaborationState>;
+  collabConflicts: Record<string, ConflictRecord[]>;
 
   // selection — the single source of truth for "what the AI would see"
   selectedIds: string[];
@@ -214,6 +220,17 @@ interface StrataState {
   setSemanticEdges: (on: boolean) => Promise<void>;
   setClusterColors: (on: boolean) => Promise<void>;
 
+  loadCollab: (layerId: string) => Promise<void>;
+  shareLayer: (layerId: string) => Promise<void>;
+  joinLayer: (layerId: string, docId: string) => Promise<void>;
+  leaveCollab: (layerId: string) => Promise<void>;
+  syncCollab: (layerId: string) => Promise<void>;
+  resolveConflict: (
+    layerId: string,
+    conflictId: string,
+    action: "keep" | "confirm_delete",
+  ) => Promise<void>;
+
   runSearch: (query: string) => Promise<void>;
   selectSearchResults: () => void;
   setSemanticSearch: (enabled: boolean) => Promise<void>;
@@ -275,6 +292,9 @@ export const useStore = create<StrataState>((set, get) => ({
   activeLensId: "lens_all",
   semanticEdges: false,
   clusterColors: false,
+
+  collab: {},
+  collabConflicts: {},
 
   ...initialSelection,
   hoveredId: null,
@@ -930,6 +950,57 @@ export const useStore = create<StrataState>((set, get) => ({
   async setClusterColors(on) {
     set({ clusterColors: on });
     await get().reloadGraph();
+  },
+
+  async loadCollab(layerId) {
+    try {
+      const { state } = await bridge.collaboration.status(layerId);
+      const { conflicts } = await bridge.collaboration.listConflicts(layerId);
+      set((s) => ({
+        collab: { ...s.collab, [layerId]: state },
+        collabConflicts: { ...s.collabConflicts, [layerId]: conflicts },
+      }));
+    } catch {
+      // status is safe to call on any readable layer; a locked one just stays absent.
+    }
+  },
+
+  async shareLayer(layerId) {
+    const { state } = await bridge.collaboration.share(layerId, "owner");
+    set((s) => ({ collab: { ...s.collab, [layerId]: state } }));
+  },
+
+  async joinLayer(layerId, docId) {
+    const { state } = await bridge.collaboration.join(layerId, docId, "editor");
+    set((s) => ({ collab: { ...s.collab, [layerId]: state } }));
+    await get().loadCollab(layerId);
+  },
+
+  async leaveCollab(layerId) {
+    const { state } = await bridge.collaboration.leave(layerId);
+    set((s) => ({
+      collab: { ...s.collab, [layerId]: state },
+      collabConflicts: { ...s.collabConflicts, [layerId]: [] },
+    }));
+  },
+
+  async syncCollab(layerId) {
+    const { state, conflicts } = await bridge.collaboration.sync(layerId);
+    set((s) => ({
+      collab: { ...s.collab, [layerId]: state },
+      collabConflicts: { ...s.collabConflicts, [layerId]: conflicts },
+    }));
+    await get().loadCollab(layerId);
+  },
+
+  async resolveConflict(layerId, conflictId, action) {
+    const { state } = await bridge.collaboration.resolveConflict(
+      layerId,
+      conflictId,
+      action,
+    );
+    set((s) => ({ collab: { ...s.collab, [layerId]: state } }));
+    await get().loadCollab(layerId);
   },
 
   async runSearch(query) {

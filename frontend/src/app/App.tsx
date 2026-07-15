@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { AIComposerPanel } from "../features/ai-composer/AIComposerPanel";
+import { CollaborationPanel } from "../features/collaboration/CollaborationPanel";
 import { EditorPane } from "../features/editor/EditorPane";
 import { FileTree } from "../features/explorer/FileTree";
 import { LinksPanel } from "../features/links/LinksPanel";
@@ -131,6 +132,7 @@ export function App(): JSX.Element {
             <LayerPanel />
             <FileTree />
             <SearchPanel />
+            <CollaborationPanel />
             {state.graph && (
               <GraphList
                 graph={state.graph}

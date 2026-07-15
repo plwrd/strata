@@ -73,6 +73,10 @@ class WorkspaceService:
             raise NotFoundError("No workspace is open.")
         return self._store.root
 
+    def layer_root(self, layer_id: str) -> Path:
+        """The on-disk root for a layer's objects. Used by collaboration (M9)."""
+        return self._require_store().layer_root(layer_id)
+
     def _require_store(self) -> WorkspaceStore:
         if self._store is None:
             raise NotFoundError("No workspace is open.")

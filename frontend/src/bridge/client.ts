@@ -10,10 +10,14 @@
 
 import type {
   BridgeError,
+  CollaborationState,
+  ConflictRecord,
   ContentMode,
   ContextDepth,
   ContextPlan,
   ErrorCode,
+  PresencePeer,
+  ShareRole,
   ExportResult,
   ExportShape,
   ExportTarget,
@@ -554,13 +558,58 @@ export const bridge = {
   },
 
   collaboration: {
-    status: () =>
-      call<{
-        mode: string;
-        enabled: boolean;
-        peers_online: number;
-        note: string;
-      }>("collaboration", "get_status"),
+    status: (layer_id: string) =>
+      call<{ state: CollaborationState }>("collaboration", "get_status", {
+        layer_id,
+      }),
+    share: (layer_id: string, role: ShareRole = "owner") =>
+      call<{ state: CollaborationState }>("collaboration", "share_layer", {
+        layer_id,
+        role,
+      }),
+    join: (layer_id: string, doc_id: string, role: ShareRole = "editor") =>
+      call<{ state: CollaborationState }>("collaboration", "join_layer", {
+        layer_id,
+        doc_id,
+        role,
+      }),
+    leave: (layer_id: string) =>
+      call<{ state: CollaborationState }>("collaboration", "leave_layer", {
+        layer_id,
+      }),
+    sync: (layer_id: string) =>
+      call<{ state: CollaborationState; conflicts: ConflictRecord[] }>(
+        "collaboration",
+        "sync",
+        { layer_id },
+      ),
+    listConflicts: (layer_id: string) =>
+      call<{ state: CollaborationState; conflicts: ConflictRecord[] }>(
+        "collaboration",
+        "list_conflicts",
+        { layer_id },
+      ),
+    resolveConflict: (
+      layer_id: string,
+      conflict_id: string,
+      action: "keep" | "confirm_delete",
+    ) =>
+      call<{ state: CollaborationState }>("collaboration", "resolve_conflict", {
+        layer_id,
+        conflict_id,
+        action,
+      }),
+    presence: (layer_id: string) =>
+      call<{ peers: PresencePeer[] }>("collaboration", "get_presence", {
+        layer_id,
+      }),
+    announce: (layer_id: string, peer: PresencePeer) =>
+      call<{ peers: PresencePeer[] }>("collaboration", "announce_presence", {
+        layer_id,
+        peer,
+      }),
+    compact: (layer_id: string) =>
+      call<{ reclaimed: number }>("collaboration", "compact", { layer_id }),
   },
 };
 

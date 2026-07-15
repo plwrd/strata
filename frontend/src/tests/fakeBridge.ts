@@ -55,6 +55,136 @@ export const SAMPLE_GRAPH: GraphSnapshot = {
   locked_layer_ids: ["layer_p"],
 };
 
+interface FakeCollabState {
+  layer_id: string;
+  mode: "personal" | "shared";
+  enabled: boolean;
+  role: "owner" | "editor" | "viewer";
+  doc_id: string | null;
+  peers: {
+    peer_id: string;
+    display_name: string;
+    color: string;
+    active_note_id: string | null;
+    cursor: number | null;
+  }[];
+  pending_conflicts: number;
+  uncompacted_updates: number;
+}
+
+function personal(layerId: string): FakeCollabState {
+  return {
+    layer_id: layerId,
+    mode: "personal",
+    enabled: false,
+    role: "owner",
+    doc_id: null,
+    peers: [],
+    pending_conflicts: 0,
+    uncompacted_updates: 0,
+  };
+}
+
+/** A stateful in-memory collaboration fake, enough to drive the panel's flow. */
+function makeCollaboration(): Record<
+  string,
+  (payload: Record<string, unknown>) => unknown
+> {
+  const states = new Map<string, FakeCollabState>();
+  const conflicts = new Map<string, unknown[]>();
+
+  // A layer id containing "conflict" starts already shared with one surfaced
+  // conflict, so a test can exercise the conflict surface without a live merge.
+  const seedConflict = (layerId: string): void => {
+    if (!layerId.includes("conflict") || states.has(layerId)) return;
+    states.set(layerId, {
+      ...personal(layerId),
+      mode: "shared",
+      enabled: true,
+      doc_id: "doc-conflict",
+      pending_conflicts: 1,
+      uncompacted_updates: 4,
+    });
+    conflicts.set(layerId, [
+      {
+        conflict_id: "c1",
+        kind: "move_vs_delete",
+        node_ids: ["N"],
+        peers: ["remote"],
+        detected_at: "",
+        previous_parent: null,
+        summary:
+          "“Interview” was moved into a folder that another peer deleted.",
+        resolved: false,
+      },
+    ]);
+  };
+
+  const stateOf = (layerId: string): FakeCollabState => {
+    seedConflict(layerId);
+    return states.get(layerId) ?? personal(layerId);
+  };
+
+  return {
+    get_status: (p) => ({ state: stateOf(p["layer_id"] as string) }),
+    share_layer: (p) => {
+      const layerId = p["layer_id"] as string;
+      const state: FakeCollabState = {
+        ...personal(layerId),
+        mode: "shared",
+        enabled: true,
+        role: "owner",
+        doc_id: "doc-abc123",
+        uncompacted_updates: 1,
+      };
+      states.set(layerId, state);
+      return { state };
+    },
+    join_layer: (p) => {
+      const layerId = p["layer_id"] as string;
+      const state: FakeCollabState = {
+        ...personal(layerId),
+        mode: "shared",
+        enabled: true,
+        role: "editor",
+        doc_id: p["doc_id"] as string,
+      };
+      states.set(layerId, state);
+      return { state };
+    },
+    leave_layer: (p) => {
+      const layerId = p["layer_id"] as string;
+      states.set(layerId, personal(layerId));
+      conflicts.set(layerId, []);
+      return { state: personal(layerId) };
+    },
+    sync: (p) => {
+      const layerId = p["layer_id"] as string;
+      return {
+        state: stateOf(layerId),
+        conflicts: conflicts.get(layerId) ?? [],
+      };
+    },
+    list_conflicts: (p) => {
+      const layerId = p["layer_id"] as string;
+      return {
+        state: stateOf(layerId),
+        conflicts: conflicts.get(layerId) ?? [],
+      };
+    },
+    resolve_conflict: (p) => {
+      const layerId = p["layer_id"] as string;
+      conflicts.set(layerId, []);
+      return { state: stateOf(layerId) };
+    },
+    get_presence: (p) => ({ peers: stateOf(p["layer_id"] as string).peers }),
+    announce_presence: (p) => ({
+      peers: stateOf(p["layer_id"] as string).peers,
+    }),
+    compact: () => ({ reclaimed: 1 }),
+  };
+}
+
 function node(
   id: string,
   label: string,
@@ -350,6 +480,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         node_ids: [payload["node_id"], "n2"],
       }),
     },
+    collaboration: makeCollaboration(),
     notes: {
       get_tree: () => ({
         folders: [
