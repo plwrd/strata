@@ -62,6 +62,19 @@ export function nodeColor(node: GraphNode, selected: boolean): string {
   return cssToken(TOKEN_BY_TYPE[node.type] ?? "--graph-node-default");
 }
 
+/**
+ * The halo around a node. Unselected nodes glow in their own hue (the galaxy);
+ * a selected node's glow shifts to ignition-gold — a colour deliberately absent
+ * from the node palette, so selection reads instantly at any zoom.
+ */
+export function glowColor(node: GraphNode, selected: boolean): string {
+  if (selected) return cssToken("--graph-glow-selected", "#ffcf6b");
+  if (node.locked) return cssToken("--graph-node-locked", "#47506a");
+  if (node.cluster >= 0)
+    return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;
+  return cssToken(TOKEN_BY_TYPE[node.type] ?? "--graph-node-default");
+}
+
 /** Degree-scaled radius, clamped so one hub cannot dominate the view. */
 export function nodeRadius(node: GraphNode): number {
   if (node.type === "tag") return 1.4;
