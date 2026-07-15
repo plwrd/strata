@@ -37,7 +37,10 @@ def safe_filename(name: str) -> str:
     # but leaves a traversal token in a name that later code may split again.
     while ".." in name:
         name = name.replace("..", "-")
-    name = name.strip("-. ")
+    # Strip sanitizer tokens *and* any Unicode whitespace (e.g. a non-breaking
+    # space) from both ends — \s in a str regex is Unicode-aware — so a name never
+    # ends up with an invisible trailing character.
+    name = re.sub(r"^[-.\s]+|[-.\s]+$", "", name)
     if not name:
         # A name made only of dots, dashes and spaces is not a name. Refusing is
         # better than inventing one the user did not choose.
@@ -64,13 +67,17 @@ def resolve_within(root: Path, *parts: str) -> Path:
             or "\\" in part
             or ".." in Path(part).parts
             or ".." in windows.parts
+            # A NUL or other control character is never a legitimate component and
+            # makes the OS path resolver raise a raw ValueError; refuse it here so
+            # the failure is a typed Strata error, not an untyped crash.
+            or any(ord(ch) < 0x20 for ch in part)
         ):
             raise InvalidRequestError("Path is not permitted.")
     candidate = root.joinpath(*[p for p in parts if p])
     root_resolved = root.resolve()
     try:
         resolved = candidate.resolve()
-    except OSError as exc:  # pragma: no cover - platform dependent
+    except (OSError, ValueError) as exc:  # pragma: no cover - platform dependent
         raise InvalidRequestError("Path could not be resolved.") from exc
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise InvalidRequestError("Path escapes the workspace root.")
