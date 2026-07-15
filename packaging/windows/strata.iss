@@ -8,7 +8,7 @@
 ; SmartScreen, which is a security regression, not a papercut.
 
 #define AppName "Strata"
-#define AppVersion "0.1.0"
+#define AppVersion "1.0.0"
 #define AppPublisher "Strata"
 #define AppExeName "Strata.exe"
 
