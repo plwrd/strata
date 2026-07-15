@@ -18,6 +18,7 @@ from pycrdt import merge_updates
 
 from app.infrastructure.crdt.document import LayerDocument
 from app.infrastructure.crdt.updates import open_update, seal_update
+from app.infrastructure.storage.paths import replace_atomic
 
 
 class CRDTStore:
@@ -68,7 +69,7 @@ class CRDTStore:
         target = self._update_path(seq)
         tmp = self._dir / f".u{seq:016d}.tmp"
         tmp.write_bytes(blob)
-        tmp.replace(target)
+        replace_atomic(tmp, target)
         return seq
 
     # ---- reading ---------------------------------------------------------
@@ -174,7 +175,7 @@ class CRDTStore:
         )
         tmp = self._dir / f".base-{new_seq:016d}.tmp"
         tmp.write_bytes(blob)
-        tmp.replace(self._base_path(new_seq))
+        replace_atomic(tmp, self._base_path(new_seq))
 
         reclaimed = 0
         for seq in seqs:

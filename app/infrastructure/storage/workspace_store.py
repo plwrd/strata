@@ -25,7 +25,7 @@ from pydantic import ValidationError
 
 from app.domain.errors import InvalidRequestError, NotFoundError
 from app.domain.workspace import WORKSPACE_FORMAT_VERSION, WorkspaceDescriptor
-from app.infrastructure.storage.paths import resolve_within
+from app.infrastructure.storage.paths import replace_atomic, resolve_within
 
 WORKSPACE_FILE = "workspace.json"
 LAYERS_DIR = "layers"
@@ -95,4 +95,4 @@ class WorkspaceStore:
             encoding="utf-8",
             newline="\n",
         )
-        temporary.replace(self.descriptor_path)
+        replace_atomic(temporary, self.descriptor_path)

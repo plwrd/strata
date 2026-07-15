@@ -9,6 +9,7 @@ still be inside the root.
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from pathlib import Path, PureWindowsPath
 
@@ -82,3 +83,25 @@ def resolve_within(root: Path, *parts: str) -> Path:
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise InvalidRequestError("Path escapes the workspace root.")
     return resolved
+
+
+def replace_atomic(source: Path, target: Path, *, attempts: int = 8) -> None:
+    """``source.replace(target)`` with a bounded retry for Windows races.
+
+    On Windows, an antivirus scanner or the search indexer can hold a freshly
+    written file for a few milliseconds; ``os.replace`` then fails with
+    ``PermissionError`` (WinError 5/32) even though nothing is actually wrong.
+    Every atomic write in Strata goes through here so that transient hold is a
+    short wait, not a crash — while a *persistent* error still raises after the
+    final attempt, because masking a real permission problem would be worse.
+    """
+    delay = 0.01
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.2)

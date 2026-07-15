@@ -37,6 +37,7 @@ from app.infrastructure.encryption.container import (
     seal,
 )
 from app.infrastructure.encryption.primitives import DecryptionError
+from app.infrastructure.storage.paths import replace_atomic
 
 OBJECTS_DIR = "objects"
 MANIFEST_FORMAT_VERSION = 1
@@ -164,7 +165,7 @@ class EncryptedLayerStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
         temporary.write_bytes(blob)
-        temporary.replace(path)
+        replace_atomic(temporary, path)
 
     def _read_object(self, key: bytes, object_id: str, object_type: int) -> bytes:
         path = self._object_path(object_id)
