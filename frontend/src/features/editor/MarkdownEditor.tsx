@@ -27,7 +27,9 @@ import { searchKeymap } from "@codemirror/search";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import { yCollab } from "y-codemirror.next";
 import { useEffect, useRef } from "react";
+import type { CollabBinding } from "../collaboration/useCollabText";
 
 export interface EditorSuggestions {
   noteTitles: string[];
@@ -42,6 +44,8 @@ interface Props {
   onChange: (content: string) => void;
   onSave: (content: string) => void;
   readOnly?: boolean;
+  /** When set, the editor binds to a shared Y.Text and shows remote cursors. */
+  collab?: CollabBinding | null;
 }
 
 const AUTOSAVE_MS = 800;
@@ -244,6 +248,7 @@ export function MarkdownEditor({
   onChange,
   onSave,
   readOnly = false,
+  collab = null,
 }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -272,9 +277,15 @@ export function MarkdownEditor({
       onSaveRef.current(latest.current);
     };
 
+    // In collaborative mode the Y.Text is the source of truth for the initial
+    // content and for the undo history (yCollab supplies its own), so the editor
+    // starts from the shared text, not the local snapshot.
+    const startDoc = collab ? collab.text.toJSON() : initialContent;
+
     const state = EditorState.create({
-      doc: initialContent,
+      doc: startDoc,
       extensions: [
+        ...(collab ? [yCollab(collab.text, collab.awareness)] : []),
         history(),
         keymap.of([
           {
@@ -310,6 +321,10 @@ export function MarkdownEditor({
           latest.current = value;
           onChangeRef.current(value);
 
+          // Autosave runs in collaborative mode too: the CRDT syncs peers, while
+          // saving the (already-merged) body to the note store keeps search,
+          // graph, and export consistent. The two paths don't fight — the store
+          // write never feeds back into the CRDT.
           if (saveTimer.current !== null)
             window.clearTimeout(saveTimer.current);
           saveTimer.current = window.setTimeout(() => {
@@ -322,7 +337,7 @@ export function MarkdownEditor({
 
     const view = new EditorView({ state, parent: host });
     viewRef.current = view;
-    latest.current = initialContent;
+    latest.current = startDoc;
 
     return () => {
       // Never lose a pending edit to an unmount (tab switch, mode change, close).
@@ -335,9 +350,10 @@ export function MarkdownEditor({
       viewRef.current = null;
     };
     // Remounting per note is intentional: a new note is a new document and a new
-    // undo history.
+    // undo history. Also remount when the collab binding appears/changes, so the
+    // editor rebinds to the right shared Y.Text.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noteId, readOnly]);
+  }, [noteId, readOnly, collab]);
 
   return <div className="editor" ref={hostRef} data-testid="markdown-editor" />;
 }
