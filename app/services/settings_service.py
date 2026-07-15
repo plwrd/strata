@@ -36,6 +36,13 @@ class AppSettings(BaseModel):
     last_workspace_path: str = ""
     developer_tools: bool = False
 
+    # -- Collaboration -------------------------------------------------------
+    #
+    # When set to a relay URL (e.g. https://relay.example/), collaboration syncs
+    # over the network instead of the on-disk directory relay. The relay only ever
+    # sees ciphertext (ADR-0006); it is not a trusted party. Empty = local only.
+    relay_url: str = ""
+
     # -- AI ------------------------------------------------------------------
     #
     # Note what is NOT here: no API keys. Those live in the OS keychain, never in a
