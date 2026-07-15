@@ -288,19 +288,19 @@ would invalidate large parts of the threat model.
 
 ---
 
-## A-013 — Licensing: proprietary placeholder, decision deferred
+## A-013 — Licensing: MIT (resolved)
 
-**Status:** Open question — decide before first public release
+**Status:** Resolved — the project is released under the MIT License.
 
-**Decision (interim).** `pyproject.toml` declares `Proprietary`. This is a **placeholder to avoid
-accidentally granting rights we have not thought about**, not a considered position.
+**Decision.** The source ships under [MIT](LICENSE); `pyproject.toml` declares `MIT`. MIT was chosen
+over a copyleft or source-available licence so the format specs and reference reader can be reused
+without friction — a local-first tool whose storage format is legally encumbered would be a lock-in
+trap, contradicting the product's premise.
 
-**What must be settled before any public artifact ships:**
-- The license for the source (proprietary vs. source-available vs. an OSI license).
-- Whether the *format* specs (`docs/security/encryption-format.md`, `storage-layout.md`) are released
-  under a permissive license regardless — **they should be.** A local-first tool whose storage format
-  is legally encumbered is a lock-in trap, which contradicts the product's premise. Users must be able
-  to write their own reader.
+**Still worth tracking:**
+- Whether the *format* specs (`docs/security/encryption-format.md`, `storage-layout.md`) carry an
+  explicit permissive grant of their own — **they should**, so a third party can write an independent
+  reader without depending on the app's licence. Users must be able to read their own data.
 - Dependency license compatibility (PySide6 is LGPL/commercial-dual — dynamic linking and the ability
   to relink must be preserved, which PyInstaller's default packaging complicates and which must be
   reviewed before distribution).
@@ -383,7 +383,7 @@ honest and useful — a user who knows mtimes leak can decide whether that matte
 | A-010 | Offline-first; network opt-in per feature | Active |
 | A-011 | AI defaults to local/none; private layers `ask-each-time` | Active |
 | A-012 | Model cost provider-reported, never estimated; users bring their own keys | Active |
-| A-013 | Licensing placeholder | **Open — blocks release** |
+| A-013 | Licensing: MIT | Resolved |
 | A-014 | Public layers are externally editable and unencrypted | Active |
 | A-015 | Opaque random object ids | Active |
 | A-016 | Publish leakage; no "zero knowledge" claims | Active |

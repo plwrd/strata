@@ -11,10 +11,15 @@ be informative.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.domain.graph import GraphEdge, GraphNode, GraphSnapshot, NodeType
 from app.domain.note import Note
 from app.services.note_service import NoteService
 from app.services.workspace_service import WorkspaceService
+
+# (object ids, threshold) -> list of (source id, target id, similarity 0..1).
+SimilarityFn = Callable[[list[str], float], list[tuple[str, str, float]]]
 
 # A relationship label can itself be sensitive ("blocks", "contradicts" between a
 # public and a private note). Cross-boundary edges into locked layers are
@@ -33,9 +38,19 @@ class GraphMode:
 
 
 class GraphService:
-    def __init__(self, workspace: WorkspaceService, notes: NoteService) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceService,
+        notes: NoteService,
+        similarity: SimilarityFn | None = None,
+    ) -> None:
         self._workspace = workspace
         self._notes = notes
+        # Injected rather than imported: the graph does not depend on the search
+        # service, it just accepts "given these ids, which pairs are similar". That
+        # keeps graph extraction testable without an embedder, and keeps the two
+        # services decoupled (ADR-0010).
+        self._similarity = similarity
 
     def build(
         self,
@@ -46,6 +61,9 @@ class GraphService:
         focus_note_id: str | None = None,
         neighbour_depth: int = 1,
         node_limit: int = DEFAULT_NODE_LIMIT,
+        semantic_edges: bool = False,
+        semantic_threshold: float = 0.5,
+        cluster_assignments: dict[str, int] | None = None,
     ) -> GraphSnapshot:
         notes = self._notes.list_notes(layer_ids)
         title_index = NoteService.build_title_index(notes)
@@ -128,6 +146,39 @@ class GraphService:
                         origin="explicit",
                     )
                 )
+
+        if semantic_edges and self._similarity is not None:
+            # Semantic-similarity edges are *derived* — they carry origin="derived"
+            # so the renderer draws them distinctly, and they never overwrite an
+            # explicit link. They stay within readable layers by construction (the
+            # similarity source only sees readable notes).
+            note_ids = {note.metadata.id for note in notes}
+            seen_pairs = {frozenset((edge.source, edge.target)) for edge in edges}
+            for source_id, target_id, score in self._similarity(list(note_ids), semantic_threshold):
+                if source_id == target_id or frozenset((source_id, target_id)) in seen_pairs:
+                    continue
+                if source_id not in nodes or target_id not in nodes:
+                    continue
+                seen_pairs.add(frozenset((source_id, target_id)))
+                edges.append(
+                    GraphEdge(
+                        id=f"e_sem_{source_id}_{target_id}",
+                        source=source_id,
+                        target=target_id,
+                        type="semantic_similarity",
+                        relationship="similar_to",
+                        origin="derived",
+                        confidence=round(score, 3),
+                        weight=0.2 + score * 0.3,
+                    )
+                )
+
+        if cluster_assignments:
+            for node_id, node in nodes.items():
+                cluster = cluster_assignments.get(node_id)
+                if cluster is not None:
+                    # Stored on the node so the renderer can colour by cluster.
+                    node.cluster = cluster
 
         locked = self._workspace.locked_layers()
         for layer in locked:
@@ -235,3 +286,35 @@ class GraphService:
             elif edge.target == note_id and edge.source not in result:
                 result.append(edge.source)
         return result
+
+    @staticmethod
+    def shortest_path(snapshot: GraphSnapshot, source: str, target: str) -> list[str]:
+        """BFS shortest path between two nodes. Empty if they are unconnected.
+
+        Used by "select shortest path" and the presentation-path feature. A path
+        never crosses into a locked layer, because a locked layer contributes no
+        edges to the snapshot.
+        """
+        if source == target:
+            return [source]
+        adjacency: dict[str, list[str]] = {}
+        for edge in snapshot.edges:
+            adjacency.setdefault(edge.source, []).append(edge.target)
+            adjacency.setdefault(edge.target, []).append(edge.source)
+
+        previous: dict[str, str | None] = {source: None}
+        queue = [source]
+        while queue:
+            current = queue.pop(0)
+            if current == target:
+                path: list[str] = []
+                cursor: str | None = target
+                while cursor is not None:
+                    path.insert(0, cursor)
+                    cursor = previous.get(cursor)
+                return path
+            for neighbour in adjacency.get(current, []):
+                if neighbour not in previous:
+                    previous[neighbour] = current
+                    queue.append(neighbour)
+        return []

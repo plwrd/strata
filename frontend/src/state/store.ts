@@ -78,6 +78,10 @@ interface StrataState {
   settings: AppSettings | null;
   activeLensId: string;
 
+  // graph display options
+  semanticEdges: boolean;
+  clusterColors: boolean;
+
   // selection — the single source of truth for "what the AI would see"
   selectedIds: string[];
   lastAnchorId: string | null;
@@ -201,7 +205,14 @@ interface StrataState {
   deselect: (id: string) => void;
   clearSelection: () => void;
   selectNeighbours: (id: string) => Promise<void>;
+  selectCluster: (id: string) => Promise<void>;
+  selectConnected: (id: string) => void;
+  selectShortestPath: (fromId: string, toId: string) => Promise<void>;
+  selectByTag: (tag: string) => void;
+  selectByLayer: (layerId: string) => void;
   setHovered: (id: string | null) => void;
+  setSemanticEdges: (on: boolean) => Promise<void>;
+  setClusterColors: (on: boolean) => Promise<void>;
 
   runSearch: (query: string) => Promise<void>;
   selectSearchResults: () => void;
@@ -262,6 +273,8 @@ export const useStore = create<StrataState>((set, get) => ({
   dimension: "3d",
   settings: null,
   activeLensId: "lens_all",
+  semanticEdges: false,
+  clusterColors: false,
 
   ...initialSelection,
   hoveredId: null,
@@ -391,7 +404,10 @@ export const useStore = create<StrataState>((set, get) => ({
     set({ loadingGraph: true });
     try {
       const [{ graph }, tree] = await Promise.all([
-        bridge.graph.load({}),
+        bridge.graph.load({
+          semantic_edges: get().semanticEdges,
+          cluster: get().clusterColors,
+        }),
         bridge.notes.tree(),
       ]);
       set({ graph, tree, loadingGraph: false });
@@ -838,7 +854,83 @@ export const useStore = create<StrataState>((set, get) => ({
     }
   },
 
+  async selectCluster(id) {
+    try {
+      const { node_ids } = await bridge.graph.clusterOf(id);
+      get().selectMany(node_ids.length ? node_ids : [id]);
+    } catch (error) {
+      set({ planError: describeError(error) });
+    }
+  },
+
+  // Connected component: everything reachable from the node, computed on the
+  // client from the graph already in memory (no round trip needed).
+  selectConnected: (id) => {
+    const graph = get().graph;
+    if (!graph) return;
+    const adjacency = new Map<string, string[]>();
+    for (const edge of graph.edges) {
+      adjacency.set(edge.source, [
+        ...(adjacency.get(edge.source) ?? []),
+        edge.target,
+      ]);
+      adjacency.set(edge.target, [
+        ...(adjacency.get(edge.target) ?? []),
+        edge.source,
+      ]);
+    }
+    const seen = new Set<string>([id]);
+    const stack = [id];
+    while (stack.length) {
+      const current = stack.pop()!;
+      for (const neighbour of adjacency.get(current) ?? []) {
+        if (!seen.has(neighbour)) {
+          seen.add(neighbour);
+          stack.push(neighbour);
+        }
+      }
+    }
+    get().selectMany([...seen]);
+  },
+
+  async selectShortestPath(fromId, toId) {
+    try {
+      const { node_ids } = await bridge.graph.shortestPath(fromId, toId);
+      if (node_ids.length) get().selectMany(node_ids);
+    } catch (error) {
+      set({ planError: describeError(error) });
+    }
+  },
+
+  selectByTag: (tag) => {
+    const graph = get().graph;
+    if (!graph) return;
+    const ids = graph.nodes
+      .filter((node) => node.tags.includes(tag) && !node.locked)
+      .map((node) => node.id);
+    get().selectMany(ids);
+  },
+
+  selectByLayer: (layerId) => {
+    const graph = get().graph;
+    if (!graph) return;
+    const ids = graph.nodes
+      .filter((node) => node.layer_id === layerId && !node.locked)
+      .map((node) => node.id);
+    get().selectMany(ids);
+  },
+
   setHovered: (id) => set({ hoveredId: id }),
+
+  async setSemanticEdges(on) {
+    set({ semanticEdges: on });
+    await get().reloadGraph();
+  },
+
+  async setClusterColors(on) {
+    set({ clusterColors: on });
+    await get().reloadGraph();
+  },
 
   async runSearch(query) {
     set({ searchQuery: query, searching: true });

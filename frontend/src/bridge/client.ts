@@ -384,10 +384,21 @@ export const bridge = {
         layer_ids: string[] | null;
         include_tags: boolean;
         include_folders: boolean;
+        semantic_edges: boolean;
+        semantic_threshold: number;
+        cluster: boolean;
+        cluster_count: number;
       }> = {},
     ) => call<{ graph: GraphSnapshot }>("graph", "load_graph", options),
     neighbours: (node_id: string) =>
       call<{ node_ids: string[] }>("graph", "expand_neighbours", { node_id }),
+    shortestPath: (source_id: string, target_id: string) =>
+      call<{ node_ids: string[] }>("graph", "shortest_path", {
+        source_id,
+        target_id,
+      }),
+    clusterOf: (node_id: string) =>
+      call<{ node_ids: string[] }>("graph", "cluster_of", { node_id }),
   },
 
   search: {

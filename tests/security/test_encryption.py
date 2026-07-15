@@ -109,10 +109,16 @@ def test_the_error_never_says_why_it_failed() -> None:
     key = random_key()
     nonce, ciphertext = encrypt(key, PLAINTEXT, b"aad")
 
+    # Flip the last byte rather than overwrite it with a constant: setting it to
+    # 0x00 is a no-op on the ~1/256 of keys whose tag already ends in 0x00, which
+    # made this test spuriously pass corruption through and fail intermittently.
+    corrupted = bytearray(ciphertext)
+    corrupted[-1] ^= 0x01
+
     with pytest.raises(DecryptionError) as wrong_key:
         decrypt(random_key(), nonce, ciphertext, b"aad")
     with pytest.raises(DecryptionError) as corrupt:
-        decrypt(key, nonce, ciphertext[:-1] + b"\x00", b"aad")
+        decrypt(key, nonce, bytes(corrupted), b"aad")
 
     assert str(wrong_key.value) == str(corrupt.value)
 
