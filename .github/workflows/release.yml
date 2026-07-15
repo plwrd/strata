@@ -42,6 +42,11 @@ jobs:
   build:
     name: Installer (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Signing is enabled purely by the presence of the certificate secret. No
+    # secret → unsigned build that says so; secret present → the signing steps run
+    # and a signing failure fails the release (you meant to sign).
+    env:
+      HAS_CERT: ${{ secrets.CODE_SIGN_CERT != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -91,26 +96,61 @@ jobs:
       - name: Freeze the application (PyInstaller)
         run: pyinstaller packaging/pyinstaller/strata.spec --noconfirm
 
-      # Code signing is intentionally gated on a secret. Without an org
-      # certificate the build is unsigned and SmartScreen/Gatekeeper will say so;
-      # we do not pretend otherwise (see SECURITY.md). When the secret is present,
-      # the platform build scripts sign in place.
-      - name: Note signing status
+      - name: Announce unsigned build
+        if: env.HAS_CERT != 'true'
         shell: bash
-        run: |
-          if [ -n "${{ secrets.CODE_SIGN_CERT }}" ]; then
-            echo "A signing certificate is configured; signing would run here."
-          else
-            echo "::warning::No signing certificate configured — this is an UNSIGNED build, for testing only."
-          fi
+        run: echo "::warning::No CODE_SIGN_CERT secret — this is an UNSIGNED build. SmartScreen/Gatekeeper will warn. See SECURITY.md to enable signing."
 
-      - name: Package the artifacts
+      # Windows Authenticode. The cert is a base64-encoded PFX in CODE_SIGN_CERT,
+      # its password in CODE_SIGN_PASSWORD. We locate signtool in the Windows SDK,
+      # sign the frozen executable with a SHA-256 digest, and timestamp it so the
+      # signature outlives the certificate.
+      - name: Sign (Windows Authenticode)
+        if: runner.os == 'Windows' && env.HAS_CERT == 'true'
+        shell: bash
+        env:
+          CERT_B64: ${{ secrets.CODE_SIGN_CERT }}
+          CERT_PW: ${{ secrets.CODE_SIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$CERT_B64" | base64 --decode > cert.pfx
+          signtool=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name signtool.exe 2>/dev/null | grep -i '/x64/' | sort | tail -1)
+          [ -n "$signtool" ] || { echo "signtool not found"; exit 1; }
+          "$signtool" sign //f cert.pfx //p "$CERT_PW" //fd sha256 //tr http://timestamp.digicert.com //td sha256 "dist/Strata/Strata.exe"
+          rm -f cert.pfx
+
+      # macOS codesign. CODE_SIGN_CERT is a base64 .p12; CODE_SIGN_IDENTITY is the
+      # identity name (e.g. "Developer ID Application: …"). Notarization needs an
+      # Apple ID and is a further step — see SECURITY.md.
+      - name: Sign (macOS codesign)
+        if: runner.os == 'macOS' && env.HAS_CERT == 'true'
+        env:
+          CERT_B64: ${{ secrets.CODE_SIGN_CERT }}
+          CERT_PW: ${{ secrets.CODE_SIGN_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          echo "$CERT_B64" | base64 --decode > cert.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import cert.p12 -k build.keychain -P "$CERT_PW" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+          target=$([ -d dist/Strata.app ] && echo dist/Strata.app || echo dist/Strata)
+          codesign --deep --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$target"
+          rm -f cert.p12
+
+      # Package, then checksum. The SHA-256 file lets anyone verify integrity even
+      # for an unsigned build — the always-on half of release integrity.
+      - name: Package and checksum
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p out
           if [ -d dist ]; then
             tar -czf "out/${{ matrix.artifact }}.tar.gz" -C dist .
           fi
+          (cd out && sha256sum ./*.tar.gz > "${{ matrix.artifact }}.sha256")
 
       - uses: actions/upload-artifact@v4
         with:
