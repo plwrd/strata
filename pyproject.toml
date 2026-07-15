@@ -38,7 +38,7 @@ dev = [
     "ruff==0.15.21",
     "mypy==2.3.0",
     "pyinstaller==6.21.0",
-    "types-PyYAML==6.0.12.20241230",
+    "types-PyYAML==6.0.12.20260518",
 ]
 
 [project.scripts]
