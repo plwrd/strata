@@ -1,41 +1,35 @@
 version: 2
 
-# Keeps dependencies patched without a human watching the advisory feed. Two
-# hard-learned rules are baked in here:
+# Security updates only.
 #
-# 1. Updates target `dev`, never `main`. Dependency changes must flow through the
-#    same tested dev -> release path as any other change; they must never land
-#    directly on the production branch.
-# 2. Major updates are their own PRs. A grouped bump that quietly includes a
-#    major (a new linter major with new rules, a crypto/toolkit major) breaks the
-#    build. Grouping is limited to minor/patch — routine and low-risk — while
-#    majors come one at a time to be reviewed and adapted to deliberately.
+# Routine version updates are deliberately OFF (`open-pull-requests-limit: 0`
+# disables version PRs; Dependabot still opens PRs for *security advisories*,
+# which ignore that limit). The stack was modernised as one verified set in
+# v1.3.0, and the weekly stream of version-bump branches was noise: majors need
+# a human decision and code adaptation, and grouped minors are better batched
+# deliberately per release than trickled continuously.
+#
+# To modernise again: batch the updates on one branch, verify the full gate
+# locally, and land it as a single reviewed PR (see #40 for the pattern) — or
+# temporarily raise these limits.
 updates:
   - package-ecosystem: pip
     directory: '/'
     target-branch: dev
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      python-minor-patch:
-        update-types: [minor, patch]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: '/frontend'
     target-branch: dev
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      frontend-minor-patch:
-        update-types: [minor, patch]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: '/'
     target-branch: dev
     schedule:
       interval: weekly
-    groups:
-      actions-minor-patch:
-        update-types: [minor, patch]
+    open-pull-requests-limit: 0
