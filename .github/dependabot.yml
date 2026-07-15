@@ -1,0 +1,31 @@
+version: 2
+
+# Keeps dependencies patched without a human watching the advisory feed. The npm
+# audit CI job is advisory (it does not block merges), so these PRs are the actual
+# mechanism that closes CVEs — grouped so a routine bump is one review, not twenty.
+updates:
+  - package-ecosystem: pip
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-dependencies:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/frontend'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-dependencies:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
