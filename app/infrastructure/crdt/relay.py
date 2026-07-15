@@ -6,23 +6,27 @@ key and never sees plaintext; all it can observe is blob sizes, timing, and
 pseudonymous channel/peer ids. That is the whole reason the CRDT lives *behind*
 the encryption boundary.
 
-Two implementations ship:
+Three implementations ship:
 
 - :class:`LocalRelay` — in-process, for tests and for a single machine driving
   more than one document.
 - :class:`DirectoryRelay` — a shared directory of sealed blobs, usable over any
   filesystem two peers already share (a synced folder, a LAN mount). Each blob is
   one atomically-written file; peers fetch everything past their cursor.
-
-A hosted network relay is deliberately *not* implemented here — it would be more
-transport, not more trust, and the interface below is what it would implement.
+- :class:`HttpRelay` — talks to a self-hostable network relay
+  (:mod:`app.infrastructure.crdt.relay_server`) over HTTP, so two peers converge
+  across a LAN or the internet. It sends only ciphertext; the server never holds
+  a key. Put TLS in front in production to also hide blob sizes/timing.
 """
 
 from __future__ import annotations
 
+import base64
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+import httpx
 
 from app.infrastructure.storage.paths import resolve_within
 
@@ -146,3 +150,59 @@ class DirectoryRelay(Relay):
         if not presence.is_dir():
             return {}
         return {p.stem: p.read_bytes() for p in presence.glob("*.awareness")}
+
+
+class HttpRelay(Relay):
+    """A relay backed by a self-hostable HTTP relay server. Ciphertext only."""
+
+    def __init__(
+        self, base_url: str, *, client: httpx.Client | None = None, timeout: float = 10.0
+    ) -> None:
+        self._base = base_url.rstrip("/")
+        # A caller-supplied client is how tests inject an in-process WSGI transport;
+        # in production we own a plain client with no redirects (a relay never
+        # redirects, and following one blindly would be a request-forgery foothold).
+        self._client = client or httpx.Client(follow_redirects=False, timeout=timeout)
+
+    def publish(self, channel: str, blob: bytes) -> int:
+        _check_channel(channel)
+        response = self._client.post(
+            f"{self._base}/channels/{channel}/blobs",
+            content=bytes(blob),
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        response.raise_for_status()
+        return int(response.json()["seq"])
+
+    def fetch(self, channel: str, after_seq: int) -> list[tuple[int, bytes]]:
+        _check_channel(channel)
+        response = self._client.get(
+            f"{self._base}/channels/{channel}/blobs", params={"after": after_seq}
+        )
+        response.raise_for_status()
+        return [(int(seq), base64.b64decode(b64)) for seq, b64 in response.json()["items"]]
+
+    def head(self, channel: str) -> int:
+        _check_channel(channel)
+        response = self._client.get(f"{self._base}/channels/{channel}/head")
+        response.raise_for_status()
+        return int(response.json()["head"])
+
+    def announce(self, channel: str, peer_id: str, blob: bytes) -> None:
+        _check_channel(channel)
+        safe_peer = re.sub(r"[^a-zA-Z0-9_-]", "-", peer_id)[:64] or "peer"
+        response = self._client.put(
+            f"{self._base}/channels/{channel}/presence/{safe_peer}",
+            content=bytes(blob),
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        response.raise_for_status()
+
+    def presence(self, channel: str) -> dict[str, bytes]:
+        _check_channel(channel)
+        response = self._client.get(f"{self._base}/channels/{channel}/presence")
+        response.raise_for_status()
+        return {peer: base64.b64decode(b64) for peer, b64 in response.json()["peers"].items()}
+
+    def close(self) -> None:
+        self._client.close()

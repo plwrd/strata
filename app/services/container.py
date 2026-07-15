@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.domain.collaboration import TreeNode
-from app.infrastructure.crdt.relay import DirectoryRelay
+from app.infrastructure.crdt.relay import DirectoryRelay, HttpRelay, Relay
 from app.services.ai_generation_service import AIGenerationService
 from app.services.ai_service import AIService
 from app.services.collaboration_service import CollaborationService
@@ -128,7 +128,13 @@ class Services:
                 bodies[note.metadata.id] = note.content
             return nodes, bodies
 
-        relay = DirectoryRelay(self.paths.data_dir / "relay")
+        # A configured relay URL syncs collaboration over the network; otherwise
+        # a shared-directory relay handles the local/synced-folder case. Either
+        # way the relay only ever sees ciphertext.
+        relay_url = self.settings.settings.relay_url.strip()
+        relay: Relay = (
+            HttpRelay(relay_url) if relay_url else DirectoryRelay(self.paths.data_dir / "relay")
+        )
         return CollaborationService(
             key_for=key_for,
             doc_root_for=doc_root_for,
