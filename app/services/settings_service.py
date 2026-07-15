@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.infrastructure.logging.logger import get_logger
 
@@ -35,6 +35,21 @@ class AppSettings(BaseModel):
     default_lens_id: str = "lens_all"
     last_workspace_path: str = ""
     developer_tools: bool = False
+
+    # -- AI ------------------------------------------------------------------
+    #
+    # Note what is NOT here: no API keys. Those live in the OS keychain, never in a
+    # settings file that gets copied into a bug report or synced to a backup.
+    default_provider: str = "ollama"
+    default_model: str = ""
+    embedding_model: str = ""
+    claude_cli_path: str = ""
+    provider_base_urls: dict[str, str] = Field(default_factory=dict)
+    prefer_local_ai: bool = True
+    # Resource controls for local models.
+    local_context_tokens: int = 8192
+    local_max_output_tokens: int = 2048
+    ai_request_timeout: int = 120
 
 
 class SettingsService:

@@ -16,6 +16,40 @@ from app.services.container import Paths, Services
 from app.services.workspace_service import WorkspaceService
 
 
+@pytest.fixture(autouse=True)
+def isolated_keychain() -> Iterator[None]:
+    """Never touch the real OS keychain in tests.
+
+    Without this, a test that stores an API key would write it to the developer's
+    actual keychain and pollute every later test that asks whether a provider is
+    configured. An in-memory backend keeps each run hermetic.
+    """
+    import keyring
+
+    class _MemoryKeyring(keyring.backend.KeyringBackend):
+        priority = 1  # type: ignore[assignment]
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._store: dict[tuple[str, str], str] = {}
+
+        def get_password(self, service: str, username: str) -> str | None:
+            return self._store.get((service, username))
+
+        def set_password(self, service: str, username: str, password: str) -> None:
+            self._store[(service, username)] = password
+
+        def delete_password(self, service: str, username: str) -> None:
+            self._store.pop((service, username), None)
+
+    previous = keyring.get_keyring()
+    keyring.set_keyring(_MemoryKeyring())
+    try:
+        yield
+    finally:
+        keyring.set_keyring(previous)
+
+
 @pytest.fixture()
 def paths(tmp_path: Path) -> Paths:
     return Paths(

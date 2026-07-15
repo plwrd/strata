@@ -217,10 +217,11 @@ def test_public_layer_can_be_created_and_renamed(workspace: Services) -> None:
     assert len(data(call(LayerBridge(workspace), "list_layers"))["layers"]) == 2
 
 
-def test_providers_are_listed_but_none_are_configured_yet(workspace: Services) -> None:
+def test_providers_are_listed_with_capabilities(workspace: Services) -> None:
     response = data(call(AIComposerBridge(workspace), "list_providers"))
 
-    assert response["any_configured"] is False
+    # Local providers need no key, so at least Ollama is configured out of the box.
+    assert response["any_configured"] is True
     ids = {provider["provider_id"] for provider in response["providers"]}
     assert {"ollama", "openai", "anthropic", "claude-cli"} <= ids
 
@@ -230,21 +231,24 @@ def test_providers_are_listed_but_none_are_configured_yet(workspace: Services) -
     assert claude_cli["is_local"] is False
 
 
-def test_sending_to_a_provider_is_refused_in_milestone_1(workspace: Services) -> None:
+def test_sending_a_default_public_selection_to_a_remote_model_is_denied(
+    workspace: Services,
+) -> None:
+    """Secure by default: even public content does not go remote without opt-in."""
+    notes = data(call(NotesBridge(workspace), "get_tree"))["notes"]
     response = call(
         AIComposerBridge(workspace),
         "send_request",
         {
             "provider_id": "openai",
             "model": "gpt-4",
-            "object_ids": ["a" * 32],
+            "object_ids": [notes[0]["id"]],
             "prompt": "hello",
         },
     )
 
     assert response["ok"] is False
-    assert response["error"]["code"] == "unsupported"
-    assert response["error"]["details"]["milestone"] == 7
+    assert response["error"]["code"] == "permission_denied"
 
 
 def test_plan_context_summarises_what_would_be_sent(workspace: Services) -> None:

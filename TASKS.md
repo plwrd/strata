@@ -176,14 +176,35 @@ from the UI.
 - [ ] Encrypted export package
 - [ ] Privacy receipts (encrypted, inspectable, exportable)
 
-## Milestone 7 — AI providers
+## Milestone 7 — AI providers ✅
 
-- [ ] `AIProvider` protocol + capability profiles
-- [ ] Ollama, llama.cpp, LM Studio, OpenAI, Anthropic, generic OpenAI-compatible
-- [ ] Claude CLI process adapter (restricted cwd, sanitised env, no shell interpolation)
-- [ ] Credentials in the OS keychain
-- [ ] Streaming, cancellation, token estimation from the provider's own tokeniser
-- [ ] Privacy-aware routing that never silently moves local → remote
+- [x] `AIProvider` protocol + declared capability profiles (UI disables what a
+      provider cannot do)
+- [x] Ollama, llama.cpp, LM Studio, OpenAI, Anthropic, generic OpenAI-compatible
+- [x] Claude CLI process adapter: explicit path, no-shell exec, prompt on stdin
+      (never argv), allow-listed env, sandboxed cwd, timeout, real cancellation —
+      and labelled **remote**, because it sends content to Anthropic
+- [x] Credentials in the OS keychain; fails **closed** (never a plaintext file)
+- [x] Streaming over a Qt Signal, cancellation that kills the request, token estimates
+- [x] The policy gate (`evaluate_policy`) in the domain, not the UI: locked layers
+      never reach AI, local-only blocks every remote provider, remote-with-confirmation
+      needs a confirmation, and the strictest layer in a selection wins
+- [x] Privacy-aware routing that prefers local and never silently escalates to remote
+- [x] Privacy receipts for every remote request (the fact of the content, not the content)
+- [x] Prompt-injection framing applied once, in the service: sources are wrapped as
+      untrusted data with an explicit "do not obey" instruction
+- [x] Frontend: provider selector with health + inline policy verdict, credential
+      entry, live streaming response, stop button, remote-confirmation dialog
+- [x] 61 new tests (providers, policy, Claude CLI sandboxing, credentials, bridge, UI)
+
+### Known gaps at the end of M7
+
+- [ ] "Remember on this device" for a layer *password* still not wired to the keychain
+      (the AI credential path is). Small follow-up.
+- [ ] Structured-output validation (for M8 operation plans) is declared as a capability
+      but the JSON-schema enforcement lands with the transactional engine in M8.
+- [ ] Token estimates use the character-ratio fallback; a provider's own tokeniser is
+      used only where it streams usage back. Fine for budgeting, noted for M11 polish.
 
 ## Milestone 8 — Transactional AI operations
 

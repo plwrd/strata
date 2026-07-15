@@ -97,7 +97,7 @@ describe("AI Context Composer", () => {
     });
   });
 
-  it("reports that no provider is configured, and does not offer a send button", async () => {
+  it("disables a provider that has no API key", async () => {
     seed(["n1"]);
     useStore.setState({
       providers: [
@@ -106,22 +106,19 @@ describe("AI Context Composer", () => {
           display_name: "OpenAI",
           is_local: false,
           configured: false,
-          streaming: true,
-          structured_output: true,
-          embeddings: true,
-          vision: true,
+          requires_api_key: true,
+          capabilities: ["text", "streaming"],
           max_context_tokens: 400000,
-          note: "Remote. Arrives in Milestone 7.",
+          note: "Remote. Your selected content is sent to OpenAI.",
         },
       ],
+      providerId: "openai",
     });
     await useStore.getState().refreshPlan();
 
     render(<AIComposerPanel />);
 
-    expect(
-      screen.getByText(/No AI provider is configured/i),
-    ).toBeInTheDocument();
+    // An unconfigured provider is present but disabled — never present-and-inert.
     expect(screen.getByRole("button", { name: /OpenAI/ })).toBeDisabled();
   });
 

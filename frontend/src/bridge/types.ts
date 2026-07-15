@@ -393,6 +393,68 @@ export interface ProviderCapability {
   note: string;
 }
 
+/** The provider shape Milestone 7 sends: capabilities as a string list. */
+export interface ProviderView {
+  provider_id: string;
+  display_name: string;
+  is_local: boolean;
+  configured: boolean;
+  requires_api_key: boolean;
+  capabilities: string[];
+  max_context_tokens: number;
+  note: string;
+}
+
+export interface ProviderHealthView {
+  provider_id: string;
+  reachable: boolean;
+  configured: boolean;
+  detail: string;
+  models: {
+    id: string;
+    display_name: string;
+    context_tokens: number;
+    is_local: boolean;
+  }[];
+}
+
+export interface PolicyView {
+  verdict: "allowed" | "needs_confirmation" | "denied";
+  reason: string;
+  blocking_layers: string[];
+  is_remote: boolean;
+  private_object_count: number;
+  object_count: number;
+}
+
+export interface PrivacyReceipt {
+  id: string;
+  created_at: string;
+  kind: "export" | "ai-request";
+  provider: string;
+  model: string;
+  is_remote: boolean;
+  layer_ids: string[];
+  object_count: number;
+  private_object_count: number;
+  attachment_count: number;
+  estimated_tokens: number;
+  destination: string;
+  encrypted_in_transit: boolean;
+  files_written: number;
+  result: "completed" | "cancelled" | "failed";
+  undo_reference: string | null;
+}
+
+export interface AIStreamEvent {
+  requestId: string;
+  kind: "start" | "delta" | "done" | "error";
+  text?: string;
+  model?: string;
+  output_tokens?: number;
+  error?: string;
+}
+
 export interface AppSettings {
   format_version: number;
   appearance: "cyberpunk-dark" | "cyberpunk-dim" | "high-contrast";

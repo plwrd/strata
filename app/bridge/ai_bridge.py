@@ -1,42 +1,92 @@
-"""AI Context Composer.
+"""The AI Context Composer, and live model requests.
 
-Milestone 1 delivers the half of the composer that does not need a model: build a
-context plan from the current selection, show exactly what would be sent, and
-estimate the cost. ``send_request`` deliberately refuses until Milestone 7 rather
-than pretending to talk to a provider.
+The request path is: plan → policy → confirm → send → stream → receipt. Each step is
+a separate call, and the policy step is not advisory: Python refuses the send if the
+layers involved do not permit it, whatever the UI displayed.
+
+Streaming crosses the bridge as a Qt Signal, because a slot returns once and a
+stream does not. ``aiEvent`` carries the deltas; the request is cancellable.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
+import threading
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Signal, Slot
 
 from app.bridge.envelope import EmptyRequest, bridge_method
-from app.domain.errors import UnsupportedError
-from app.domain.export import ContentMode, ContextDepth, ContextPlan, ExportShape, ExportTarget
+from app.domain.ai import Capability, ProviderCapabilities
+from app.domain.errors import InvalidRequestError, PermissionDeniedError
+from app.domain.export import (
+    ContentMode,
+    ContextDepth,
+    ContextPlan,
+    ExportShape,
+    ExportTarget,
+    PrivacyReceipt,
+)
+from app.domain.ids import new_job_id
+from app.services.ai_service import CATALOGUE
 from app.services.container import Services
 
 
-class ProviderCapability(BaseModel):
+class ProviderView(BaseModel):
+    """A provider as the UI sees it: what it is, and what it can actually do."""
+
     model_config = ConfigDict(extra="forbid")
 
     provider_id: str
     display_name: str
     is_local: bool
-    configured: bool = False
-    streaming: bool = True
-    structured_output: bool = True
-    embeddings: bool = False
-    vision: bool = False
-    max_context_tokens: int = 0
-    note: str = ""
+    configured: bool
+    requires_api_key: bool
+    capabilities: list[str] = Field(default_factory=list)
+    max_context_tokens: int
+    note: str
 
 
 class ProviderListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    providers: list[ProviderCapability] = Field(default_factory=list)
+    providers: list[ProviderView] = Field(default_factory=list)
     any_configured: bool = False
+    keychain_available: bool = True
+
+
+class ProviderIdRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+
+
+class HealthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str
+    reachable: bool
+    configured: bool
+    detail: str = ""
+    models: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CredentialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    # Goes straight to the OS keychain. Never stored here, never echoed, never logged.
+    api_key: str = Field(min_length=1, max_length=512)
+
+
+class CredentialResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stored: bool
+    keychain_available: bool
+    detail: str = ""
 
 
 class PlanContextRequest(BaseModel):
@@ -57,88 +107,172 @@ class PlanContextResponse(BaseModel):
     plan: ContextPlan
 
 
+class PolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_ids: list[str] = Field(default_factory=list, max_length=2000)
+    provider_id: str = Field(min_length=1, max_length=64)
+
+
+class PolicyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: str
+    reason: str
+    blocking_layers: list[str] = Field(default_factory=list)
+    is_remote: bool
+    private_object_count: int = 0
+    object_count: int = 0
+
+
 class SendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider_id: str = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=128)
-    object_ids: list[str] = Field(min_length=1, max_length=2000)
+    object_ids: list[str] = Field(default_factory=list, max_length=2000)
     prompt: str = Field(min_length=1, max_length=32_000)
+    depth: ContextDepth = "selected-only"
+    content_mode: ContentMode = "full"
+    max_output_tokens: int = Field(default=2048, ge=1, le=32_000)
+    # Set only by the privacy-review dialog, after the user has seen exactly what
+    # would leave the machine.
     confirmed_remote: bool = False
 
 
-# The provider catalogue the UI renders. `configured=False` everywhere in
-# Milestone 1: the adapters land in Milestone 7, and the UI shows them disabled
-# with the reason rather than offering a button that does nothing.
-PROVIDER_CATALOGUE: list[ProviderCapability] = [
-    ProviderCapability(
-        provider_id="ollama",
-        display_name="Ollama",
-        is_local=True,
-        embeddings=True,
-        max_context_tokens=32_768,
-        note="Local. Arrives in Milestone 7.",
-    ),
-    ProviderCapability(
-        provider_id="llamacpp",
-        display_name="llama.cpp server",
-        is_local=True,
-        embeddings=True,
-        max_context_tokens=32_768,
-        note="Local. Arrives in Milestone 7.",
-    ),
-    ProviderCapability(
-        provider_id="lmstudio",
-        display_name="LM Studio",
-        is_local=True,
-        embeddings=True,
-        max_context_tokens=32_768,
-        note="Local. Arrives in Milestone 7.",
-    ),
-    ProviderCapability(
-        provider_id="openai",
-        display_name="OpenAI",
-        is_local=False,
-        embeddings=True,
-        vision=True,
-        max_context_tokens=400_000,
-        note="Remote. Arrives in Milestone 7.",
-    ),
-    ProviderCapability(
-        provider_id="anthropic",
-        display_name="Anthropic",
-        is_local=False,
-        vision=True,
-        max_context_tokens=200_000,
-        note="Remote. Arrives in Milestone 7.",
-    ),
-    ProviderCapability(
-        provider_id="claude-cli",
-        display_name="Claude CLI",
-        is_local=False,
-        max_context_tokens=200_000,
-        note="Runs locally but sends data to Anthropic. Arrives in Milestone 7.",
-    ),
-]
+class SendResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+
+
+class CancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class CancelResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cancelled: bool
+
+
+class ReceiptsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    receipts: list[PrivacyReceipt] = Field(default_factory=list)
+
+
+class RouteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    object_ids: list[str] = Field(default_factory=list, max_length=2000)
+    required_tokens: int = Field(default=0, ge=0, le=2_000_000)
+
+
+class RouteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str | None = None
+    reason: str
+
+
+def _view(capabilities: ProviderCapabilities, configured: bool) -> ProviderView:
+    return ProviderView(
+        provider_id=capabilities.provider_id,
+        display_name=capabilities.display_name,
+        is_local=capabilities.is_local,
+        configured=configured,
+        requires_api_key=capabilities.requires_api_key,
+        capabilities=[capability.value for capability in capabilities.capabilities],
+        max_context_tokens=capabilities.max_context_tokens,
+        note=capabilities.note,
+    )
 
 
 class AIComposerBridge(QObject):
+    """Context planning, provider management, and live requests.
+
+    ``aiEvent`` streams ``{requestId, kind, text, …}`` to the frontend. It is the
+    only push channel here, and it carries model output — never source content, and
+    never a credential.
+    """
+
+    aiEvent = Signal(str)
+
     def __init__(self, services: Services, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._services = services
+        self._cancels: dict[str, asyncio.Event] = {}
+        self._loops: dict[str, asyncio.AbstractEventLoop] = {}
+
+    # -- providers -----------------------------------------------------------
 
     @Slot(str, result=str)  # type: ignore[arg-type]
     @bridge_method(EmptyRequest)
     def list_providers(self, _request: EmptyRequest) -> ProviderListResponse:
+        ai = self._services.ai
+        views = [
+            _view(capabilities, ai.is_configured(capabilities.provider_id))
+            for capabilities in ai.catalogue()
+        ]
         return ProviderListResponse(
-            providers=PROVIDER_CATALOGUE,
-            any_configured=any(provider.configured for provider in PROVIDER_CATALOGUE),
+            providers=views,
+            any_configured=any(view.configured for view in views),
+            keychain_available=ai.credentials.is_available(),
         )
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(ProviderIdRequest)
+    def check_health(self, request: ProviderIdRequest) -> HealthResponse:
+        health = _run_async(self._services.ai.health(request.provider_id))
+        return HealthResponse(
+            provider_id=health.provider_id,
+            reachable=health.reachable,
+            configured=health.configured,
+            detail=health.detail,
+            models=[model.model_dump() for model in health.models],
+        )
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(CredentialRequest)
+    def store_credential(self, request: CredentialRequest) -> CredentialResponse:
+        store = self._services.ai.credentials
+        if not store.is_available():
+            # Fail closed. Never fall back to a file: silently downgrading from
+            # "encrypted by the OS" to "plaintext on disk" is how keys get stolen.
+            return CredentialResponse(
+                stored=False,
+                keychain_available=False,
+                detail=(
+                    "This system has no usable keychain, so Strata will not store the key. "
+                    "It refuses to write it to a file instead."
+                ),
+            )
+        stored = store.set(request.provider_id, request.api_key)
+        return CredentialResponse(
+            stored=stored,
+            keychain_available=True,
+            detail="Stored in the system keychain." if stored else "The keychain refused it.",
+        )
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(ProviderIdRequest)
+    def delete_credential(self, request: ProviderIdRequest) -> CredentialResponse:
+        deleted = self._services.ai.credentials.delete(request.provider_id)
+        return CredentialResponse(
+            stored=False,
+            keychain_available=True,
+            detail="Removed." if deleted else "There was nothing to remove.",
+        )
+
+    # -- planning and policy -------------------------------------------------
 
     @Slot(str, result=str)  # type: ignore[arg-type]
     @bridge_method(PlanContextRequest)
     def plan_context(self, request: PlanContextRequest) -> PlanContextResponse:
-        """What *would* be sent. Computing this never sends anything."""
+        """What *would* be sent. Computing this sends nothing."""
         plan = self._services.exports.plan(
             object_ids=request.object_ids,
             prompt=request.prompt,
@@ -151,10 +285,191 @@ class AIComposerBridge(QObject):
         return PlanContextResponse(plan=plan)
 
     @Slot(str, result=str)  # type: ignore[arg-type]
-    @bridge_method(SendRequest)
-    def send_request(self, _request: SendRequest) -> PlanContextResponse:
-        raise UnsupportedError(
-            "No AI provider is configured yet. Provider adapters arrive in Milestone 7. "
-            "Export the context package instead.",
-            details={"milestone": 7},
+    @bridge_method(PolicyRequest)
+    def check_policy(self, request: PolicyRequest) -> PolicyResponse:
+        """Would this be allowed? The UI asks before it offers a Send button.
+
+        Advisory *to the UI* only. The authoritative check runs again inside
+        `send_request`, so a frontend that ignores this one gains nothing.
+        """
+        plan = (
+            self._services.exports.plan(object_ids=request.object_ids)
+            if request.object_ids
+            else None
         )
+        layer_ids = sorted({source.layer_id for source in plan.sources}) if plan else []
+        decision = self._services.ai.policy_for(layer_ids, request.provider_id)
+
+        return PolicyResponse(
+            verdict=decision.verdict,
+            reason=decision.reason,
+            blocking_layers=decision.blocking_layers,
+            is_remote=decision.remote,
+            private_object_count=plan.private_source_count if plan else 0,
+            object_count=len(plan.sources) if plan else 0,
+        )
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(RouteRequest)
+    def route(self, request: RouteRequest) -> RouteResponse:
+        plan = (
+            self._services.exports.plan(object_ids=request.object_ids)
+            if request.object_ids
+            else None
+        )
+        layer_ids = sorted({source.layer_id for source in plan.sources}) if plan else []
+        provider_id, reason = self._services.ai.route(
+            layer_ids,
+            prefer_local=self._services.settings.settings.prefer_local_ai,
+            required_tokens=request.required_tokens,
+        )
+        return RouteResponse(provider_id=provider_id, reason=reason)
+
+    # -- sending -------------------------------------------------------------
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(SendRequest)
+    def send_request(self, request: SendRequest) -> SendResponse:
+        """Start a streaming request. Events arrive on ``aiEvent``.
+
+        The policy gate runs again inside `AIService.run`, before a provider is even
+        constructed — so a caller that skipped `check_policy` gains nothing by it.
+        """
+        capabilities = CATALOGUE.get(request.provider_id)
+        if capabilities is None:
+            raise InvalidRequestError("Unknown provider.")
+        if not capabilities.supports(Capability.STREAMING):
+            raise InvalidRequestError(f"{capabilities.display_name} cannot stream.")
+
+        plan = (
+            self._services.exports.plan(
+                object_ids=request.object_ids,
+                prompt=request.prompt,
+                depth=request.depth,
+                content_mode=request.content_mode,
+                target="claude",
+            )
+            if request.object_ids
+            else None
+        )
+
+        sources = ""
+        layer_ids: list[str] = []
+        if plan is not None:
+            sources = "\n\n".join(
+                f'<source id="{source.source_id}" title="{source.title}">\n'
+                f"{source.content}\n</source>"
+                for source in plan.sources
+            )
+            layer_ids = sorted({source.layer_id for source in plan.sources})
+
+        # Fail fast, on the calling thread, for the cases the user must see straight
+        # away: a denial is not something to discover halfway through a stream.
+        decision = self._services.ai.policy_for(layer_ids, request.provider_id)
+        if decision.verdict == "denied":
+            raise PermissionDeniedError(
+                decision.reason, details={"layers": decision.blocking_layers}
+            )
+        if decision.verdict == "needs_confirmation" and not request.confirmed_remote:
+            raise PermissionDeniedError(
+                decision.reason,
+                details={"layers": decision.blocking_layers, "needsConfirmation": True},
+            )
+
+        request_id = new_job_id()
+        cancel = asyncio.Event()
+        self._cancels[request_id] = cancel
+
+        thread = threading.Thread(
+            target=self._pump,
+            args=(request_id, request, sources, layer_ids, plan, cancel),
+            daemon=True,
+        )
+        thread.start()
+
+        return SendResponse(request_id=request_id)
+
+    def _pump(
+        self,
+        request_id: str,
+        request: SendRequest,
+        sources: str,
+        layer_ids: list[str],
+        plan: ContextPlan | None,
+        cancel: asyncio.Event,
+    ) -> None:
+        """Run the async stream on its own loop and forward events to Qt.
+
+        On a thread, not the Qt event loop: inference can take minutes, and the
+        editor must stay responsive. ``Signal.emit`` is thread-safe.
+        """
+        loop = asyncio.new_event_loop()
+        self._loops[request_id] = loop
+        asyncio.set_event_loop(loop)
+
+        async def consume() -> None:
+            try:
+                async for event in self._services.ai.run(
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    prompt=request.prompt,
+                    sources=sources,
+                    layer_ids=layer_ids,
+                    object_count=len(plan.sources) if plan else 0,
+                    private_object_count=plan.private_source_count if plan else 0,
+                    confirmed_remote=request.confirmed_remote,
+                    max_output_tokens=request.max_output_tokens,
+                    cancel=cancel,
+                ):
+                    self._emit(request_id, event.model_dump())
+            except PermissionDeniedError as exc:
+                self._emit(request_id, {"kind": "error", "error": exc.message})
+            except Exception:
+                self._emit(
+                    request_id,
+                    {"kind": "error", "error": "The request failed. See the local log."},
+                )
+
+        try:
+            loop.run_until_complete(consume())
+        finally:
+            loop.close()
+            self._cancels.pop(request_id, None)
+            self._loops.pop(request_id, None)
+
+    def _emit(self, request_id: str, payload: dict[str, Any]) -> None:
+        self.aiEvent.emit(json.dumps({"requestId": request_id, **payload}))
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(CancelRequest)
+    def cancel_request(self, request: CancelRequest) -> CancelResponse:
+        cancel = self._cancels.get(request.request_id)
+        loop = self._loops.get(request.request_id)
+        if cancel is None or loop is None:
+            return CancelResponse(cancelled=False)
+        # The event belongs to the worker's loop, so set it from that loop's thread.
+        loop.call_soon_threadsafe(cancel.set)
+        return CancelResponse(cancelled=True)
+
+    # -- receipts ------------------------------------------------------------
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(EmptyRequest)
+    def privacy_receipts(self, _request: EmptyRequest) -> ReceiptsResponse:
+        """What has left this machine. Records the *fact* of the content, not the
+        content: a receipt that quoted the note would itself be a leak."""
+        return ReceiptsResponse(receipts=self._services.ai.receipts())
+
+
+def _run_async(coroutine: Any) -> Any:
+    """Run a coroutine to completion from the calling thread.
+
+    Used only for short calls (a health check). Anything long is streamed instead —
+    blocking the UI thread on inference would freeze the editor, which is the one
+    thing this product's performance rules do not permit.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coroutine)
+    finally:
+        loop.close()

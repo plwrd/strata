@@ -21,6 +21,7 @@ import { ContextSourceList } from "./ContextSourceList";
 import { PrivacyReview } from "./PrivacyReview";
 import { PromptEditor } from "./PromptEditor";
 import { ProviderSelector } from "./ProviderSelector";
+import { ResponsePanel } from "./ResponsePanel";
 import { TokenBudget } from "./TokenBudget";
 
 const TARGETS: { value: ExportTarget; label: string }[] = [
@@ -246,7 +247,9 @@ export function AIComposerPanel(): JSX.Element {
             onBudgetChange={state.setTokenBudget}
           />
 
-          <ProviderSelector providers={state.providers} />
+          <ProviderSelector />
+
+          <ResponsePanel />
 
           <div className="composer__actions">
             <button

@@ -26,9 +26,12 @@ import type {
   Note,
   NoteResponse,
   NoteSchema,
+  PolicyView,
+  PrivacyReceipt,
+  ProviderHealthView,
+  ProviderView,
   TrashEntry,
   TreeFolder,
-  ProviderCapability,
   ResponseEnvelope,
   SearchResponse,
   AppSettings,
@@ -410,12 +413,48 @@ export const bridge = {
 
   ai: {
     providers: () =>
-      call<{ providers: ProviderCapability[]; any_configured: boolean }>(
+      call<{
+        providers: ProviderView[];
+        any_configured: boolean;
+        keychain_available: boolean;
+      }>("ai", "list_providers"),
+    health: (provider_id: string) =>
+      call<ProviderHealthView>("ai", "check_health", { provider_id }),
+    storeCredential: (provider_id: string, api_key: string) =>
+      call<{ stored: boolean; keychain_available: boolean; detail: string }>(
         "ai",
-        "list_providers",
+        "store_credential",
+        { provider_id, api_key },
       ),
+    deleteCredential: (provider_id: string) =>
+      call<{ stored: boolean; detail: string }>("ai", "delete_credential", {
+        provider_id,
+      }),
     planContext: (request: Omit<ExportRequest, "acknowledge_private">) =>
       call<{ plan: ContextPlan }>("ai", "plan_context", request),
+    checkPolicy: (object_ids: string[], provider_id: string) =>
+      call<PolicyView>("ai", "check_policy", { object_ids, provider_id }),
+    route: (object_ids: string[], required_tokens = 0) =>
+      call<{ provider_id: string | null; reason: string }>("ai", "route", {
+        object_ids,
+        required_tokens,
+      }),
+    send: (request: {
+      provider_id: string;
+      model: string;
+      object_ids: string[];
+      prompt: string;
+      depth?: ContextDepth;
+      content_mode?: ContentMode;
+      max_output_tokens?: number;
+      confirmed_remote?: boolean;
+    }) => call<{ request_id: string }>("ai", "send_request", request),
+    cancel: (request_id: string) =>
+      call<{ cancelled: boolean }>("ai", "cancel_request", { request_id }),
+    receipts: () =>
+      call<{ receipts: PrivacyReceipt[] }>("ai", "privacy_receipts"),
+    onEvent: (listener: (payload: string) => void) =>
+      subscribe("ai", "aiEvent", listener),
   },
 
   export: {

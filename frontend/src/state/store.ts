@@ -11,6 +11,7 @@
 import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
 import type {
+  AIStreamEvent,
   AppSettings,
   ContentMode,
   ContextDepth,
@@ -24,7 +25,9 @@ import type {
   LinksResponse,
   Note,
   NoteSchema,
-  ProviderCapability,
+  PolicyView,
+  PrivacyReceipt,
+  ProviderView,
   SearchResult,
   TrashEntry,
   TreeResponse,
@@ -109,10 +112,21 @@ interface StrataState {
   depth: ContextDepth;
   contentMode: ContentMode;
   tokenBudget: number | null;
-  providers: ProviderCapability[];
+  providers: ProviderView[];
+  keychainAvailable: boolean;
   plan: ContextPlan | null;
   planning: boolean;
   planError: string | null;
+
+  // AI request
+  providerId: string;
+  model: string;
+  policy: PolicyView | null;
+  aiStreaming: boolean;
+  aiOutput: string;
+  aiError: string | null;
+  aiRequestId: string | null;
+  receipts: PrivacyReceipt[];
 
   // actions
   initialise: () => Promise<void>;
@@ -201,6 +215,16 @@ interface StrataState {
   setContentMode: (mode: ContentMode) => void;
   setTokenBudget: (budget: number | null) => void;
   refreshPlan: () => Promise<void>;
+
+  // AI request
+  setProvider: (providerId: string) => Promise<void>;
+  setModel: (model: string) => void;
+  refreshPolicy: () => Promise<void>;
+  storeCredential: (providerId: string, apiKey: string) => Promise<boolean>;
+  sendToModel: (confirmedRemote: boolean) => Promise<void>;
+  cancelAIRequest: () => Promise<void>;
+  clearAIOutput: () => void;
+  loadReceipts: () => Promise<void>;
 }
 
 const initialSelection = {
@@ -269,17 +293,33 @@ export const useStore = create<StrataState>((set, get) => ({
   contentMode: "full",
   tokenBudget: null,
   providers: [],
+  keychainAvailable: true,
   plan: null,
   planning: false,
   planError: null,
+
+  providerId: "ollama",
+  model: "",
+  policy: null,
+  aiStreaming: false,
+  aiOutput: "",
+  aiError: null,
+  aiRequestId: null,
+  receipts: [],
 
   async initialise() {
     try {
       const health = await bridge.workspace.health();
       const settings = (await bridge.settings.get()).settings;
       const state = await bridge.workspace.openDefault();
-      const providers = (await bridge.ai.providers()).providers;
+      const providerInfo = await bridge.ai.providers();
       const schemas = (await bridge.notes.schemas()).schemas;
+
+      // The first configured provider is the sensible default; a local one wins.
+      const firstConfigured =
+        providerInfo.providers.find((p) => p.configured && p.is_local) ??
+        providerInfo.providers.find((p) => p.configured) ??
+        providerInfo.providers[0];
 
       set({
         connection: "ready",
@@ -287,9 +327,28 @@ export const useStore = create<StrataState>((set, get) => ({
         settings,
         workspace: state,
         layers: state.workspace?.layers ?? [],
-        providers,
+        providers: providerInfo.providers,
+        keychainAvailable: providerInfo.keychain_available,
+        providerId: firstConfigured?.provider_id ?? "ollama",
         schemas,
         activeLensId: settings.default_lens_id,
+      });
+
+      // AI output streams in over this signal, keyed by request id.
+      await bridge.ai.onEvent((raw) => {
+        const event = JSON.parse(raw) as AIStreamEvent;
+        if (event.requestId !== get().aiRequestId) return;
+        if (event.kind === "delta") {
+          set({ aiOutput: get().aiOutput + (event.text ?? "") });
+        } else if (event.kind === "error") {
+          set({
+            aiError: event.error ?? "The request failed.",
+            aiStreaming: false,
+          });
+        } else if (event.kind === "done") {
+          set({ aiStreaming: false });
+          void get().loadReceipts();
+        }
       });
       applyDocumentSettings(settings);
 
@@ -885,6 +944,100 @@ export const useStore = create<StrataState>((set, get) => ({
       set({ plan, planning: false });
     } catch (error) {
       set({ plan: null, planning: false, planError: describeError(error) });
+    }
+
+    // The plan changed what would be sent, so the policy verdict may have too.
+    void get().refreshPolicy();
+  },
+
+  // -- AI request -----------------------------------------------------------
+
+  async setProvider(providerId) {
+    set({ providerId, model: "" });
+    await get().refreshPolicy();
+  },
+
+  setModel: (model) => set({ model }),
+
+  async refreshPolicy() {
+    const { selectedIds, graph, providerId } = get();
+    const selectable = selectedIds.filter((id) => isExportable(graph, id));
+    try {
+      const policy = await bridge.ai.checkPolicy(selectable, providerId);
+      set({ policy });
+    } catch (error) {
+      set({ policy: null, aiError: describeError(error) });
+    }
+  },
+
+  async storeCredential(providerId, apiKey) {
+    const response = await bridge.ai.storeCredential(providerId, apiKey);
+    // Re-read providers so the "configured" badges update.
+    const info = await bridge.ai.providers();
+    set({
+      providers: info.providers,
+      keychainAvailable: info.keychain_available,
+    });
+    return response.stored;
+  },
+
+  async sendToModel(confirmedRemote) {
+    const {
+      selectedIds,
+      graph,
+      prompt,
+      providerId,
+      model,
+      depth,
+      contentMode,
+    } = get();
+    const selectable = selectedIds.filter((id) => isExportable(graph, id));
+    if (!prompt.trim()) {
+      set({ aiError: "Write a prompt first." });
+      return;
+    }
+
+    set({ aiOutput: "", aiError: null, aiStreaming: true, aiRequestId: null });
+    try {
+      const { request_id } = await bridge.ai.send({
+        provider_id: providerId,
+        // The CLI picks its own model; everything else needs one chosen.
+        model: model || "default",
+        object_ids: selectable,
+        prompt,
+        depth,
+        content_mode: contentMode,
+        confirmed_remote: confirmedRemote,
+      });
+      set({ aiRequestId: request_id });
+    } catch (error) {
+      // A denial or a missing key surfaces here, before any streaming starts.
+      set({
+        aiStreaming: false,
+        aiError:
+          error instanceof BridgeCallError
+            ? error.message
+            : "The request could not start.",
+      });
+    }
+  },
+
+  async cancelAIRequest() {
+    const id = get().aiRequestId;
+    if (!id) return;
+    await bridge.ai.cancel(id);
+    set({ aiStreaming: false });
+    void get().loadReceipts();
+  },
+
+  clearAIOutput: () => set({ aiOutput: "", aiError: null }),
+
+  async loadReceipts() {
+    try {
+      const { receipts } = await bridge.ai.receipts();
+      set({ receipts });
+    } catch {
+      // Receipts are diagnostic; a failure to load them is not worth surfacing.
     }
   },
 }));

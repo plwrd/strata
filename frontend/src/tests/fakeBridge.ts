@@ -169,6 +169,15 @@ export const saved: string[] = [];
 /** Listeners registered against the `notes.changed` signal. */
 export const changeListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `ai.aiEvent` signal. */
+export const aiListeners: ((value: string) => void)[] = [];
+
+/** Fire an AI stream event the way Python would. */
+export function emitAIEvent(payload: Record<string, unknown>): void {
+  const raw = JSON.stringify(payload);
+  for (const listener of aiListeners) listener(raw);
+}
+
 /** Fire the external-change signal the way the file watcher would. */
 export function emitChanged(origin: "strata" | "external"): void {
   for (const listener of changeListeners) listener(origin);
@@ -208,6 +217,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   const graph = options.graph ?? SAMPLE_GRAPH;
   saved.length = 0;
   changeListeners.length = 0;
+  aiListeners.length = 0;
   // The client memoises its channel, so a fresh fake must invalidate it or the
   // client keeps talking to the previous test's transport.
   __resetChannelForTests();
@@ -517,17 +527,55 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             provider_id: "ollama",
             display_name: "Ollama",
             is_local: true,
-            configured: false,
-            streaming: true,
-            structured_output: true,
-            embeddings: true,
-            vision: false,
+            configured: true,
+            requires_api_key: false,
+            capabilities: ["text", "streaming", "embeddings"],
             max_context_tokens: 32768,
-            note: "Local. Arrives in Milestone 7.",
+            note: "Runs on this machine. Nothing leaves it.",
           },
         ],
-        any_configured: false,
+        any_configured: true,
+        keychain_available: true,
       }),
+      check_health: () => ({
+        provider_id: "ollama",
+        reachable: true,
+        configured: true,
+        detail: "1 model available.",
+        models: [
+          {
+            id: "llama3",
+            display_name: "llama3",
+            context_tokens: 32768,
+            is_local: true,
+          },
+        ],
+      }),
+      store_credential: () => ({
+        stored: true,
+        keychain_available: true,
+        detail: "Stored in the system keychain.",
+      }),
+      delete_credential: () => ({ stored: false, detail: "Removed." }),
+      check_policy: () => ({
+        verdict: "allowed",
+        reason: "This provider runs on your machine.",
+        blocking_layers: [],
+        is_remote: false,
+        private_object_count: 0,
+        object_count: 1,
+      }),
+      route: () => ({
+        provider_id: "ollama",
+        reason: "Ollama runs on this machine.",
+      }),
+      send_request: () => ({ request_id: "req_ai_1" }),
+      cancel_request: () => ({ cancelled: true }),
+      privacy_receipts: () => ({ receipts: [] }),
+      aiEvent: {
+        connect: (listener: (value: string) => void) =>
+          aiListeners.push(listener),
+      },
       plan_context: (payload) => ({
         plan:
           options.plan ??
