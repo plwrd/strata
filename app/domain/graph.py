@@ -62,6 +62,9 @@ class GraphNode(BaseModel):
     degree: int = 0
     updated_at: str = ""
     word_count: int = 0
+    # Semantic cluster index, when the graph was built with clustering. -1 means
+    # "not clustered". Drives colour-by-cluster in the renderer.
+    cluster: int = -1
 
     @classmethod
     def redacted(cls, node_id: str, layer_id: str) -> GraphNode:

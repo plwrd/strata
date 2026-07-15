@@ -72,6 +72,7 @@ function node(
     degree,
     updated_at: "2026-07-14T10:00:00+00:00",
     word_count: 120,
+    cluster: -1,
   };
 }
 
@@ -341,6 +342,12 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
               e.target === payload["node_id"],
           )
           .map((e) => (e.source === payload["node_id"] ? e.target : e.source)),
+      }),
+      shortest_path: (payload) => ({
+        node_ids: [payload["source_id"], "n1", payload["target_id"]],
+      }),
+      cluster_of: (payload) => ({
+        node_ids: [payload["node_id"], "n2"],
       }),
     },
     notes: {

@@ -57,8 +57,10 @@ class Services:
             encryption=self.encryption,
         )
         self.notes = NoteService(self.workspace)
-        self.graph = GraphService(self.workspace, self.notes)
         self.search = SearchService(self.notes, self.workspace)
+        # The graph asks the search service for semantic similarity, but only through
+        # a plain function — the two stay decoupled (ADR-0010).
+        self.graph = GraphService(self.workspace, self.notes, self.search.similar_pairs)
         self.exports = ContextExportService(self.workspace, self.notes, self.graph)
         self.ai = AIService(self.workspace, self.settings)
         self.snapshots = SnapshotService(self.workspace)

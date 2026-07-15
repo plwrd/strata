@@ -110,6 +110,51 @@ describe("selection", () => {
     );
   });
 
+  it("selects the connected component from the graph in memory", () => {
+    // n1-n2-n3 and n1-n4 are one component; the locked node is isolated.
+    useStore.getState().selectConnected("n4");
+
+    const ids = useStore.getState().selectedIds;
+    expect(ids).toEqual(expect.arrayContaining(["n1", "n2", "n3", "n4"]));
+    expect(ids).not.toContain("locked:layer_p");
+  });
+
+  it("selects a semantic cluster through the bridge", async () => {
+    await useStore.getState().selectCluster("n1");
+    expect(useStore.getState().selectedIds).toEqual(
+      expect.arrayContaining(["n1", "n2"]),
+    );
+  });
+
+  it("selects the shortest path through the bridge", async () => {
+    await useStore.getState().selectShortestPath("n4", "n3");
+    expect(useStore.getState().selectedIds).toEqual(["n4", "n1", "n3"]);
+  });
+
+  it("selects every node carrying a tag, skipping locked ones", () => {
+    useStore.getState().selectByTag("security");
+    const ids = useStore.getState().selectedIds;
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids).not.toContain("locked:layer_p");
+  });
+
+  it("selects a whole layer, skipping locked nodes", () => {
+    useStore.getState().selectByLayer("layer_a");
+    const ids = useStore.getState().selectedIds;
+    expect(ids.every((id) => !id.startsWith("locked:"))).toBe(true);
+  });
+
+  it("reloads the graph when the semantic-edge toggle flips", async () => {
+    expect(useStore.getState().semanticEdges).toBe(false);
+    await useStore.getState().setSemanticEdges(true);
+    expect(useStore.getState().semanticEdges).toBe(true);
+  });
+
+  it("reloads the graph when the cluster-colour toggle flips", async () => {
+    await useStore.getState().setClusterColors(true);
+    expect(useStore.getState().clusterColors).toBe(true);
+  });
+
   it("summarises what is selected, including private and locked counts", () => {
     useStore.getState().selectMany(["n1", "n2", "locked:layer_p"]);
 

@@ -141,6 +141,7 @@ export interface GraphNode {
   degree: number;
   updated_at: string;
   word_count: number;
+  cluster: number;
 }
 
 export interface GraphEdge {
