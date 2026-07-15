@@ -20,6 +20,29 @@ class LoadGraphRequest(BaseModel):
     focus_note_id: str | None = Field(default=None, max_length=128)
     neighbour_depth: int = Field(default=1, ge=0, le=5)
     node_limit: int = Field(default=DEFAULT_NODE_LIMIT, ge=1, le=200_000)
+    semantic_edges: bool = False
+    semantic_threshold: float = Field(default=0.5, ge=0.1, le=1.0)
+    cluster: bool = False
+    cluster_count: int = Field(default=6, ge=2, le=32)
+
+
+class ShortestPathRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1, max_length=128)
+    target_id: str = Field(min_length=1, max_length=128)
+
+
+class PathResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_ids: list[str] = Field(default_factory=list)
+
+
+class ClusterNodesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(min_length=1, max_length=128)
 
 
 class GraphResponse(BaseModel):
@@ -48,6 +71,11 @@ class GraphBridge(QObject):
     @Slot(str, result=str)  # type: ignore[arg-type]
     @bridge_method(LoadGraphRequest)
     def load_graph(self, request: LoadGraphRequest) -> GraphResponse:
+        clusters = (
+            self._services.search.clusters(request.layer_ids, request.cluster_count)
+            if request.cluster
+            else None
+        )
         snapshot = self._services.graph.build(
             layer_ids=request.layer_ids,
             include_tags=request.include_tags,
@@ -55,6 +83,9 @@ class GraphBridge(QObject):
             focus_note_id=request.focus_note_id,
             neighbour_depth=request.neighbour_depth,
             node_limit=request.node_limit,
+            semantic_edges=request.semantic_edges,
+            semantic_threshold=request.semantic_threshold,
+            cluster_assignments=clusters,
         )
         return GraphResponse(graph=snapshot)
 
@@ -64,4 +95,30 @@ class GraphBridge(QObject):
         snapshot = self._services.graph.build()
         return NeighboursResponse(
             node_ids=self._services.graph.neighbours(request.node_id, snapshot)
+        )
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(ShortestPathRequest)
+    def shortest_path(self, request: ShortestPathRequest) -> PathResponse:
+        snapshot = self._services.graph.build(include_tags=False, include_folders=False)
+        return PathResponse(
+            node_ids=self._services.graph.shortest_path(
+                snapshot, request.source_id, request.target_id
+            )
+        )
+
+    @Slot(str, result=str)  # type: ignore[arg-type]
+    @bridge_method(ClusterNodesRequest)
+    def cluster_of(self, request: ClusterNodesRequest) -> NeighboursResponse:
+        """Every node in the same semantic cluster as the given one."""
+        clusters = self._services.search.clusters()
+        target_cluster = clusters.get(request.node_id)
+        if target_cluster is None:
+            return NeighboursResponse(node_ids=[request.node_id])
+        return NeighboursResponse(
+            node_ids=[
+                object_id
+                for object_id, cluster in clusters.items()
+                if cluster == target_cluster
+            ]
         )

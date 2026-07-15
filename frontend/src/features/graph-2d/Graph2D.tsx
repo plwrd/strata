@@ -7,7 +7,7 @@
  * that quietly drifts out of sync.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphSnapshot } from "../../bridge/types";
 import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
@@ -18,6 +18,7 @@ interface Graph2DProps {
   selectedIds: string[];
   onSelect: (id: string, modifiers: { ctrl: boolean; shift: boolean }) => void;
   onOpen: (id: string) => void;
+  onLasso?: (ids: string[], add: boolean) => void;
 }
 
 const PADDING = 40;
@@ -28,9 +29,21 @@ export function Graph2D({
   selectedIds,
   onSelect,
   onOpen,
+  onLasso,
 }: Graph2DProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  // Lasso: a drag with Shift held draws a rectangle; every node inside it is
+  // selected on release. The rectangle is an overlay div (state), so it does not
+  // fight the canvas's own repaint.
+  const [lasso, setLasso] = useState<{
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+  } | null>(null);
+  const draggingRef = useRef(false);
 
   // Map layout space to canvas space once per render; reused by both the painter
   // and the hit test so a click always lands on what the user sees.
@@ -143,23 +156,85 @@ export function Graph2D({
     return closest?.id ?? null;
   };
 
+  const localPoint = (event: React.MouseEvent): [number, number] => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return [event.clientX - rect.left, event.clientY - rect.top];
+  };
+
+  const finishLasso = (add: boolean): void => {
+    const canvas = canvasRef.current;
+    const box = lasso;
+    draggingRef.current = false;
+    setLasso(null);
+    if (!canvas || !box || !onLasso) return;
+
+    const x = Math.min(box.x0, box.x1);
+    const y = Math.min(box.y0, box.y1);
+    const w = Math.abs(box.x1 - box.x0);
+    const h = Math.abs(box.y1 - box.y0);
+    if (w < 4 && h < 4) return; // a click, not a lasso
+
+    const inside: string[] = [];
+    for (const node of graph.nodes) {
+      const point = positions[node.id];
+      if (!point || node.locked) continue;
+      const [px, py] = project(point, canvas.clientWidth, canvas.clientHeight);
+      if (px >= x && px <= x + w && py >= y && py <= y + h)
+        inside.push(node.id);
+    }
+    onLasso(inside, add);
+  };
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="graph-2d"
-      aria-hidden="true"
-      onClick={(event) => {
-        const id = hitTest(event);
-        if (id)
-          onSelect(id, {
-            ctrl: event.ctrlKey || event.metaKey,
-            shift: event.shiftKey,
-          });
-      }}
-      onDoubleClick={(event) => {
-        const id = hitTest(event);
-        if (id) onOpen(id);
-      }}
-    />
+    <div className="graph-2d-host">
+      <canvas
+        ref={canvasRef}
+        className="graph-2d"
+        aria-hidden="true"
+        onMouseDown={(event) => {
+          if (event.shiftKey && onLasso) {
+            const [x, y] = localPoint(event);
+            setLasso({ x0: x, y0: y, x1: x, y1: y });
+            draggingRef.current = true;
+          }
+        }}
+        onMouseMove={(event) => {
+          if (draggingRef.current) {
+            const [x, y] = localPoint(event);
+            setLasso((box) => (box ? { ...box, x1: x, y1: y } : box));
+          }
+        }}
+        onMouseUp={(event) => {
+          if (draggingRef.current) finishLasso(event.ctrlKey || event.metaKey);
+        }}
+        onMouseLeave={() => {
+          if (draggingRef.current) finishLasso(false);
+        }}
+        onClick={(event) => {
+          if (event.shiftKey) return; // shift is the lasso modifier here
+          const id = hitTest(event);
+          if (id)
+            onSelect(id, {
+              ctrl: event.ctrlKey || event.metaKey,
+              shift: false,
+            });
+        }}
+        onDoubleClick={(event) => {
+          const id = hitTest(event);
+          if (id) onOpen(id);
+        }}
+      />
+      {lasso && (
+        <div
+          className="graph-lasso"
+          style={{
+            left: Math.min(lasso.x0, lasso.x1),
+            top: Math.min(lasso.y0, lasso.y1),
+            width: Math.abs(lasso.x1 - lasso.x0),
+            height: Math.abs(lasso.y1 - lasso.y0),
+          }}
+        />
+      )}
+    </div>
   );
 }

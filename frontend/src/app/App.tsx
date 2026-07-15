@@ -15,6 +15,7 @@ import { OperationsPanel } from "../features/operations/OperationsPanel";
 import { PropertiesPanel } from "../features/properties/PropertiesPanel";
 import { Graph2D } from "../features/graph-2d/Graph2D";
 import { GraphScene } from "../features/graph-3d/GraphScene";
+import { GraphControls } from "../features/graph/GraphControls";
 import { GraphErrorBoundary } from "../features/graph/GraphErrorBoundary";
 import { GraphList } from "../features/graph/GraphList";
 import { useGraphLayout } from "../features/graph/useGraphLayout";
@@ -198,8 +199,12 @@ export function App(): JSX.Element {
                       selectedIds={state.selectedIds}
                       onSelect={handleSelect}
                       onOpen={(id) => void state.openNoteById(id)}
+                      onLasso={(ids, add) =>
+                        state.selectMany(ids, add ? "add" : "replace")
+                      }
                     />
                   )}
+                  <GraphControls />
                 </>
               )}
 

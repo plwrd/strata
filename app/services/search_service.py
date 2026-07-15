@@ -343,6 +343,33 @@ class SearchService:
                 )
         return sorted(results, key=lambda result: -result.score)[:limit]
 
+    def similar_pairs(
+        self, object_ids: list[str], threshold: float
+    ) -> list[tuple[str, str, float]]:
+        """Pairs of the given objects whose embeddings are more similar than
+        ``threshold``. Used to draw semantic edges in the graph.
+
+        Only pairs *within the same layer* are considered, because the vector store
+        is per layer — which also means a locked layer contributes nothing, since it
+        has no index.
+        """
+        wanted = set(object_ids)
+        pairs: list[tuple[str, str, float]] = []
+        for layer_id in self._readable_layers(None):
+            indexes = self._index_for(layer_id)
+            store = indexes.vectors
+            ids = [oid for oid in store._ids if oid in wanted]
+            for object_id in ids:
+                vector = store.vector_for(object_id)
+                if vector is None:
+                    continue
+                for other_id, score in store.search(vector, limit=6):
+                    if other_id == object_id or other_id not in wanted:
+                        continue
+                    if score >= threshold and object_id < other_id:
+                        pairs.append((object_id, other_id, score))
+        return pairs
+
     def clusters(self, layer_ids: list[str] | None = None, count: int = 6) -> dict[str, int]:
         """Semantic clusters, for the graph. Deterministic across runs."""
         assignments: dict[str, int] = {}

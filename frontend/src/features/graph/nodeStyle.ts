@@ -41,9 +41,24 @@ export function cssToken(name: string, fallback = "#6f7fa8"): string {
   return resolved;
 }
 
+// A fixed palette for cluster colouring — distinct hues that read on the dark
+// background. Cluster index modulo the palette length, so any cluster count works.
+const CLUSTER_PALETTE = [
+  "#22e0f5",
+  "#a06bff",
+  "#3ddc97",
+  "#ffb547",
+  "#ff5cc8",
+  "#7fe7f5",
+  "#ff8a5c",
+  "#5c8dff",
+];
+
 export function nodeColor(node: GraphNode, selected: boolean): string {
   if (selected) return cssToken("--graph-node-selected", "#ffffff");
   if (node.locked) return cssToken("--graph-node-locked", "#47506a");
+  if (node.cluster >= 0)
+    return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;
   return cssToken(TOKEN_BY_TYPE[node.type] ?? "--graph-node-default");
 }
 
