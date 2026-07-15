@@ -250,5 +250,7 @@ strata/
 
 ## License
 
-Proprietary (see `pyproject.toml`). Licensing is a recorded open question — see
-[A-013](ASSUMPTIONS.md).
+[MIT](LICENSE). You may use, modify, and distribute Strata, including
+commercially, provided the copyright notice and licence text travel with it. The
+software is provided "as is", without warranty — read the security limits in
+[THREAT_MODEL.md](THREAT_MODEL.md) before trusting it with real secrets.
