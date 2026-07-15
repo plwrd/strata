@@ -125,18 +125,18 @@ class CollaborationBridge(QObject):
     def _on_event(self, kind: str, payload: dict[str, object]) -> None:
         self.collabEvent.emit(json.dumps({"kind": kind, **payload}))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def get_status(self, request: LayerRequest) -> StateResponse:
         return StateResponse(state=self._services.collaboration.status(request.layer_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ShareRequest)
     def share_layer(self, request: ShareRequest) -> StateResponse:
         state = self._services.collaboration.share_layer(request.layer_id, role=request.role)
         return StateResponse(state=state)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(JoinRequest)
     def join_layer(self, request: JoinRequest) -> StateResponse:
         state = self._services.collaboration.join_layer(
@@ -144,13 +144,13 @@ class CollaborationBridge(QObject):
         )
         return StateResponse(state=state)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def leave_layer(self, request: LayerRequest) -> StateResponse:
         self._services.collaboration.forget_layer(request.layer_id)
         return StateResponse(state=self._services.collaboration.status(request.layer_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def sync(self, request: LayerRequest) -> ConflictsResponse:
         conflicts = self._services.collaboration.sync(request.layer_id)
@@ -159,13 +159,13 @@ class CollaborationBridge(QObject):
             conflicts=conflicts,
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def get_document(self, request: LayerRequest) -> DocumentResponse:
         update = self._services.collaboration.document_update(request.layer_id)
         return DocumentResponse(update=base64.b64encode(update).decode("ascii"))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ApplyUpdateRequest)
     def apply_update(self, request: ApplyUpdateRequest) -> ConflictsResponse:
         try:
@@ -181,13 +181,13 @@ class CollaborationBridge(QObject):
             conflicts=conflicts,
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SetBodyRequest)
     def set_body(self, request: SetBodyRequest) -> StateResponse:
         self._services.collaboration.set_body(request.layer_id, request.note_id, request.body)
         return StateResponse(state=self._services.collaboration.status(request.layer_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def list_conflicts(self, request: LayerRequest) -> ConflictsResponse:
         return ConflictsResponse(
@@ -195,7 +195,7 @@ class CollaborationBridge(QObject):
             conflicts=self._services.collaboration.conflicts(request.layer_id),
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ResolveRequest)
     def resolve_conflict(self, request: ResolveRequest) -> StateResponse:
         state = self._services.collaboration.resolve_conflict(
@@ -203,18 +203,18 @@ class CollaborationBridge(QObject):
         )
         return StateResponse(state=state)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(AnnounceRequest)
     def announce_presence(self, request: AnnounceRequest) -> PresenceResponse:
         self._services.collaboration.announce(request.layer_id, request.peer)
         return PresenceResponse(peers=self._services.collaboration.presence(request.layer_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def get_presence(self, request: LayerRequest) -> PresenceResponse:
         return PresenceResponse(peers=self._services.collaboration.presence(request.layer_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerRequest)
     def compact(self, request: LayerRequest) -> CompactResponse:
         return CompactResponse(reclaimed=self._services.collaboration.compact(request.layer_id))

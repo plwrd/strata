@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.infrastructure.logging.logger import get_logger
+from app.infrastructure.storage.paths import replace_atomic
 
 logger = get_logger(__name__)
 
@@ -90,4 +91,4 @@ class SettingsService:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._path.with_suffix(".json.tmp")
         temporary.write_text(self._settings.model_dump_json(indent=2), encoding="utf-8")
-        temporary.replace(self._path)
+        replace_atomic(temporary, self._path)

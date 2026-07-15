@@ -92,7 +92,7 @@ class OperationsBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(GeneratePlanRequest)
     def generate_plan(self, request: GeneratePlanRequest) -> GenerateResponse:
         # Build the context from the selected objects, exactly as an export would —
@@ -139,7 +139,7 @@ class OperationsBridge(QObject):
     def _emit(self, request_id: str, payload: dict[str, Any]) -> None:
         self.planEvent.emit(json.dumps({"requestId": request_id, **payload}))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ReviewPlanRequest)
     def review_plan(self, request: ReviewPlanRequest) -> ReviewResponse:
         review = self._services.operations.review(
@@ -147,7 +147,7 @@ class OperationsBridge(QObject):
         )
         return ReviewResponse(review=review)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ApplyPlanRequest)
     def apply_plan(self, request: ApplyPlanRequest) -> ApplyResponse:
         if not request.approved_indexes:
@@ -162,12 +162,12 @@ class OperationsBridge(QObject):
         )
         return ApplyResponse(applied=applied)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(UndoRequest)
     def undo_plan(self, request: UndoRequest) -> ApplyResponse:
         return ApplyResponse(applied=self._services.operations.undo(request.plan_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def audit_log(self, _request: EmptyRequest) -> AuditResponse:
         return AuditResponse(entries=self._services.operations.audit_log())

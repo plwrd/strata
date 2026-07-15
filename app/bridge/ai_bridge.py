@@ -209,7 +209,7 @@ class AIComposerBridge(QObject):
 
     # -- providers -----------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_providers(self, _request: EmptyRequest) -> ProviderListResponse:
         ai = self._services.ai
@@ -223,7 +223,7 @@ class AIComposerBridge(QObject):
             keychain_available=ai.credentials.is_available(),
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ProviderIdRequest)
     def check_health(self, request: ProviderIdRequest) -> HealthResponse:
         health = _run_async(self._services.ai.health(request.provider_id))
@@ -235,7 +235,7 @@ class AIComposerBridge(QObject):
             models=[model.model_dump() for model in health.models],
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CredentialRequest)
     def store_credential(self, request: CredentialRequest) -> CredentialResponse:
         store = self._services.ai.credentials
@@ -257,7 +257,7 @@ class AIComposerBridge(QObject):
             detail="Stored in the system keychain." if stored else "The keychain refused it.",
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ProviderIdRequest)
     def delete_credential(self, request: ProviderIdRequest) -> CredentialResponse:
         deleted = self._services.ai.credentials.delete(request.provider_id)
@@ -269,7 +269,7 @@ class AIComposerBridge(QObject):
 
     # -- planning and policy -------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(PlanContextRequest)
     def plan_context(self, request: PlanContextRequest) -> PlanContextResponse:
         """What *would* be sent. Computing this sends nothing."""
@@ -284,7 +284,7 @@ class AIComposerBridge(QObject):
         )
         return PlanContextResponse(plan=plan)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(PolicyRequest)
     def check_policy(self, request: PolicyRequest) -> PolicyResponse:
         """Would this be allowed? The UI asks before it offers a Send button.
@@ -309,7 +309,7 @@ class AIComposerBridge(QObject):
             object_count=len(plan.sources) if plan else 0,
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RouteRequest)
     def route(self, request: RouteRequest) -> RouteResponse:
         plan = (
@@ -327,7 +327,7 @@ class AIComposerBridge(QObject):
 
     # -- sending -------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SendRequest)
     def send_request(self, request: SendRequest) -> SendResponse:
         """Start a streaming request. Events arrive on ``aiEvent``.
@@ -440,7 +440,7 @@ class AIComposerBridge(QObject):
     def _emit(self, request_id: str, payload: dict[str, Any]) -> None:
         self.aiEvent.emit(json.dumps({"requestId": request_id, **payload}))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CancelRequest)
     def cancel_request(self, request: CancelRequest) -> CancelResponse:
         cancel = self._cancels.get(request.request_id)
@@ -453,7 +453,7 @@ class AIComposerBridge(QObject):
 
     # -- receipts ------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def privacy_receipts(self, _request: EmptyRequest) -> ReceiptsResponse:
         """What has left this machine. Records the *fact* of the content, not the

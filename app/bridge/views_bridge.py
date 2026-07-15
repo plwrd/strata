@@ -57,22 +57,22 @@ class ViewsBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RunViewRequest)
     def run_view(self, request: RunViewRequest) -> RunViewResponse:
         return RunViewResponse(result=self._services.views.run(request.config))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_saved_views(self, _request: EmptyRequest) -> SavedViewsResponse:
         return SavedViewsResponse(views=self._services.workspace.saved_views())
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SaveViewRequest)
     def save_view(self, request: SaveViewRequest) -> SaveViewResponse:
         return SaveViewResponse(view=self._services.workspace.save_view(request.view))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(DeleteViewRequest)
     def delete_view(self, request: DeleteViewRequest) -> DeleteViewResponse:
         self._services.workspace.delete_view(request.view_id)

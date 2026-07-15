@@ -246,7 +246,7 @@ class NotesBridge(QObject):
 
     # -- reading -------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(TreeRequest)
     def get_tree(self, request: TreeRequest) -> TreeResponse:
         notes = self._services.notes.list_notes(request.layer_ids)
@@ -257,7 +257,7 @@ class NotesBridge(QObject):
             locked_layer_ids=[layer.id for layer in self._services.workspace.locked_layers()],
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(NoteIdRequest)
     def get_note(self, request: NoteIdRequest) -> NoteResponse:
         return self._with_schema(self._services.notes.get_note(request.note_id))
@@ -270,7 +270,7 @@ class NotesBridge(QObject):
 
     # -- writing -------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CreateNoteRequest)
     def create_note(self, request: CreateNoteRequest) -> NoteResponse:
         content = request.content
@@ -299,42 +299,42 @@ class NotesBridge(QObject):
         self._announce()
         return self._with_schema(note)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(UpdateNoteRequest)
     def update_note(self, request: UpdateNoteRequest) -> NoteResponse:
         note = self._services.notes.update_note(request.note_id, request.content)
         self._announce()
         return self._with_schema(note)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(UpdatePropertiesRequest)
     def update_properties(self, request: UpdatePropertiesRequest) -> NoteResponse:
         note = self._services.notes.update_properties(request.note_id, request.properties)
         self._announce()
         return self._with_schema(note)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RenameNoteRequest)
     def rename_note(self, request: RenameNoteRequest) -> RenameNoteResponse:
         note, rewritten = self._services.notes.rename_note(request.note_id, request.title)
         self._announce()
         return RenameNoteResponse(note=note, links_rewritten=rewritten)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(MoveNoteRequest)
     def move_note(self, request: MoveNoteRequest) -> NoteResponse:
         note = self._services.notes.move_note(request.note_id, request.folder_path)
         self._announce()
         return self._with_schema(note)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(NoteIdRequest)
     def duplicate_note(self, request: NoteIdRequest) -> NoteResponse:
         note = self._services.notes.duplicate_note(request.note_id)
         self._announce()
         return self._with_schema(note)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(NoteIdRequest)
     def delete_note(self, request: NoteIdRequest) -> DeleteNoteResponse:
         entry = self._services.notes.delete_note(request.note_id)
@@ -343,28 +343,28 @@ class NotesBridge(QObject):
 
     # -- trash ---------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_trash(self, _request: EmptyRequest) -> TrashListResponse:
         return TrashListResponse(
             entries=[TrashEntry(**entry) for entry in self._services.notes.list_trash()]
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RestoreRequest)
     def restore_note(self, request: RestoreRequest) -> NoteResponse:
         note = self._services.notes.restore_from_trash(request.entry)
         self._announce()
         return self._with_schema(note)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def empty_trash(self, _request: EmptyRequest) -> CountResponse:
         return CountResponse(count=self._services.notes.empty_trash())
 
     # -- folders -------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CreateFolderRequest)
     def create_folder(self, request: CreateFolderRequest) -> FolderResponse:
         folder = self._services.notes.create_folder(
@@ -373,14 +373,14 @@ class NotesBridge(QObject):
         self._announce()
         return FolderResponse(folder=TreeFolder(**folder.model_dump()))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RenameFolderRequest)
     def rename_folder(self, request: RenameFolderRequest) -> FolderResponse:
         folder = self._services.notes.rename_folder(request.folder_id, request.name)
         self._announce()
         return FolderResponse(folder=TreeFolder(**folder.model_dump()))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(FolderIdRequest)
     def delete_folder(self, request: FolderIdRequest) -> CountResponse:
         trashed = self._services.notes.delete_folder(request.folder_id)
@@ -389,7 +389,7 @@ class NotesBridge(QObject):
 
     # -- links ---------------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(NoteIdRequest)
     def get_links(self, request: NoteIdRequest) -> LinksResponse:
         notes = self._services.notes
@@ -407,7 +407,7 @@ class NotesBridge(QObject):
             ],
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def get_link_health(self, _request: EmptyRequest) -> LinkHealthResponse:
         health = self._services.notes.link_health()
@@ -418,12 +418,12 @@ class NotesBridge(QObject):
 
     # -- schemas and attachments ---------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_schemas(self, _request: EmptyRequest) -> SchemaListResponse:
         return SchemaListResponse(schemas=BUILTIN_SCHEMAS)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(AttachmentRequest)
     def save_attachment(self, request: AttachmentRequest) -> AttachmentResponse:
         try:

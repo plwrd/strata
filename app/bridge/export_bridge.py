@@ -81,13 +81,13 @@ class ExportBridge(QObject):
             )
         return self._services.exports.render(plan)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RenderExportRequest)
     def render_export(self, request: RenderExportRequest) -> RenderExportResponse:
         """Render the export in memory so the UI can preview it. Writes nothing."""
         return RenderExportResponse(result=self._build(request))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RenderExportRequest)
     def write_export(self, request: RenderExportRequest) -> WriteExportResponse:
         result = self._build(request)

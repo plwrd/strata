@@ -29,12 +29,12 @@ class SettingsBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def get_settings(self, _request: EmptyRequest) -> SettingsResponse:
         return SettingsResponse(settings=self._services.settings.settings)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(UpdateSettingsRequest)
     def update_settings(self, request: UpdateSettingsRequest) -> SettingsResponse:
         # AppSettings ignores unknown keys, so a rogue key cannot inject state.

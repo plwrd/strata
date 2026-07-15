@@ -93,7 +93,7 @@ class WatchService(QObject):
         """Called from the watchdog thread; the flush happens on the Qt thread."""
         self._bump.emit("external")
 
-    @Slot(str)  # type: ignore[arg-type]
+    @Slot(str)
     def _schedule(self, origin: str) -> None:
         # An external edit is the more interesting of the two, so it wins a tie.
         if self._pending != "external":

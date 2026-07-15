@@ -33,7 +33,7 @@ _CI_SLACK = 6.0
 
 def _percentile(samples: list[float], pct: float) -> float:
     ordered = sorted(samples)
-    index = min(len(ordered) - 1, int(round((pct / 100.0) * (len(ordered) - 1))))
+    index = min(len(ordered) - 1, round((pct / 100.0) * (len(ordered) - 1)))
     return ordered[index]
 
 

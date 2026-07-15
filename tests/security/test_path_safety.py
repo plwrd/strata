@@ -61,7 +61,7 @@ def test_empty_name_is_refused() -> None:
 
 def test_frontmatter_uses_safe_load_only() -> None:
     """A YAML tag that would construct a Python object must not be honoured."""
-    hostile = "---\n" "danger: !!python/object/apply:os.system ['echo pwned']\n" "---\n\nBody.\n"
+    hostile = "---\ndanger: !!python/object/apply:os.system ['echo pwned']\n---\n\nBody.\n"
 
     frontmatter, body = parse_frontmatter(hostile)
 

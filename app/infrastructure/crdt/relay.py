@@ -28,7 +28,7 @@ from pathlib import Path
 
 import httpx
 
-from app.infrastructure.storage.paths import resolve_within
+from app.infrastructure.storage.paths import replace_atomic, resolve_within
 
 # A channel id is a pseudonymous, opaque handle for one shared document. It must
 # be filesystem-safe because DirectoryRelay uses it as a directory name.
@@ -117,7 +117,7 @@ class DirectoryRelay(Relay):
         target = directory / f"{seq:016d}.blob"
         tmp = directory / f".{seq:016d}.tmp"
         tmp.write_bytes(bytes(blob))
-        tmp.replace(target)
+        replace_atomic(tmp, target)
         return seq
 
     def fetch(self, channel: str, after_seq: int) -> list[tuple[int, bytes]]:
@@ -142,7 +142,7 @@ class DirectoryRelay(Relay):
         target = presence / f"{safe_peer}.awareness"
         tmp = presence / f".{safe_peer}.tmp"
         tmp.write_bytes(bytes(blob))
-        tmp.replace(target)
+        replace_atomic(tmp, target)
 
     def presence(self, channel: str) -> dict[str, bytes]:
         directory = self._channel_dir(channel)
