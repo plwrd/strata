@@ -1,31 +1,41 @@
 version: 2
 
-# Keeps dependencies patched without a human watching the advisory feed. The npm
-# audit CI job is advisory (it does not block merges), so these PRs are the actual
-# mechanism that closes CVEs — grouped so a routine bump is one review, not twenty.
+# Keeps dependencies patched without a human watching the advisory feed. Two
+# hard-learned rules are baked in here:
+#
+# 1. Updates target `dev`, never `main`. Dependency changes must flow through the
+#    same tested dev -> release path as any other change; they must never land
+#    directly on the production branch.
+# 2. Major updates are their own PRs. A grouped bump that quietly includes a
+#    major (a new linter major with new rules, a crypto/toolkit major) breaks the
+#    build. Grouping is limited to minor/patch — routine and low-risk — while
+#    majors come one at a time to be reviewed and adapted to deliberately.
 updates:
   - package-ecosystem: pip
     directory: '/'
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      python-dependencies:
-        patterns: ['*']
+      python-minor-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: npm
     directory: '/frontend'
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      frontend-dependencies:
-        patterns: ['*']
+      frontend-minor-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: '/'
+    target-branch: dev
     schedule:
       interval: weekly
     groups:
-      actions:
-        patterns: ['*']
+      actions-minor-patch:
+        update-types: [minor, patch]

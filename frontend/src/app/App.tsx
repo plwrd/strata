@@ -28,6 +28,7 @@ import { CommandBar } from "../features/workspace/CommandBar";
 import { StatusBar } from "../features/workspace/StatusBar";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useStore } from "../state/store";
+import { AppContextMenu } from "./ContextMenu";
 import { SelectionRing } from "./SelectionRing";
 
 type InspectorTab = "ai" | "operations" | "properties" | "links";
@@ -189,6 +190,9 @@ export function App(): JSX.Element {
                         selectedIds={state.selectedIds}
                         hoveredId={state.hoveredId}
                         reducedMotion={reducedMotion}
+                        particles={state.settings?.particles_enabled ?? true}
+                        bloom={state.settings?.bloom_enabled ?? true}
+                        quality={quality}
                         onSelect={handleSelect}
                         onHover={state.setHovered}
                         onOpen={(id) => void state.openNoteById(id)}
@@ -211,6 +215,9 @@ export function App(): JSX.Element {
               )}
 
               <SelectionRing />
+              {/* Decorative vignette + HUD frame over the galaxy. Pointer-events
+                  none, hidden from AT, and removed entirely in high contrast. */}
+              <div className="stage__fx" aria-hidden="true" />
             </div>
           )}
         </main>
@@ -260,6 +267,7 @@ export function App(): JSX.Element {
       </div>
 
       <StatusBar />
+      <AppContextMenu />
     </div>
   );
 }
