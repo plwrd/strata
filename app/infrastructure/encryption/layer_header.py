@@ -38,6 +38,7 @@ from app.infrastructure.encryption.primitives import (
     encrypt,
     random_key,
 )
+from app.infrastructure.storage.paths import replace_atomic
 
 HEADER_FILENAME: Final = "layer.header"
 HEADER_FORMAT_VERSION: Final = 1
@@ -230,7 +231,7 @@ class LayerHeader:
         temporary = path.with_suffix(".header.tmp")
         temporary.write_text(json.dumps(self.to_json(), indent=2), encoding="utf-8")
         # Atomic: losing the header to a half-written file would lose the layer.
-        temporary.replace(path)
+        replace_atomic(temporary, path)
 
     @classmethod
     def load(cls, root: Path) -> LayerHeader:
