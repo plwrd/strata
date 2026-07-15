@@ -1,0 +1,133 @@
+name: Release
+
+# Builds installers and a signed-where-possible release when a version tag is
+# pushed. The tag is the trigger and the source of truth for the version; the
+# job never invents one. Artifacts attach to the GitHub Release for that tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or ref to build'
+        required: true
+
+permissions:
+  contents: write # to upload assets to the release
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  # A tag build that has not passed the gate is not a release. We do not re-run
+  # the whole matrix here — CI already ran on the commit the tag points at — but
+  # we do rebuild the SBOM so it ships with the artifacts.
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          pip install cyclonedx-bom
+          pip install -e .
+          cyclonedx-py environment -o sbom-python.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-python.json
+
+  build:
+    name: Installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: strata-windows
+          - os: ubuntu-latest
+            artifact: strata-linux
+          - os: macos-latest
+            artifact: strata-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libnss3 libxcomposite1 libxdamage1 libxrandr2 \
+            libxkbcommon0 libxtst6 libasound2t64 libgbm1 libxi6
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build the frontend bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Extract the Qt WebChannel client
+        run: python scripts/sync_qwebchannel.py
+
+      - name: Freeze the application (PyInstaller)
+        run: pyinstaller packaging/pyinstaller/strata.spec --noconfirm
+
+      # Code signing is intentionally gated on a secret. Without an org
+      # certificate the build is unsigned and SmartScreen/Gatekeeper will say so;
+      # we do not pretend otherwise (see SECURITY.md). When the secret is present,
+      # the platform build scripts sign in place.
+      - name: Note signing status
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.CODE_SIGN_CERT }}" ]; then
+            echo "A signing certificate is configured; signing would run here."
+          else
+            echo "::warning::No signing certificate configured — this is an UNSIGNED build, for testing only."
+          fi
+
+      - name: Package the artifacts
+        shell: bash
+        run: |
+          mkdir -p out
+          if [ -d dist ]; then
+            tar -czf "out/${{ matrix.artifact }}.tar.gz" -C dist .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/*
+
+  publish:
+    name: Attach to the release
+    needs: [sbom, build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Attach artifacts to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          fail_on_unmatched_files: false

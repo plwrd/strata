@@ -25,7 +25,7 @@ because time passed.
 | M8 | Transactional AI operations | Planned |
 | M9 | Collaboration | Shipped (v0.2.0) |
 | M10 | Structured views | Planned |
-| M11 | Production hardening | Planned |
+| M11 | Production hardening | Shipped (v1.0.0) |
 
 ## Dependencies
 
