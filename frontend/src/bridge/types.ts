@@ -46,10 +46,7 @@ export type LayerState = "mounted" | "unmounted" | "locked" | "unlocked";
 
 export interface LayerAIPolicy {
   access:
-    | "disabled"
-    | "local-only"
-    | "remote-with-confirmation"
-    | "remote-always";
+    "disabled" | "local-only" | "remote-with-confirmation" | "remote-always";
   embeddings: "disabled" | "local-only" | "remote-allowed";
   may_read: boolean;
   may_summarize: boolean;
@@ -307,18 +304,10 @@ export interface SearchResponse {
 }
 
 export type ExportTarget =
-  | "chatgpt"
-  | "claude"
-  | "gemini"
-  | "generic"
-  | "local";
+  "chatgpt" | "claude" | "gemini" | "generic" | "local";
 export type ExportShape = "single-file" | "package";
 export type ContextDepth =
-  | "selected-only"
-  | "plus-links"
-  | "plus-backlinks"
-  | "one-hop"
-  | "two-hops";
+  "selected-only" | "plus-links" | "plus-backlinks" | "one-hop" | "two-hops";
 export type ContentMode = "full" | "summary" | "titles-only";
 
 export interface ExportSource {
@@ -547,13 +536,7 @@ export interface SnapshotRecord {
 // --- structured views -----------------------------------------------------
 
 export type ViewType =
-  | "table"
-  | "list"
-  | "cards"
-  | "kanban"
-  | "calendar"
-  | "timeline"
-  | "gallery";
+  "table" | "list" | "cards" | "kanban" | "calendar" | "timeline" | "gallery";
 
 export type FilterOperator =
   | "equals"

@@ -64,7 +64,7 @@ class SearchBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SearchRequest)
     def search(self, request: SearchRequest) -> SearchResponse:
         results = self._services.search.search(
@@ -81,20 +81,20 @@ class SearchBridge(QObject):
             locked_layers_excluded=len(self._services.workspace.locked_layers()),
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SimilarRequest)
     def similar(self, request: SimilarRequest) -> SearchResponse:
         results = self._services.search.similar_to(request.object_id, request.limit)
         return SearchResponse(results=results, total=len(results))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ClusterRequest)
     def clusters(self, request: ClusterRequest) -> ClusterResponse:
         return ClusterResponse(
             clusters=self._services.search.clusters(request.layer_ids, request.count)
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def index_status(self, _request: EmptyRequest) -> IndexStatusResponse:
         """Index sizes, for diagnostics.

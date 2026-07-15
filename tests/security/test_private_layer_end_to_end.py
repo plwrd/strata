@@ -348,7 +348,7 @@ def test_the_layer_still_scans_clean_after_a_rotation(services: Services) -> Non
 
 
 def test_private_notes_support_the_full_editing_surface(services: Services) -> None:
-    layer_id, note_id = build_private_workspace(services)
+    _layer_id, note_id = build_private_workspace(services)
 
     updated = services.notes.update_note(note_id, "A completely new body.\n")
     assert updated.content.strip() == "A completely new body."

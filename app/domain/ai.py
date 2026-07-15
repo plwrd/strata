@@ -210,8 +210,7 @@ def evaluate_policy(
     if disabled:
         return PolicyDecision(
             "denied",
-            f"{'Embeddings are' if for_embeddings else 'AI is'} disabled for "
-            f"{_names(disabled)}.",
+            f"{'Embeddings are' if for_embeddings else 'AI is'} disabled for {_names(disabled)}.",
             blocking_layers=disabled,
             remote=remote,
         )

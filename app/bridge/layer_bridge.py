@@ -134,7 +134,7 @@ class LayerBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_layers(self, _request: EmptyRequest) -> LayerListResponse:
         descriptor = self._services.workspace.descriptor
@@ -143,7 +143,7 @@ class LayerBridge(QObject):
             layer_order=descriptor.layer_order,
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CreateLayerRequest)
     def create_layer(self, request: CreateLayerRequest) -> CreateLayerResponse:
         layer, recovery_key = self._services.workspace.create_layer(
@@ -155,13 +155,13 @@ class LayerBridge(QObject):
         )
         return CreateLayerResponse(layer=layer, recovery_key=recovery_key)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RenameLayerRequest)
     def rename_layer(self, request: RenameLayerRequest) -> LayerResponse:
         layer = self._services.workspace.rename_layer(request.layer_id, request.display_name)
         return LayerResponse(layer=layer)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ReorderLayersRequest)
     def reorder_layers(self, request: ReorderLayersRequest) -> LayerListResponse:
         descriptor = self._services.workspace.reorder_layers(request.layer_order)
@@ -169,7 +169,7 @@ class LayerBridge(QObject):
             layers=descriptor.ordered_layers(), layer_order=descriptor.layer_order
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SetAIPolicyRequest)
     def set_ai_policy(self, request: SetAIPolicyRequest) -> LayerResponse:
         layer = self._services.workspace.require_layer(request.layer_id)
@@ -178,13 +178,13 @@ class LayerBridge(QObject):
 
     # -- private layers ------------------------------------------------------
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(UnlockRequest)
     def unlock_layer(self, request: UnlockRequest) -> LayerResponse:
         layer = self._services.workspace.unlock_layer(request.layer_id, request.password)
         return LayerResponse(layer=layer)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(RecoveryUnlockRequest)
     def unlock_with_recovery_key(self, request: RecoveryUnlockRequest) -> LayerResponse:
         layer = self._services.workspace.unlock_layer_with_recovery_key(
@@ -192,18 +192,18 @@ class LayerBridge(QObject):
         )
         return LayerResponse(layer=layer)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(LayerIdRequest)
     def lock_layer(self, request: LayerIdRequest) -> LayerResponse:
         layer = self._services.workspace.lock_layer(request.layer_id)
         return LayerResponse(layer=layer)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def lock_all_layers(self, _request: EmptyRequest) -> LockAllResponse:
         return LockAllResponse(locked=self._services.workspace.lock_all_layers())
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(ChangePasswordRequest)
     def change_password(self, request: ChangePasswordRequest) -> LayerResponse:
         """Rewrap the layer key. Cheap — and it does *not* revoke anyone who
@@ -213,13 +213,13 @@ class LayerBridge(QObject):
         )
         return LayerResponse(layer=self._services.workspace.require_layer(request.layer_id))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(PasswordRequest)
     def reissue_recovery_key(self, request: PasswordRequest) -> RecoveryKeyResponse:
         key = self._services.workspace.reissue_recovery_key(request.layer_id, request.password)
         return RecoveryKeyResponse(recovery_key=key)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(PasswordRequest)
     def rotate_key(self, request: PasswordRequest) -> RotationResponse:
         """Generate a new layer key and re-encrypt every object under it.

@@ -13,7 +13,7 @@ export function stubClipboard(
 
 // jsdom has no matchMedia; the reduced-motion hook asks for it on mount.
 if (!window.matchMedia) {
-  window.matchMedia = ((query: string) => ({
+  window.matchMedia = (query: string) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -22,5 +22,5 @@ if (!window.matchMedia) {
     addListener: () => undefined,
     removeListener: () => undefined,
     dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+  });
 }

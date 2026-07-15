@@ -42,12 +42,12 @@ class JobBridge(QObject):
         self._services = services
         self._services.jobs.job_event.connect(self.jobEvent)
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_jobs(self, _request: EmptyRequest) -> JobListResponse:
         return JobListResponse(jobs=self._services.jobs.list_jobs())
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CancelJobRequest)
     def cancel_job(self, request: CancelJobRequest) -> CancelJobResponse:
         return CancelJobResponse(cancelled=self._services.jobs.cancel(request.job_id))

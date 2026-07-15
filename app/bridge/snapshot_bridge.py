@@ -57,26 +57,26 @@ class SnapshotBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def list_snapshots(self, _request: EmptyRequest) -> SnapshotListResponse:
         return SnapshotListResponse(
             snapshots=[SnapshotRecord(**asdict(info)) for info in self._services.snapshots.list()]
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(CreateSnapshotRequest)
     def create_snapshot(self, request: CreateSnapshotRequest) -> SnapshotResponse:
         info = self._services.snapshots.create(request.name)
         return SnapshotResponse(snapshot=SnapshotRecord(**asdict(info)))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SnapshotIdRequest)
     def restore_snapshot(self, request: SnapshotIdRequest) -> SnapshotResponse:
         info = self._services.snapshots.restore(request.snapshot_id)
         return SnapshotResponse(snapshot=SnapshotRecord(**asdict(info)))
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(SnapshotIdRequest)
     def delete_snapshot(self, request: SnapshotIdRequest) -> DeleteResponse:
         self._services.snapshots.delete(request.snapshot_id)

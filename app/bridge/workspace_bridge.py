@@ -53,7 +53,7 @@ class WorkspaceBridge(QObject):
         super().__init__(parent)
         self._services = services
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def health(self, _request: EmptyRequest) -> HealthResponse:
         """Liveness + protocol handshake. The frontend calls this before anything else."""
@@ -69,7 +69,7 @@ class WorkspaceBridge(QObject):
             workspace_open=self._services.workspace.is_open,
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def get_state(self, _request: EmptyRequest) -> WorkspaceStateResponse:
         workspace = self._services.workspace
@@ -81,7 +81,7 @@ class WorkspaceBridge(QObject):
             lenses=workspace.lenses(),
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(OpenWorkspaceRequest)
     def open_default_workspace(self, request: OpenWorkspaceRequest) -> WorkspaceStateResponse:
         """Open (or first-run create) the workspace at the platform default path."""
@@ -93,7 +93,7 @@ class WorkspaceBridge(QObject):
             lenses=workspace.lenses(),
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(OpenWorkspaceRequest)
     def choose_workspace(self, request: OpenWorkspaceRequest) -> WorkspaceStateResponse:
         """Let the *user* pick a folder with a native dialog, then open it."""
@@ -117,7 +117,7 @@ class WorkspaceBridge(QObject):
             lenses=workspace.lenses(),
         )
 
-    @Slot(str, result=str)  # type: ignore[arg-type]
+    @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def close_workspace(self, _request: EmptyRequest) -> WorkspaceStateResponse:
         self._services.workspace.close()
