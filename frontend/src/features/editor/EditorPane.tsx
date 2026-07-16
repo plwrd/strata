@@ -62,7 +62,12 @@ export function EditorPane(): JSX.Element {
   // document; otherwise this is null and the editor stays in ordinary local mode.
   const layerId = openNote?.metadata.layer_id ?? null;
   const shared = layerId ? (state.collab[layerId]?.enabled ?? false) : false;
-  const collab = useCollabText(layerId, activeNoteId, shared);
+  const collab = useCollabText(
+    layerId,
+    activeNoteId,
+    shared,
+    openNote?.content ?? "",
+  );
 
   if (!openNote || !activeNoteId) {
     return (
@@ -161,10 +166,16 @@ export function EditorPane(): JSX.Element {
       <div className={`editor-pane__body editor-pane__body--${viewMode}`}>
         {viewMode !== "reading" && (
           <MarkdownEditor
+            // Keyed by note (and collab binding): switching notes fully remounts
+            // the editor, so its unmount-flush is bound to the note it was
+            // actually editing — never the note just switched to.
+            key={`${activeNoteId}:${collab ? "collab" : "local"}`}
             noteId={activeNoteId}
             initialContent={openNote.content}
             suggestions={suggestions}
             collab={collab}
+            titleIndex={titleIndex}
+            onOpenNote={(id) => void state.openNoteById(id)}
             onChange={(value) => state.setDraft(activeNoteId, value)}
             onSave={(value) => void state.saveNote(activeNoteId, value)}
           />

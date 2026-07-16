@@ -54,11 +54,11 @@ def test_two_peers_converge_over_the_http_relay(relay: HttpRelay) -> None:
     b = LayerDocument("doc")
 
     a.upsert_node(TreeNode(node_id="n1", name="Shared", is_note=True), body="hello from A")
-    blob = seal_update(key=key, layer_id="L", doc_id="doc", seq=1, update=a.encode_update())
+    blob = seal_update(key=key, layer_id="L", doc_id="doc", update=a.encode_update())
     relay.publish("chan", blob)
 
-    for seq, sealed in relay.fetch("chan", 0):
-        b.apply_update(open_update(key=key, layer_id="L", doc_id="doc", seq=seq, blob=sealed))
+    for _seq, sealed in relay.fetch("chan", 0):
+        b.apply_update(open_update(key=key, layer_id="L", doc_id="doc", blob=sealed))
 
     assert b.body("n1") == "hello from A"
 
@@ -69,7 +69,7 @@ def test_only_ciphertext_crosses_the_relay(relay: HttpRelay) -> None:
     doc.upsert_node(TreeNode(node_id="n1", name="Secret", is_note=True), body="NEEDLE-XYZ")
     relay.publish(
         "chan",
-        seal_update(key=key, layer_id="L", doc_id="doc", seq=1, update=doc.encode_update()),
+        seal_update(key=key, layer_id="L", doc_id="doc", update=doc.encode_update()),
     )
     # Whatever the relay hands back is opaque — no plaintext, no title.
     for _seq, blob in relay.fetch("chan", 0):

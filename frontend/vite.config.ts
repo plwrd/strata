@@ -40,6 +40,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/tests/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // Auto-restore spies between tests so a `vi.spyOn` in one file can never
+    // leak into another and cause order-dependent flakes.
+    restoreMocks: true,
     coverage: {
       reporter: ["text", "lcov"],
     },

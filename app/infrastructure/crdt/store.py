@@ -63,7 +63,6 @@ class CRDTStore:
             key=key,
             layer_id=self._layer_id,
             doc_id=self._doc_id,
-            seq=seq,
             update=update,
         )
         target = self._update_path(seq)
@@ -85,7 +84,6 @@ class CRDTStore:
                 key=key,
                 layer_id=self._layer_id,
                 doc_id=self._doc_id,
-                seq=base_seq,
                 blob=path.read_bytes(),
                 is_state=True,
             )
@@ -97,7 +95,6 @@ class CRDTStore:
                 key=key,
                 layer_id=self._layer_id,
                 doc_id=self._doc_id,
-                seq=seq,
                 blob=self._update_path(seq).read_bytes(),
             )
             document.apply_update(plaintext)
@@ -116,7 +113,6 @@ class CRDTStore:
                         key=key,
                         layer_id=self._layer_id,
                         doc_id=self._doc_id,
-                        seq=seq,
                         blob=self._update_path(seq).read_bytes(),
                     ),
                 )
@@ -139,15 +135,13 @@ class CRDTStore:
             return 0
 
         pieces: list[bytes] = []
-        base_seq = 0
         if base is not None:
-            base_seq, path = base
+            _base_seq, path = base
             pieces.append(
                 open_update(
                     key=key,
                     layer_id=self._layer_id,
                     doc_id=self._doc_id,
-                    seq=base_seq,
                     blob=path.read_bytes(),
                     is_state=True,
                 )
@@ -158,7 +152,6 @@ class CRDTStore:
                     key=key,
                     layer_id=self._layer_id,
                     doc_id=self._doc_id,
-                    seq=seq,
                     blob=self._update_path(seq).read_bytes(),
                 )
             )
@@ -169,7 +162,6 @@ class CRDTStore:
             key=key,
             layer_id=self._layer_id,
             doc_id=self._doc_id,
-            seq=new_seq,
             update=merged,
             is_state=True,
         )

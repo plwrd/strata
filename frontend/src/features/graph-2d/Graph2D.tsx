@@ -38,6 +38,10 @@ export function Graph2D({
 }: Graph2DProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  // Bumped whenever the canvas resizes, to force a repaint at the new size —
+  // otherwise the backing store keeps the old dimensions while the hit test uses
+  // the new ones, and clicks land on the wrong node.
+  const [resizeTick, setResizeTick] = useState(0);
 
   // Lasso: a drag with Shift held draws a rectangle; every node inside it is
   // selected on release. The rectangle is an overlay div (state), so it does not
@@ -148,7 +152,16 @@ export function Graph2D({
         context.fillText(node.label.slice(0, 28), x + radius + 4, y + 3);
       }
     }
-  }, [graph, positions, selected, project]);
+  }, [graph, positions, selected, project, resizeTick]);
+
+  // Repaint on resize so the backing store and the hit test agree on size.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setResizeTick((t) => t + 1));
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
 
   const hitTest = (
     event: React.MouseEvent<HTMLCanvasElement>,

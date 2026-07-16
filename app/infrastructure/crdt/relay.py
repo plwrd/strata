@@ -113,12 +113,20 @@ class DirectoryRelay(Relay):
 
     def publish(self, channel: str, blob: bytes) -> int:
         directory = self._channel_dir(channel)
+        payload = bytes(blob)
+        # Two processes can compute the same head()+1 and race for the filename;
+        # claim the sequence with an exclusive create, and step to the next one if
+        # someone beat us — so no blob is silently overwritten and lost.
         seq = self.head(channel) + 1
-        target = directory / f"{seq:016d}.blob"
-        tmp = directory / f".{seq:016d}.tmp"
-        tmp.write_bytes(bytes(blob))
-        replace_atomic(tmp, target)
-        return seq
+        for _ in range(1000):
+            target = directory / f"{seq:016d}.blob"
+            try:
+                with target.open("xb") as handle:
+                    handle.write(payload)
+                return seq
+            except FileExistsError:
+                seq += 1
+        raise OSError("Could not find a free relay sequence.")
 
     def fetch(self, channel: str, after_seq: int) -> list[tuple[int, bytes]]:
         directory = self._channel_dir(channel)
