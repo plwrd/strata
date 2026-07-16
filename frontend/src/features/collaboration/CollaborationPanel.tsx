@@ -60,6 +60,14 @@ function RelayConfig(): JSX.Element {
   const current = settings?.relay_url ?? "";
   const [value, setValue] = useState(current);
   const [saved, setSaved] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  // Settings may load after this panel mounts. Adopt the stored value until the
+  // user actually edits the field — otherwise the input stays empty while the
+  // real relay URL loads, and one Save would wipe the configured relay.
+  useEffect(() => {
+    if (!touched) setValue(current);
+  }, [current, touched]);
 
   const dirty = value.trim() !== current;
 
@@ -83,6 +91,7 @@ function RelayConfig(): JSX.Element {
           placeholder="https://relay.example/ — blank for local"
           value={value}
           onChange={(e) => {
+            setTouched(true);
             setValue(e.target.value);
             setSaved(false);
           }}

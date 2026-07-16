@@ -30,6 +30,19 @@ import { tags } from "@lezer/highlight";
 import { yCollab } from "y-codemirror.next";
 import { useEffect, useRef } from "react";
 import type { CollabBinding } from "../collaboration/useCollabText";
+import { linkAt } from "./editorLinks";
+
+/** Open an external URL through the shell's confirm-then-browser navigation. */
+function openExternal(url: string): void {
+  // A transient anchor click navigates the top frame, which the Qt page
+  // intercepts (acceptNavigationRequest) and routes to the OS browser after
+  // confirmation — the same path the reading preview's links use. In tests
+  // (jsdom) it is a harmless no-op.
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.rel = "noopener noreferrer";
+  anchor.click();
+}
 
 export interface EditorSuggestions {
   noteTitles: string[];
@@ -46,6 +59,9 @@ interface Props {
   readOnly?: boolean;
   /** When set, the editor binds to a shared Y.Text and shows remote cursors. */
   collab?: CollabBinding | null;
+  /** Lowercased title/alias → note id, so Ctrl/Cmd-click can follow wiki links. */
+  titleIndex?: Record<string, string>;
+  onOpenNote?: (noteId: string) => void;
 }
 
 const AUTOSAVE_MS = 800;
@@ -249,8 +265,12 @@ export function MarkdownEditor({
   onSave,
   readOnly = false,
   collab = null,
+  titleIndex,
+  onOpenNote,
 }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
+  const linkRefs = useRef({ titleIndex, onOpenNote });
+  linkRefs.current = { titleIndex, onOpenNote };
   const viewRef = useRef<EditorView | null>(null);
   const saveTimer = useRef<number | null>(null);
   const latest = useRef(initialContent);
@@ -301,6 +321,31 @@ export function MarkdownEditor({
           ...searchKeymap,
           indentWithTab,
         ]),
+        // Ctrl/Cmd-click follows a link under the pointer: a wiki link opens the
+        // note, a URL opens externally. A plain click still just moves the cursor.
+        EditorView.domEventHandlers({
+          mousedown: (event, view) => {
+            if (!(event.ctrlKey || event.metaKey) || event.button !== 0)
+              return false;
+            const pos = view.posAtCoords({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            if (pos === null) return false;
+            const line = view.state.doc.lineAt(pos);
+            const link = linkAt(line.text, pos - line.from);
+            if (!link) return false;
+            event.preventDefault();
+            if (link.kind === "url") {
+              openExternal(link.target);
+            } else {
+              const id =
+                linkRefs.current.titleIndex?.[link.target.toLowerCase()];
+              if (id) linkRefs.current.onOpenNote?.(id);
+            }
+            return true;
+          },
+        }),
         markdown({ base: markdownLanguage, codeLanguages: [] }),
         autocompletion({
           override: [

@@ -108,17 +108,15 @@ def test_two_peers_converge_through_a_relay(tmp_path: Path) -> None:
     b = LayerDocument("doc")
     from app.infrastructure.crdt.updates import open_update, seal_update
 
-    def push(doc: LayerDocument, since: bytes | None, seq: int) -> None:
-        blob = seal_update(
-            key=key, layer_id="L", doc_id="doc", seq=seq, update=doc.encode_update(since)
-        )
+    def push(doc: LayerDocument, since: bytes | None) -> None:
+        blob = seal_update(key=key, layer_id="L", doc_id="doc", update=doc.encode_update(since))
         relay.publish("chan", blob)
 
     a.upsert_node(_note(1), body="from A")
-    push(a, None, 1)
+    push(a, None)
 
-    for seq, blob in relay.fetch("chan", 0):
-        update = open_update(key=key, layer_id="L", doc_id="doc", seq=seq, blob=blob)
+    for _seq, blob in relay.fetch("chan", 0):
+        update = open_update(key=key, layer_id="L", doc_id="doc", blob=blob)
         b.apply_update(update)
 
     assert b.body("n1") == "from A"

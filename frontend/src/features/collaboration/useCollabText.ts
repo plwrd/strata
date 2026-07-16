@@ -5,7 +5,7 @@
  * ordinary local mode.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 import { sessionFor } from "./collabDoc";
@@ -19,8 +19,13 @@ export function useCollabText(
   layerId: string | null,
   noteId: string | null,
   shared: boolean,
+  initialContent: string,
 ): CollabBinding | null {
   const [binding, setBinding] = useState<CollabBinding | null>(null);
+  // Read the latest content without making it a hook dependency (re-binding on
+  // every keystroke would be wrong); only the identity of the note matters.
+  const contentRef = useRef(initialContent);
+  contentRef.current = initialContent;
 
   useEffect(() => {
     if (!shared || !layerId || !noteId) {
@@ -28,10 +33,19 @@ export function useCollabText(
       return;
     }
     let cancelled = false;
-    void sessionFor(layerId).then((session) => {
-      if (cancelled) return;
-      setBinding({ text: session.text(noteId), awareness: session.awareness });
-    });
+    sessionFor(layerId)
+      .then((session) => {
+        if (cancelled) return;
+        setBinding({
+          text: session.ensureText(noteId, contentRef.current),
+          awareness: session.awareness,
+        });
+      })
+      .catch(() => {
+        // Connect failed; stay in ordinary local mode rather than crash. A later
+        // attempt can retry (the poisoned-promise cache was already cleared).
+        if (!cancelled) setBinding(null);
+      });
     return () => {
       cancelled = true;
     };
