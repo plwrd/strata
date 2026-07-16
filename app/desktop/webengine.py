@@ -102,7 +102,6 @@ class FrontendSchemeHandler(QWebEngineUrlSchemeHandler):
     def __init__(self, root: Path, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._root = root
-        self._buffers: list[QBuffer] = []
 
     def requestStarted(self, job: QWebEngineUrlRequestJob) -> None:
         url = job.requestUrl()
@@ -134,10 +133,11 @@ class FrontendSchemeHandler(QWebEngineUrlSchemeHandler):
         if path.suffix.lower() in (".js", ".mjs"):
             mime = "text/javascript"
 
+        # Parented to the job: Qt owns the buffer and frees it when the request
+        # finishes, so no per-request Python reference needs to be retained.
         buffer = QBuffer(job)
         buffer.setData(QByteArray(data))
         buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-        self._buffers.append(buffer)
         job.reply(QByteArray(mime.encode()), buffer)
 
 

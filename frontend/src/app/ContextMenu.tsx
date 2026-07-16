@@ -179,7 +179,10 @@ export function AppContextMenu(): JSX.Element | null {
       className="context-menu"
       role="menu"
       aria-label="Strata menu"
-      style={{ left: position.x, top: position.y }}
+      // Position is set imperatively (and clamped to the viewport) in the layout
+      // effect. It is deliberately NOT an inline style prop: an unrelated store
+      // update re-renders this component, and re-applying the raw coords here
+      // would undo the clamp and snap the menu off-screen.
       onKeyDown={(event) => {
         const items = [
           ...(menuRef.current?.querySelectorAll<HTMLButtonElement>(

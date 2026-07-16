@@ -73,6 +73,22 @@ export class CollabSession {
     return created;
   }
 
+  /**
+   * The `Y.Text` for a note, seeding it from the on-disk body if — and only if —
+   * the shared document has never seen this note. Without this, a note that
+   * exists on disk but was never seeded into the CRDT opens as an empty editor
+   * and its first keystroke autosaves the empty body over the real file.
+   */
+  ensureText(noteId: string, seed: string): Y.Text {
+    const bodies = this.doc.getMap("bodies");
+    const existing = bodies.get(noteId);
+    if (existing instanceof Y.Text) return existing;
+    const created = new Y.Text();
+    if (seed) created.insert(0, seed);
+    bodies.set(noteId, created);
+    return created;
+  }
+
   /** Pull the authoritative state (called on remote change). */
   async pull(): Promise<void> {
     if (this.disposed) return;
@@ -133,11 +149,21 @@ export async function sessionFor(layerId: string): Promise<CollabSession> {
   if (pending) return pending;
 
   const session = new CollabSession(layerId);
-  const promise = session.connect().then(() => {
-    sessions.set(layerId, session);
-    connecting.delete(layerId);
-    return session;
-  });
+  const promise = session
+    .connect()
+    .then(() => {
+      sessions.set(layerId, session);
+      return session;
+    })
+    .catch((error: unknown) => {
+      // A failed connect must not poison the layer: drop the cached rejection so
+      // a later attempt can retry instead of replaying the same failure forever.
+      session.destroy();
+      throw error;
+    })
+    .finally(() => {
+      connecting.delete(layerId);
+    });
   connecting.set(layerId, promise);
   return promise;
 }

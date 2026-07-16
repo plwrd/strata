@@ -26,6 +26,17 @@ interface Props {
 const MATH_BLOCK = /\$\$([\s\S]+?)\$\$/g;
 const MATH_INLINE = /(?<!\$)\$([^$\n]+?)\$(?!\$)/g;
 
+// Apply KaTeX only outside code. A shell snippet with `$VAR` is not math, and
+// rendering it as KaTeX turns a code block into escaped HTML soup. We split on
+// fenced blocks (```…```) and inline code spans (`…`) and leave those untouched.
+function renderMathOutsideCode(source: string): string {
+  const CODE = /(```[\s\S]*?```|`[^`\n]*`)/g;
+  return source
+    .split(CODE)
+    .map((segment, i) => (i % 2 === 1 ? segment : renderMath(segment)))
+    .join("");
+}
+
 function renderMath(source: string): string {
   const block = source.replace(MATH_BLOCK, (_match, expression: string) => {
     try {
@@ -58,7 +69,7 @@ export function MarkdownPreview({
 
   const html = useMemo(() => {
     const context: RenderContext = { titleIndex };
-    return renderMarkdown(renderMath(content), context);
+    return renderMarkdown(renderMathOutsideCode(content), context);
   }, [content, titleIndex]);
 
   // Wiki links carry `data-note`, never an href, so there is no URL for a note to

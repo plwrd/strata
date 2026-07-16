@@ -76,8 +76,15 @@ def _ancestry_status(node: TreeNode, by_id: dict[str, TreeNode]) -> tuple[str, l
 def detect_conflicts(
     nodes: list[TreeNode],
     body_of: Callable[[str], str] | None = None,
+    acknowledged_deletes: set[str] | None = None,
 ) -> list[ConflictFinding]:
-    """Detect every surviving semantic conflict in a converged tree."""
+    """Detect every surviving semantic conflict in a converged tree.
+
+    ``acknowledged_deletes`` are node ids whose deletion is intentional and
+    already handled; they are never re-flagged as edit-vs-delete, so a confirmed
+    delete cannot resurrect itself on the next reconcile.
+    """
+    known_deleted = acknowledged_deletes or set()
     by_id = _by_id(nodes)
     findings: list[ConflictFinding] = []
     cycles_reported: set[frozenset[str]] = set()
@@ -126,6 +133,8 @@ def detect_conflicts(
 
     if body_of is not None:
         for node in nodes:
+            if node.node_id in known_deleted:
+                continue
             if node.deleted and node.is_note and body_of(node.node_id).strip():
                 findings.append(
                     ConflictFinding(

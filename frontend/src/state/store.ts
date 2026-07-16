@@ -54,6 +54,15 @@ const EMPTY_LINKS: LinksResponse = {
   outgoing: [],
 };
 
+// Per-note save coordination, kept outside the reactive store. `saveQueue` holds
+// the newest unsaved content per note; `savingNotes` is the set currently being
+// written. Together they guarantee the *last* content always lands even when a
+// save is in flight (fixes silent loss on rapid tab-switch / autosave overlap).
+const saveQueue = new Map<string, string>();
+const savingNotes = new Set<string>();
+// Monotonic token so a slow note-open response cannot overwrite a newer one.
+let openRequestToken = 0;
+
 export interface SelectionSummary {
   count: number;
   noteCount: number;
@@ -451,8 +460,12 @@ export const useStore = create<StrataState>((set, get) => ({
   },
 
   async openNoteById(noteId) {
+    // A rapid A→B navigation must not let A's slower response win. Each open
+    // gets a token; a stale response (superseded by a newer open) is dropped.
+    const token = ++openRequestToken;
     try {
       const response = await bridge.notes.get(noteId);
+      if (token !== openRequestToken) return;
       const tabs = get().tabs.some((tab) => tab.id === noteId)
         ? get().tabs
         : [...get().tabs, { id: noteId, title: response.note.metadata.title }];
@@ -471,9 +484,11 @@ export const useStore = create<StrataState>((set, get) => ({
       });
 
       const links = await bridge.notes.links(noteId);
+      if (token !== openRequestToken) return;
       set({ links });
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      if (token === openRequestToken)
+        set({ connectionMessage: describeError(error) });
     }
   },
 
@@ -510,25 +525,44 @@ export const useStore = create<StrataState>((set, get) => ({
   },
 
   async saveNote(noteId, content) {
-    if (get().saving) return;
+    // Always record the newest content; a save already running for this note
+    // will pick it up rather than be lost.
+    saveQueue.set(noteId, content);
+    if (savingNotes.has(noteId)) return;
+
+    savingNotes.add(noteId);
     set({ saving: true });
     try {
-      const response = await bridge.notes.update(noteId, content);
-      set({
-        openNote: response.note,
-        schemaId: response.schema_id,
-        issues: response.issues,
-        draft: null,
-        saving: false,
-        dirty: { ...get().dirty, [noteId]: false },
-      });
+      while (saveQueue.has(noteId)) {
+        const next = saveQueue.get(noteId)!;
+        saveQueue.delete(noteId);
+        const response = await bridge.notes.update(noteId, next);
+        // Only reflect into the visible editor state if this is still the note
+        // on screen — otherwise a background save would clobber the open note.
+        if (get().activeNoteId === noteId) {
+          set({
+            openNote: response.note,
+            schemaId: response.schema_id,
+            issues: response.issues,
+            draft: get().draft === next ? null : get().draft,
+          });
+        }
+        set({
+          dirty: { ...get().dirty, [noteId]: saveQueue.has(noteId) },
+        });
+      }
       // Saving changes links and tags, so the graph and the tree are now stale.
       void get().reloadTree();
       void get().reloadGraph();
-      const links = await bridge.notes.links(noteId);
-      set({ links });
+      if (get().activeNoteId === noteId) {
+        const links = await bridge.notes.links(noteId);
+        set({ links });
+      }
     } catch (error) {
-      set({ saving: false, connectionMessage: describeError(error) });
+      set({ connectionMessage: describeError(error) });
+    } finally {
+      savingNotes.delete(noteId);
+      set({ saving: savingNotes.size > 0 });
     }
   },
 

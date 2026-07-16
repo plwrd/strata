@@ -88,6 +88,11 @@ class _Active:
         self.channel = channel
         self.relay_cursor = 0
         self.conflicts: dict[str, ConflictRecord] = {}
+        # Notes whose deletion has been acknowledged (confirmed by the user, or
+        # deleted deliberately). detect_conflicts must not re-flag these as
+        # edit-vs-delete on every reconcile — that is how a confirmed delete
+        # resurrected itself into an endless conflict.
+        self.acknowledged_deletes: set[str] = set()
 
 
 class CollaborationService:
@@ -224,6 +229,27 @@ class CollaborationService:
         active.store.append(key, update)
         self._publish_local(active, key, update)
 
+    def delete_node(self, layer_id: str, node_id: str) -> list[ConflictRecord]:
+        """Delete a note or folder in a shared layer.
+
+        The deleter *acknowledges* the deletion, so its own reconcile does not
+        rescue it back (a tombstoned note keeps its body, which otherwise looks
+        exactly like an edit-vs-delete conflict). Another peer who was editing the
+        same note still gets the rescue — their edits are never lost — but a plain
+        deletion by the owner simply deletes.
+        """
+        active = self._require(layer_id)
+        if active.role == "viewer":
+            raise PermissionDeniedError("A viewer cannot edit a shared layer.")
+        key = self._key_for(layer_id)
+        before = active.document.state_vector()
+        active.document.mark_deleted(node_id, True)
+        active.acknowledged_deletes.add(node_id)
+        update = active.document.encode_update(before)
+        active.store.append(key, update)
+        self._publish_local(active, key, update)
+        return self._reconcile(active, key, peer="local")
+
     # ---- syncing through the relay --------------------------------------
 
     def sync(self, layer_id: str) -> list[ConflictRecord]:
@@ -241,16 +267,20 @@ class CollaborationService:
                     key=key,
                     layer_id=layer_id,
                     doc_id=active.doc_id,
-                    seq=seq,
                     blob=blob,
                 )
             except DecryptionError:
-                # A blob we cannot open is one sealed for a different doc/seq — it
-                # is not ours to apply. Skip it rather than fail the whole sync.
+                # A blob we cannot open is one sealed for a different doc — it is
+                # not ours to apply. Skip it rather than fail the whole sync.
                 continue
+            # Apply, and only persist if it actually advanced our state. This
+            # skips our own re-fetched updates (already applied → no-op → not
+            # re-appended), keeping the on-disk log from growing on every sync.
+            before = active.document.state_vector()
             active.document.apply_update(update)
-            active.store.append(key, update)
-            applied = True
+            if active.document.state_vector() != before:
+                active.store.append(key, update)
+                applied = True
 
         conflicts = self._reconcile(active, key, peer="remote") if applied else []
         if applied:
@@ -276,9 +306,15 @@ class CollaborationService:
             before = active.document.state_vector()
             for node_id in record.node_ids:
                 active.document.mark_deleted(node_id, True)
+                # Remember the intent so the next reconcile does not rescue it back.
+                active.acknowledged_deletes.add(node_id)
             update = active.document.encode_update(before)
             active.store.append(key, update)
             self._publish_local(active, key, update)
+        else:
+            # "keep" also resolves the conflict: the node stays in Conflicts/, so
+            # do not surface it again.
+            active.acknowledged_deletes.update(record.node_ids)
         record.resolved = True
         self._emit_event(
             "conflict", {"layerId": layer_id, "pending": len(self.conflicts(layer_id))}
@@ -323,20 +359,25 @@ class CollaborationService:
     def _publish_local(self, active: _Active, key: bytes, update: bytes) -> None:
         from app.infrastructure.crdt.updates import seal_update
 
-        seq = self._relay.head(active.channel) + 1
         blob = seal_update(
             key=key,
             layer_id=active.layer_id,
             doc_id=active.doc_id,
-            seq=seq,
             update=update,
         )
-        published = self._relay.publish(active.channel, blob)
-        # Our own publications should not come back to us as "remote".
-        active.relay_cursor = max(active.relay_cursor, published)
+        # Do NOT advance the fetch cursor past our own publication: another peer's
+        # updates may sit at lower sequences we have not fetched yet, and jumping
+        # over them would drop them permanently. Our own blob will be re-fetched
+        # by sync() and applied as a no-op (Yjs is idempotent), so there is no
+        # harm in seeing it again.
+        self._relay.publish(active.channel, blob)
 
     def _reconcile(self, active: _Active, key: bytes, *, peer: str) -> list[ConflictRecord]:
-        findings = detect_conflicts(active.document.nodes(), body_of=active.document.body)
+        findings = detect_conflicts(
+            active.document.nodes(),
+            body_of=active.document.body,
+            acknowledged_deletes=active.acknowledged_deletes,
+        )
         if not findings:
             return []
 

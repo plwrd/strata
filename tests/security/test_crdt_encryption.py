@@ -27,55 +27,48 @@ def _update() -> bytes:
 def test_a_sealed_update_reveals_no_plaintext() -> None:
     key = random_key()
     plaintext = _update()
-    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", seq=1, update=plaintext)
+    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", update=plaintext)
 
     assert b"TOPSECRET" not in blob
     assert b"Secret note" not in blob
     # round-trips exactly
-    assert open_update(key=key, layer_id="L", doc_id="doc-1", seq=1, blob=blob) == plaintext
+    assert open_update(key=key, layer_id="L", doc_id="doc-1", blob=blob) == plaintext
 
 
 def test_wrong_key_fails() -> None:
-    blob = seal_update(key=random_key(), layer_id="L", doc_id="doc-1", seq=1, update=_update())
+    blob = seal_update(key=random_key(), layer_id="L", doc_id="doc-1", update=_update())
     with pytest.raises(DecryptionError):
-        open_update(key=random_key(), layer_id="L", doc_id="doc-1", seq=1, blob=blob)
+        open_update(key=random_key(), layer_id="L", doc_id="doc-1", blob=blob)
 
 
 def test_transplant_to_another_layer_fails() -> None:
     key = random_key()
-    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", seq=1, update=_update())
+    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", update=_update())
     with pytest.raises(DecryptionError):
-        open_update(key=key, layer_id="OTHER", doc_id="doc-1", seq=1, blob=blob)
+        open_update(key=key, layer_id="OTHER", doc_id="doc-1", blob=blob)
 
 
 def test_transplant_to_another_document_fails() -> None:
     key = random_key()
-    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", seq=1, update=_update())
+    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", update=_update())
     with pytest.raises(DecryptionError):
-        open_update(key=key, layer_id="L", doc_id="doc-2", seq=1, blob=blob)
-
-
-def test_replaying_at_a_different_sequence_fails() -> None:
-    key = random_key()
-    blob = seal_update(key=key, layer_id="L", doc_id="doc-1", seq=1, update=_update())
-    with pytest.raises(DecryptionError):
-        open_update(key=key, layer_id="L", doc_id="doc-1", seq=2, blob=blob)
+        open_update(key=key, layer_id="L", doc_id="doc-2", blob=blob)
 
 
 def test_flipping_one_byte_fails_authentication() -> None:
     key = random_key()
-    blob = bytearray(seal_update(key=key, layer_id="L", doc_id="doc-1", seq=1, update=_update()))
+    blob = bytearray(seal_update(key=key, layer_id="L", doc_id="doc-1", update=_update()))
     blob[-1] ^= 0x01
     with pytest.raises(DecryptionError):
-        open_update(key=key, layer_id="L", doc_id="doc-1", seq=1, blob=bytes(blob))
+        open_update(key=key, layer_id="L", doc_id="doc-1", blob=bytes(blob))
 
 
-def test_the_object_id_binds_doc_and_seq() -> None:
-    # Different (doc, seq) pairs must never collide into the same AAD binding.
-    ids = {
-        update_object_id("doc-1", 1),
-        update_object_id("doc-1", 2),
-        update_object_id("doc-2", 1),
-    }
+def test_the_object_id_binds_the_document_and_the_content() -> None:
+    # The id is content-derived: same doc + same bytes → same id; any change in
+    # either → a different id. This is what removes the relay-sequence race while
+    # keeping the doc + content binding.
+    a = update_object_id("doc-1", b"hello")
+    assert a == update_object_id("doc-1", b"hello")
+    ids = {a, update_object_id("doc-1", b"world"), update_object_id("doc-2", b"hello")}
     assert len(ids) == 3
     assert all(len(i) == 16 for i in ids)

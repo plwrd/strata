@@ -103,3 +103,29 @@ describe("CollabSession", () => {
     session.destroy();
   });
 });
+
+describe("session registry resilience", () => {
+  beforeEach(() => {
+    installFakeBridge();
+  });
+
+  it("does not cache a failed connect forever", async () => {
+    const client = await import("../bridge/client");
+    const { sessionFor, resetSessions } =
+      await import("../features/collaboration/collabDoc");
+    resetSessions();
+
+    const spy = vi
+      .spyOn(client.bridge.collaboration, "getDocument")
+      .mockRejectedValueOnce(new Error("transient"));
+
+    await expect(sessionFor("layerX")).rejects.toThrow();
+
+    // A second attempt must retry (the fake now succeeds), not replay the
+    // cached rejection.
+    spy.mockRestore();
+    const session = await sessionFor("layerX");
+    expect(session).toBeTruthy();
+    resetSessions();
+  });
+});
