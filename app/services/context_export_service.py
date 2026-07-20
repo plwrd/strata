@@ -244,6 +244,15 @@ class ContextExportService:
 
     # -- rendering -----------------------------------------------------------
 
+    def render_source_block(self, source: ExportSource) -> str:
+        """One source, rendered with the Claude-style boundary.
+
+        For embedding note content in an AI request. Uses the same delimiter
+        neutralisation as an export, so a note whose body contains ``</source>``
+        cannot forge its way out of the untrusted-data section.
+        """
+        return self._render_source(source, "claude")
+
     def render(self, plan: ContextPlan) -> ExportResult:
         if plan.shape == "package":
             parts = self._render_package(plan)

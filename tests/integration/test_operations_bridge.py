@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 import pytest
 
 from app.bridge.operations_bridge import OperationsBridge
 from app.bridge.snapshot_bridge import SnapshotBridge
+from app.domain.operations import OperationPlan
 from app.services.container import Services
 
 pytestmark = pytest.mark.usefixtures("workspace")
@@ -144,6 +146,101 @@ def test_the_audit_log_records_applied_plans(workspace: Services) -> None:
 
     assert len(log) == 1
     assert log[0]["summary"] == "Add a research folder"
+
+
+# --- plan generation ----------------------------------------------------------
+
+
+class RecordingGeneration:
+    """Stands in for AIGenerationService: records the call, returns an empty plan."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.done = threading.Event()
+
+    def generate_plan_sync(self, **kwargs: Any) -> OperationPlan:
+        self.calls.append(kwargs)
+        self.done.set()
+        return OperationPlan(id="plan_stub", summary="stub", operations=[])
+
+
+def generate(bridge: OperationsBridge, workspace: Services, **overrides: Any) -> None:
+    payload: dict[str, Any] = {
+        "provider_id": "ollama",
+        "model": "llama3",
+        "prompt": "Split this into standalone notes",
+        "object_ids": [],
+        "layer_ids": [layer_id(workspace)],
+        **overrides,
+    }
+    assert data(call(bridge, "generate_plan", payload))["request_id"]
+
+
+def test_notes_mode_shares_the_source_note_content(workspace: Services) -> None:
+    note = workspace.notes.create_note(
+        layer_id=layer_id(workspace),
+        folder_path="",
+        title="Seed Note",
+        content="# Seed Note\n\nAlpha beta gamma.",
+    )
+    recorder = RecordingGeneration()
+    workspace.ai_generation = recorder  # type: ignore[assignment]
+
+    generate(
+        OperationsBridge(workspace),
+        workspace,
+        object_ids=[note.metadata.id],
+        mode="notes",
+        note_count=3,
+    )
+
+    assert recorder.done.wait(5), "generation thread never ran"
+    kwargs = recorder.calls[0]
+    assert kwargs["mode"] == "notes"
+    assert kwargs["note_count"] == 3
+    # The selected note's body is in the context, inside a source boundary.
+    assert "Alpha beta gamma." in kwargs["context"]
+    assert "<source id=" in kwargs["context"]
+    # The policy gate covers the layer the content came from.
+    assert layer_id(workspace) in kwargs["layer_ids"]
+
+
+def test_plan_mode_still_shares_titles_only(workspace: Services) -> None:
+    note = workspace.notes.create_note(
+        layer_id=layer_id(workspace),
+        folder_path="",
+        title="Seed Note",
+        content="# Seed Note\n\nAlpha beta gamma.",
+    )
+    recorder = RecordingGeneration()
+    workspace.ai_generation = recorder  # type: ignore[assignment]
+
+    generate(OperationsBridge(workspace), workspace, object_ids=[note.metadata.id])
+
+    assert recorder.done.wait(5)
+    kwargs = recorder.calls[0]
+    assert kwargs["mode"] == "plan"
+    assert "Seed Note" in kwargs["context"]
+    assert "Alpha beta gamma." not in kwargs["context"]
+
+
+def test_a_note_count_beyond_the_cap_is_rejected(workspace: Services) -> None:
+    response = call(
+        OperationsBridge(workspace),
+        "generate_plan",
+        {
+            "provider_id": "ollama",
+            "model": "llama3",
+            "prompt": "Generate",
+            "object_ids": [],
+            "layer_ids": [layer_id(workspace)],
+            "mode": "notes",
+            "note_count": 999,
+        },
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "invalid_request"
 
 
 # --- snapshots --------------------------------------------------------------
