@@ -24,10 +24,17 @@ type Phase =
   | { kind: "applied"; planId: string; summary: string }
   | { kind: "error"; message: string };
 
+type Mode = "plan" | "notes";
+
+const NOTE_COUNT_CHOICES = [1, 2, 3, 5, 10];
+
 export function OperationsPanel(): JSX.Element {
   const state = useStore();
   const summary = summariseSelection(state);
   const [prompt, setPrompt] = useState("");
+  const [mode, setMode] = useState<Mode>("plan");
+  // 0 means "let the model decide how many notes the material splits into".
+  const [noteCount, setNoteCount] = useState(0);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   const layerIds = useMemo(
@@ -97,6 +104,8 @@ export function OperationsPanel(): JSX.Element {
         object_ids: state.selectedIds,
         layer_ids: layerIds,
         confirmed_remote: false,
+        mode,
+        note_count: mode === "notes" ? noteCount : 0,
       });
       pendingRef.current = request_id;
       setPhase({ kind: "generating", requestId: request_id });
@@ -149,11 +158,59 @@ export function OperationsPanel(): JSX.Element {
   return (
     <section className="operations" aria-label="AI operations">
       <div className="operations__prompt">
-        <span className="label">Ask the AI to reorganise or generate</span>
+        <label className="operations__mode">
+          <span className="label">What should the AI do?</span>
+          <select
+            className="select"
+            value={mode}
+            aria-label="Generation mode"
+            onChange={(event) => setMode(event.target.value as Mode)}
+          >
+            <option value="plan">Reorganise the workspace</option>
+            <option value="notes">Generate new notes</option>
+          </select>
+        </label>
+
+        {mode === "notes" && (
+          <label className="operations__mode">
+            <span className="label">Number of notes</span>
+            <select
+              className="select"
+              value={noteCount}
+              aria-label="Number of notes"
+              onChange={(event) => setNoteCount(Number(event.target.value))}
+            >
+              <option value={0}>Let the AI decide</option>
+              {NOTE_COUNT_CHOICES.map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {mode === "notes" && (
+          <p className="operations__hint">
+            {summary.noteCount > 0
+              ? `Generating from ${summary.noteCount} selected note(s) — their content is shared with the model as context.`
+              : "No note selected — the AI writes from your prompt alone. Select a note to generate from it."}
+          </p>
+        )}
+
+        <span className="label">
+          {mode === "notes"
+            ? "Describe the notes to generate"
+            : "Ask the AI to reorganise or generate"}
+        </span>
         <textarea
           className="textarea"
           value={prompt}
-          placeholder="e.g. Create a folder structure for a research project on encryption, with starter notes."
+          placeholder={
+            mode === "notes"
+              ? "e.g. Split this note into one note per topic, or write a study guide as several notes."
+              : "e.g. Create a folder structure for a research project on encryption, with starter notes."
+          }
           aria-label="Operation prompt"
           onChange={(event) => setPrompt(event.target.value)}
         />
@@ -164,8 +221,12 @@ export function OperationsPanel(): JSX.Element {
           onClick={() => void generate()}
         >
           {phase.kind === "generating"
-            ? "Designing a plan…"
-            : "Propose changes"}
+            ? mode === "notes"
+              ? "Writing notes…"
+              : "Designing a plan…"
+            : mode === "notes"
+              ? "Generate notes"
+              : "Propose changes"}
         </button>
       </div>
 

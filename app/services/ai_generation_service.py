@@ -16,6 +16,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
+from typing import Literal
 
 from app.domain.errors import ProviderError
 from app.domain.ids import new_job_id
@@ -54,6 +55,37 @@ Rules:
 - Every operation needs a short "rationale".
 - Keep it focused: a good plan is a dozen operations, not a hundred."""
 
+# Notes mode never needs more files than this; a runaway answer is truncated by
+# the review step anyway, but the instructions should not invite one.
+MAX_GENERATED_NOTES = 20
+
+GenerationMode = Literal["plan", "notes"]
+
+NOTES_INSTRUCTIONS = """You write new Markdown notes for a personal knowledge workspace \
+as a JSON plan.
+
+Return ONLY a JSON object of this shape, with no prose around it:
+
+{
+  "summary": "one short sentence describing what was generated",
+  "operations": [
+    {"type": "create_note", "layer_id": "<id>", "folder_path": "",
+     "title": "A Note", "content": "# A Note\\n\\nBody in Markdown.", "rationale": "why"}
+  ]
+}
+
+Rules:
+- Use ONLY the layer ids given in the context. Never invent an id.
+- Every operation must be "create_note". Each one becomes a standalone .md file.
+- Write complete, self-contained Markdown documents: a single # heading matching the
+  title, then well-structured sections with real substance — never a stub, an outline
+  of placeholders, or "TODO".
+- Titles must be unique, descriptive, and must not repeat an existing note title.
+- When source notes are provided, ground the content in them, and end each generated
+  note with one final line linking it back to the note it came from, exactly:
+  derived_from:: [[<source note title>]]
+- Every operation needs a short "rationale"."""
+
 
 def _now() -> str:
     return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
@@ -82,15 +114,34 @@ class AIGenerationService:
         context: str,
         layer_ids: list[str],
         confirmed_remote: bool = False,
+        mode: GenerationMode = "plan",
+        note_count: int = 0,
     ) -> OperationPlan:
         """Ask a model for an operation plan and parse it into typed operations.
 
         Goes through :meth:`AIService.run`, so the policy gate applies: a plan that
         would need to read a locked or local-only layer is refused before the model
         is called, exactly like any other request.
+
+        ``mode="notes"`` swaps the instructions for the note-writing set: the model
+        writes whole Markdown documents as ``create_note`` operations instead of
+        reorganising. ``note_count`` fixes how many (0 lets the model decide).
         """
+        instructions = NOTES_INSTRUCTIONS if mode == "notes" else PLAN_INSTRUCTIONS
+        directive = ""
+        if mode == "notes":
+            count = min(max(note_count, 0), MAX_GENERATED_NOTES)
+            directive = (
+                f"\n\nCreate exactly {count} note(s): {count} create_note operation(s)."
+                if count
+                else (
+                    "\n\nDecide how many notes the material naturally splits into "
+                    f"(between 1 and {MAX_GENERATED_NOTES})."
+                )
+            )
+
         request_prompt = (
-            f"{prompt.strip()}\n\n"
+            f"{prompt.strip()}{directive}\n\n"
             f"Layers you may use: {', '.join(layer_ids)}\n\n"
             "Design the plan now as JSON only."
         )
@@ -100,7 +151,7 @@ class AIGenerationService:
             provider_id=provider_id,
             model=model,
             prompt=request_prompt,
-            sources=context + "\n\n" + PLAN_INSTRUCTIONS,
+            sources=context + "\n\n" + instructions,
             layer_ids=layer_ids,
             confirmed_remote=confirmed_remote,
             max_output_tokens=8000,
@@ -167,6 +218,8 @@ class AIGenerationService:
         context: str,
         layer_ids: list[str],
         confirmed_remote: bool = False,
+        mode: GenerationMode = "plan",
+        note_count: int = 0,
     ) -> OperationPlan:
         """Blocking wrapper, for the bridge. Runs the async generation on its own
         loop. Used for plan generation (seconds), never for anything the UI waits on
@@ -179,5 +232,7 @@ class AIGenerationService:
                 context=context,
                 layer_ids=layer_ids,
                 confirmed_remote=confirmed_remote,
+                mode=mode,
+                note_count=note_count,
             )
         )
