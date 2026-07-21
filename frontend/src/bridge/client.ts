@@ -501,6 +501,8 @@ export const bridge = {
       object_ids: string[];
       layer_ids: string[];
       confirmed_remote?: boolean;
+      mode?: "plan" | "notes";
+      note_count?: number;
     }) => call<{ request_id: string }>("operations", "generate_plan", request),
     review: (plan: OperationPlan, allowed_layer_ids: string[]) =>
       call<{ review: PlanReview }>("operations", "review_plan", {

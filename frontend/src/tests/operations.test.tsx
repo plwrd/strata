@@ -126,6 +126,51 @@ describe("OperationsPanel", () => {
     expect(screen.queryByText(/# Proposed Note/)).not.toBeInTheDocument();
   });
 
+  it("notes mode sends the mode, the count, and the selection", async () => {
+    const requests: Record<string, unknown>[] = [];
+    installFakeBridge({
+      onRequest: (object, method, raw) => {
+        if (object === "operations" && method === "generate_plan") {
+          const parsed = JSON.parse(raw) as {
+            payload: Record<string, unknown>;
+          };
+          requests.push(parsed.payload);
+        }
+      },
+    });
+    seed();
+
+    const user = userEvent.setup();
+    render(<OperationsPanel />);
+    await waitFor(() => expect(planListenerCount()).toBeGreaterThan(0));
+
+    await user.selectOptions(screen.getByLabelText("Generation mode"), "notes");
+    await user.selectOptions(screen.getByLabelText("Number of notes"), "3");
+    await user.type(
+      screen.getByLabelText("Operation prompt"),
+      "Split this note into topics",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate notes" }));
+
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toMatchObject({
+      mode: "notes",
+      note_count: 3,
+      object_ids: ["n1"],
+    });
+  });
+
+  it("explains what a selection contributes in notes mode", async () => {
+    const user = userEvent.setup();
+    render(<OperationsPanel />);
+
+    await user.selectOptions(screen.getByLabelText("Generation mode"), "notes");
+
+    expect(
+      screen.getByText(/content is shared with the model as context/i),
+    ).toBeInTheDocument();
+  });
+
   it("shows an error when the model returns no plan", async () => {
     const user = userEvent.setup();
     render(<OperationsPanel />);
