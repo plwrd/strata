@@ -21,9 +21,16 @@ import * as THREE from "three";
 import type { GraphSnapshot } from "../../bridge/types";
 import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
-import { EdgeParticles, NodeGlow, NodeLabels, Starfield } from "./effects";
+import {
+  EdgeParticles,
+  Nebula,
+  NodeGlow,
+  NodeLabels,
+  Starfield,
+} from "./effects";
 import {
   buildEdgeParticles,
+  buildNebula,
   buildNodeGlow,
   buildStarfield,
   pickLabelled,
@@ -50,9 +57,15 @@ const SCALE = 0.1;
 
 // Budgets by quality tier. The galaxy must degrade gracefully, not disappear.
 const TIERS = {
-  high: { stars: 2200, labels: 22, perEdge: 3, particleCap: 6000 },
-  balanced: { stars: 1200, labels: 14, perEdge: 2, particleCap: 3000 },
-  "low-gpu": { stars: 0, labels: 8, perEdge: 0, particleCap: 0 },
+  high: { stars: 2200, labels: 22, perEdge: 3, particleCap: 6000, nebula: 150 },
+  balanced: {
+    stars: 1200,
+    labels: 14,
+    perEdge: 2,
+    particleCap: 3000,
+    nebula: 90,
+  },
+  "low-gpu": { stars: 0, labels: 8, perEdge: 0, particleCap: 0, nebula: 0 },
 } as const;
 
 const UP = new THREE.Object3D();
@@ -75,6 +88,14 @@ function Nodes({
     [graph.nodes, positions],
   );
 
+  // The pointer is honest about what is clickable: over a node it is a hand.
+  useEffect(() => {
+    document.body.style.cursor = hoveredId ? "pointer" : "";
+    return () => {
+      document.body.style.cursor = "";
+    };
+  }, [hoveredId]);
+
   // Write the transform + colour of every instance whenever anything changes.
   useEffect(() => {
     const mesh = meshRef.current;
@@ -82,7 +103,10 @@ function Nodes({
     nodes.forEach((node, index) => {
       const position = positions[node.id]!;
       const isSelected = selected.has(node.id);
-      const scale = nodeRadius(node) * (isSelected ? 1.35 : 1);
+      const isHovered = node.id === hoveredId && !isSelected;
+      // Hover swells the node slightly — feedback before commitment.
+      const scale =
+        nodeRadius(node) * (isSelected ? 1.35 : isHovered ? 1.18 : 1);
       UP.position.set(position[0] * 0.1, position[1] * 0.1, position[2] * 0.1);
       UP.scale.setScalar(scale * 0.1);
       UP.updateMatrix();
@@ -159,15 +183,17 @@ function Edges({
   graph,
   positions,
   selectedIds,
+  hoveredId,
 }: Pick<
   SceneProps,
-  "graph" | "positions" | "selectedIds"
+  "graph" | "positions" | "selectedIds" | "hoveredId"
 >): JSX.Element | null {
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const geometry = useMemo(() => {
     const points: number[] = [];
     const colors: number[] = [];
+    const color = new THREE.Color();
     for (const edge of graph.edges) {
       const from = positions[edge.source];
       const to = positions[edge.target];
@@ -175,10 +201,28 @@ function Edges({
       // An edge lights up when *both* ends are selected: that is the
       // "constellation" — the shape of the thing the user is about to send.
       const isLit = selected.has(edge.source) && selected.has(edge.target);
-      const color = new THREE.Color(edgeColor(isLit, edge.origin));
+      color.set(edgeColor(isLit, edge.origin));
+      // Hovering a node ignites its connections; while a selection exists,
+      // edges that touch neither the selection nor the hover recede, so the
+      // neighbourhood the user is working in stays legible.
+      const touchesHover =
+        hoveredId !== null &&
+        (edge.source === hoveredId || edge.target === hoveredId);
+      const touchesSelection =
+        selected.has(edge.source) || selected.has(edge.target);
+      const factor = touchesHover
+        ? 1.7
+        : selected.size === 0
+          ? 1
+          : touchesSelection
+            ? 1.25
+            : 0.4;
+      const r = Math.min(color.r * factor, 1);
+      const g = Math.min(color.g * factor, 1);
+      const b = Math.min(color.b * factor, 1);
       points.push(from[0] * 0.1, from[1] * 0.1, from[2] * 0.1);
       points.push(to[0] * 0.1, to[1] * 0.1, to[2] * 0.1);
-      colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+      colors.push(r, g, b, r, g, b);
     }
     const buffer = new THREE.BufferGeometry();
     buffer.setAttribute(
@@ -187,7 +231,7 @@ function Edges({
     );
     buffer.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     return buffer;
-  }, [graph.edges, positions, selected]);
+  }, [graph.edges, positions, selected, hoveredId]);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
 
@@ -215,6 +259,47 @@ function CameraRig({ nodeCount }: { nodeCount: number }): null {
   return null;
 }
 
+/**
+ * Fly the orbit target to the most recently selected node — click a star and
+ * the galaxy re-centres on it. The flight eases out and then *stops*: once
+ * arrived it never fights the user's own panning. Reduced motion jumps instead.
+ */
+function FocusRig({
+  focusId,
+  position,
+  reducedMotion,
+}: {
+  focusId: string | null;
+  position: [number, number, number] | null;
+  reducedMotion: boolean;
+}): null {
+  const controls = useThree(
+    (state) =>
+      state.controls as unknown as {
+        target: THREE.Vector3;
+        update: () => void;
+      } | null,
+  );
+  const arrivedRef = useRef<string | null>(null);
+  const goal = useRef(new THREE.Vector3());
+
+  useFrame((_, delta) => {
+    if (!controls || !focusId || !position) return;
+    if (arrivedRef.current === focusId) return;
+    goal.current.set(position[0], position[1], position[2]);
+    if (reducedMotion) {
+      controls.target.copy(goal.current);
+      arrivedRef.current = focusId;
+    } else {
+      controls.target.lerp(goal.current, Math.min(1, delta * 4));
+      if (controls.target.distanceTo(goal.current) < 0.05)
+        arrivedRef.current = focusId;
+    }
+    controls.update();
+  });
+  return null;
+}
+
 export function GraphScene(props: SceneProps): JSX.Element {
   const {
     graph,
@@ -233,6 +318,18 @@ export function GraphScene(props: SceneProps): JSX.Element {
     () => (tier.stars > 0 ? buildStarfield(tier.stars, 160, 340) : null),
     [tier.stars],
   );
+
+  const nebula = useMemo(
+    () => (tier.nebula > 0 ? buildNebula(tier.nebula, 240) : null),
+    [tier.nebula],
+  );
+
+  // The camera follows the newest member of the selection.
+  const focusId = selectedIds[selectedIds.length - 1] ?? null;
+  const focusPosition = useMemo<[number, number, number] | null>(() => {
+    const p = focusId ? positions[focusId] : undefined;
+    return p ? [p[0] * SCALE, p[1] * SCALE, p[2] * SCALE] : null;
+  }, [focusId, positions]);
 
   const glow = useMemo(
     () => buildNodeGlow(graph.nodes, positions, selected, SCALE),
@@ -278,6 +375,12 @@ export function GraphScene(props: SceneProps): JSX.Element {
       <pointLight position={[30, 30, 30]} intensity={1.1} />
       <pointLight position={[-30, -20, -20]} intensity={0.5} color="#a06bff" />
       <CameraRig nodeCount={graph.nodes.length} />
+      <FocusRig
+        focusId={focusId}
+        position={focusPosition}
+        reducedMotion={reducedMotion}
+      />
+      {nebula && <Nebula data={nebula} reducedMotion={reducedMotion} />}
       {starfield && (
         <Starfield data={starfield} reducedMotion={reducedMotion} />
       )}
@@ -285,6 +388,7 @@ export function GraphScene(props: SceneProps): JSX.Element {
         graph={graph}
         positions={positions}
         selectedIds={props.selectedIds}
+        hoveredId={hoveredId}
       />
       {flow && <EdgeParticles data={flow} />}
       <NodeGlow data={glow} reducedMotion={reducedMotion} bloom={bloom} />
