@@ -11,6 +11,7 @@
 import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
 import { dropSession } from "../features/collaboration/collabDoc";
+import type { ImportedFile } from "../features/explorer/importDrop";
 import type {
   AIStreamEvent,
   AppSettings,
@@ -46,6 +47,12 @@ export type ViewMode = "source" | "live" | "reading";
 export interface Tab {
   id: string;
   title: string;
+}
+
+/** Optional content created together with a new layer, so it starts usable. */
+export interface LayerStarter {
+  folders: string[];
+  firstNote: boolean;
 }
 
 const EMPTY_LINKS: LinksResponse = {
@@ -184,6 +191,16 @@ interface StrataState {
     filename: string,
     base64: string,
   ) => Promise<string>;
+  /**
+   * Import files dropped from the OS into a folder. Text files become notes;
+   * anything else is stored as an attachment wrapped in a note that embeds it.
+   * Returns how many files were imported before the first failure.
+   */
+  importFiles: (
+    layerId: string,
+    folderPath: string,
+    files: ImportedFile[],
+  ) => Promise<number>;
 
   // layers
   //
@@ -195,6 +212,7 @@ interface StrataState {
     visibility: "public" | "private",
     password: string | null,
     withRecoveryKey: boolean,
+    starter?: LayerStarter,
   ) => Promise<string | null>;
   unlockLayer: (layerId: string, password: string) => Promise<void>;
   unlockLayerWithRecoveryKey: (
@@ -742,15 +760,77 @@ export const useStore = create<StrataState>((set, get) => ({
     return response.markdown;
   },
 
+  async importFiles(layerId, folderPath, files) {
+    let imported = 0;
+    // Grown locally as we go, so ten dropped "notes.md" files become
+    // "notes", "notes 2", … instead of nine conflict errors.
+    const titles = get().tree?.notes.map((note) => note.title) ?? [];
+    try {
+      for (const file of files) {
+        const title = uniqueTitle(titles, file.title);
+        titles.push(title);
+        if (file.kind === "text") {
+          await bridge.notes.create(layerId, title, folderPath, file.text);
+        } else {
+          // The bytes go to Python as an attachment (encrypted in a private
+          // layer); the note only carries the embed, so it shows in the tree.
+          const response = await bridge.notes.saveAttachment(
+            layerId,
+            file.name,
+            file.base64,
+          );
+          await bridge.notes.create(
+            layerId,
+            title,
+            folderPath,
+            `${response.markdown}\n`,
+          );
+        }
+        imported += 1;
+      }
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+    await get().reloadTree();
+    await get().reloadGraph();
+    return imported;
+  },
+
   // -- layers ---------------------------------------------------------------
 
-  async createLayer(name, visibility, password, withRecoveryKey) {
+  async createLayer(name, visibility, password, withRecoveryKey, starter) {
     const response = await bridge.layers.create(
       name,
       visibility,
       password,
       withRecoveryKey,
     );
+    // Starter content is best-effort: the layer exists at this point, so a
+    // failure here must not surface as "the layer could not be created".
+    if (starter) {
+      try {
+        const layerId = response.layer.id;
+        for (const folder of starter.folders) {
+          await bridge.notes.createFolder(layerId, "", folder);
+        }
+        if (starter.firstNote) {
+          const title = uniqueTitle(
+            get().tree?.notes.map((note) => note.title) ?? [],
+            "Welcome",
+          );
+          await bridge.notes.create(
+            layerId,
+            title,
+            "",
+            `# ${title}\n\nThe first note in **${name}**. Rename it, or start writing.\n`,
+          );
+        }
+      } catch (error) {
+        set({ connectionMessage: describeError(error) });
+      }
+      await get().reloadTree();
+      await get().reloadGraph();
+    }
     await get().refreshLayers();
     // Returned to the caller to display once, and never written into the store.
     return response.recovery_key;

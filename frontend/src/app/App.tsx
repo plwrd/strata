@@ -65,6 +65,24 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Ctrl/Cmd+N: new note in the first unlocked layer — the shortcut the empty
+  // editor advertises. Qt WebEngine has no browser chrome, so nothing else
+  // claims the combination.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "n")
+        return;
+      const target = useStore
+        .getState()
+        .layers.find((layer) => layer.state !== "locked");
+      if (!target) return;
+      event.preventDefault();
+      void useStore.getState().createNote(target.id, "");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const quality = state.settings?.graph_quality ?? "balanced";
   // Low-GPU mode is a user choice; missing WebGL is a fact. Either one means the
   // 3D canvas is never mounted, rather than mounted and then crashing.

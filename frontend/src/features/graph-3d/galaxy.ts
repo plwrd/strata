@@ -75,6 +75,73 @@ export function buildStarfield(
   return { positions, colors, sizes, phases, count };
 }
 
+export interface NebulaData {
+  positions: Float32Array;
+  colors: Float32Array;
+  sizes: Float32Array;
+  phases: Float32Array;
+  count: number;
+}
+
+// Deep-space dust tints: violet, blue, magenta, teal. Faint by construction —
+// the fragment shader keeps alpha low so the nebula reads as atmosphere.
+const NEBULA_TINTS: [number, number, number][] = [
+  [0.45, 0.3, 0.9],
+  [0.2, 0.45, 0.95],
+  [0.7, 0.3, 0.8],
+  [0.15, 0.6, 0.7],
+];
+
+/**
+ * Soft dust clouds behind the graph. Puffs are scattered around a handful of
+ * cluster centres rather than uniformly, so the backdrop has structure — wisps
+ * and voids — instead of even fog. Deterministic like everything else here.
+ */
+export function buildNebula(
+  count: number,
+  radius: number,
+  seed = 11,
+): NebulaData {
+  const random = mulberry32(seed);
+  const centreCount = Math.max(3, Math.round(count / 30));
+  const centres: [number, number, number][] = [];
+  for (let i = 0; i < centreCount; i += 1) {
+    const theta = random() * Math.PI * 2;
+    const z = random() * 2 - 1;
+    const planar = Math.sqrt(1 - z * z);
+    const r = radius * (0.55 + random() * 0.45);
+    centres.push([
+      Math.cos(theta) * planar * r,
+      Math.sin(theta) * planar * r * 0.6, // flattened: a disc, not a ball
+      z * r,
+    ]);
+  }
+
+  const out: NebulaData = {
+    positions: new Float32Array(count * 3),
+    colors: new Float32Array(count * 3),
+    sizes: new Float32Array(count),
+    phases: new Float32Array(count),
+    count,
+  };
+  const spread = radius * 0.22;
+  for (let i = 0; i < count; i += 1) {
+    const centre = centres[i % centres.length]!;
+    out.positions[i * 3] = centre[0] + (random() * 2 - 1) * spread;
+    out.positions[i * 3 + 1] = centre[1] + (random() * 2 - 1) * spread * 0.7;
+    out.positions[i * 3 + 2] = centre[2] + (random() * 2 - 1) * spread;
+
+    const tint = NEBULA_TINTS[i % NEBULA_TINTS.length]!;
+    out.colors[i * 3] = tint[0];
+    out.colors[i * 3 + 1] = tint[1];
+    out.colors[i * 3 + 2] = tint[2];
+
+    out.sizes[i] = radius * (0.18 + random() * 0.3);
+    out.phases[i] = random() * Math.PI * 2;
+  }
+  return out;
+}
+
 export interface GlowData {
   positions: Float32Array;
   colors: Float32Array;

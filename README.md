@@ -247,6 +247,7 @@ path. The relay is untrusted by design — it cannot read anything it forwards.
 
 | Document | What it covers |
 | --- | --- |
+| [docs/GUIDE.md](docs/GUIDE.md) | **The user guide** — every feature, panel, and shortcut, from layers to the 3D galaxy to AI operations. |
 | [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md) | Numbered FRs/NFRs with milestone tags and performance targets. |
 | [ASSUMPTIONS.md](ASSUMPTIONS.md) | Security-first defaults chosen without asking, with rationale and how to revisit. |
 | [THREAT_MODEL.md](THREAT_MODEL.md) | Assets, trust boundaries, adversaries, ~28 threats with STRIDE + status + residual risk. |

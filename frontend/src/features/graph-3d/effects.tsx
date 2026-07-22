@@ -22,7 +22,12 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { GraphNode } from "../../bridge/types";
 import type { Positions } from "../graph/useGraphLayout";
-import type { EdgeParticleData, GlowData, StarfieldData } from "./galaxy";
+import type {
+  EdgeParticleData,
+  GlowData,
+  NebulaData,
+  StarfieldData,
+} from "./galaxy";
 
 const GLOW_VERTEX = /* glsl */ `
   attribute float aSize;
@@ -78,6 +83,35 @@ const STAR_FRAGMENT = /* glsl */ `
     float d = length(gl_PointCoord - vec2(0.5));
     float a = smoothstep(0.5, 0.05, d);
     gl_FragColor = vec4(vColor, a * vAlpha * 0.8);
+  }
+`;
+
+const NEBULA_VERTEX = /* glsl */ `
+  attribute float aSize;
+  attribute vec3 aColor;
+  attribute float aPhase;
+  uniform float uTime;
+  uniform float uBreathe;
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    vColor = aColor;
+    // Very slow "breathing" so the dust feels alive without drawing the eye.
+    vAlpha = 0.05 + uBreathe * 0.025 * sin(uTime * 0.12 + aPhase);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (90.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const NEBULA_FRAGMENT = /* glsl */ `
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    float d = length(gl_PointCoord - vec2(0.5));
+    float a = smoothstep(0.5, 0.0, d);
+    a *= a; // quadratic falloff: broad, cloudy, no hard core
+    gl_FragColor = vec4(vColor, a * vAlpha);
   }
 `;
 
@@ -203,6 +237,57 @@ export function Starfield({
           uniforms={{
             uTime: { value: 0 },
             uTwinkle: { value: reducedMotion ? 0 : 1 },
+          }}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+    </group>
+  );
+}
+
+/** Faint dust clouds far behind the graph; counter-rotates against the stars. */
+export function Nebula({
+  data,
+  reducedMotion,
+}: {
+  data: NebulaData;
+  reducedMotion: boolean;
+}): JSX.Element | null {
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
+  const groupRef = useRef<THREE.Group>(null);
+
+  const geometry = useDisposable(
+    useMemo(() => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(data.positions, 3));
+      g.setAttribute("aColor", new THREE.BufferAttribute(data.colors, 3));
+      g.setAttribute("aSize", new THREE.BufferAttribute(data.sizes, 1));
+      g.setAttribute("aPhase", new THREE.BufferAttribute(data.phases, 1));
+      return g;
+    }, [data]),
+  );
+
+  useFrame(({ clock }, delta) => {
+    if (materialRef.current)
+      materialRef.current.uniforms["uTime"]!.value = clock.elapsedTime;
+    // Opposite direction to the starfield: two parallax layers of depth.
+    if (groupRef.current && !reducedMotion)
+      groupRef.current.rotation.y -= delta * 0.002;
+  });
+
+  if (data.count === 0) return null;
+  return (
+    <group ref={groupRef}>
+      <points geometry={geometry} frustumCulled={false}>
+        <shaderMaterial
+          ref={materialRef}
+          vertexShader={NEBULA_VERTEX}
+          fragmentShader={NEBULA_FRAGMENT}
+          uniforms={{
+            uTime: { value: 0 },
+            uBreathe: { value: reducedMotion ? 0 : 1 },
           }}
           transparent
           depthWrite={false}
