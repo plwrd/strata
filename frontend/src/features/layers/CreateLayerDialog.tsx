@@ -24,6 +24,8 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [withRecoveryKey, setWithRecoveryKey] = useState(true);
+  const [starterFolders, setStarterFolders] = useState("");
+  const [firstNote, setFirstNote] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,12 +44,17 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
     if (problem) return;
     setBusy(true);
     setError(null);
+    const folders = starterFolders
+      .split(",")
+      .map((folder) => folder.trim())
+      .filter(Boolean);
     try {
       const recoveryKey = await createLayer(
         name.trim(),
         isPrivate ? "private" : "public",
         isPrivate ? password : null,
         withRecoveryKey,
+        { folders, firstNote },
       );
       // The password leaves this component and is never stored anywhere.
       setPassword("");
@@ -164,6 +171,31 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
               </p>
             </>
           )}
+
+          <fieldset className="dialog__fieldset">
+            <legend className="label">Start with</legend>
+
+            <label className="properties__field">
+              <span className="label">Folders (comma-separated, optional)</span>
+              <input
+                className="input"
+                value={starterFolders}
+                placeholder="Ideas, Research, Archive"
+                onChange={(event) => setStarterFolders(event.target.value)}
+              />
+            </label>
+
+            <label className="dialog__choice">
+              <input
+                type="checkbox"
+                checked={firstNote}
+                onChange={(event) => setFirstNote(event.target.checked)}
+              />
+              <span>
+                Create a first note, so the layer opens ready to write in.
+              </span>
+            </label>
+          </fieldset>
 
           {error && (
             <p

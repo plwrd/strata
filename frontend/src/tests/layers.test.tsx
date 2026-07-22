@@ -118,6 +118,44 @@ describe("LayerPanel", () => {
     ).toBeEnabled();
   });
 
+  it("can start a new layer with folders and a first note", async () => {
+    const user = userEvent.setup();
+    const calls: { method: string; payload: Record<string, unknown> }[] = [];
+    installFakeBridge({
+      onRequest: (_object, method, raw) => {
+        calls.push({
+          method,
+          payload: (JSON.parse(raw) as { payload: Record<string, unknown> })
+            .payload,
+        });
+      },
+    });
+    seed();
+
+    render(<LayerPanel />);
+    await user.click(screen.getByTitle("New layer"));
+    await user.type(screen.getByLabelText("Name"), "Research");
+    await user.type(
+      screen.getByLabelText(/Folders \(comma-separated/),
+      "Ideas, Archive",
+    );
+    // "Create a first note" is on by default.
+    await user.click(screen.getByRole("button", { name: "Create layer" }));
+
+    await waitFor(() => {
+      const folders = calls.filter((call) => call.method === "create_folder");
+      expect(folders.map((call) => call.payload["name"])).toEqual([
+        "Ideas",
+        "Archive",
+      ]);
+      // Starter content lands in the layer that was just created.
+      expect(folders[0]!.payload["layer_id"]).toBe("layer_new");
+      const note = calls.find((call) => call.method === "create_note");
+      expect(note?.payload["layer_id"]).toBe("layer_new");
+      expect(note?.payload["title"]).toBe("Welcome");
+    });
+  });
+
   it("a mismatched confirmation blocks creation", async () => {
     const user = userEvent.setup();
     render(<LayerPanel />);
