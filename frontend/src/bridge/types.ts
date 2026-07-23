@@ -445,6 +445,19 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+export interface ConnectionSuggestion {
+  note_a: string;
+  note_a_title: string;
+  note_b: string;
+  note_b_title: string;
+  layer_id: string;
+  kind: "similar" | "duplicate" | "mention";
+  score: number;
+  explanation: string;
+  excerpt: string;
+  suggested_relationship: string;
+}
+
 export interface UsedSource {
   object_id: string;
   title: string;

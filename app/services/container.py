@@ -17,6 +17,7 @@ from app.services.ai_history_service import AIHistoryService
 from app.services.ai_service import AIService
 from app.services.capture_service import CaptureService
 from app.services.collaboration_service import CollaborationService
+from app.services.connection_service import ConnectionService
 from app.services.context_export_service import ContextExportService
 from app.services.conversation_service import ConversationService
 from app.services.encryption_service import EncryptionService
@@ -30,6 +31,7 @@ from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
 from app.services.snapshot_service import SnapshotService
+from app.services.synthesis_service import SynthesisService
 from app.services.version_service import VersionService
 from app.services.view_service import ViewService
 from app.services.watch_service import WatchService
@@ -87,6 +89,8 @@ class Services:
         self.retrieval = RetrievalService(self.search)
         self.prompts = PromptLibraryService(self.workspace)
         self.conversations = ConversationService(self.workspace)
+        self.synthesis = SynthesisService(self.ai, self.notes, self.exports)
+        self.connections = ConnectionService(self.notes, self.search)
         self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()
         self.collaboration = self._build_collaboration()

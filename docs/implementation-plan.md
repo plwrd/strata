@@ -75,15 +75,23 @@ injection gap. Shipped in PR #62:
   unchanged by the swap. Citation-id validation lands with synthesis (Phase 4), where cited
   ids become load-bearing.
 
-## Phase 4 — Synthesis and connections ⏳
+## Phase 4 — Synthesis and connections ✅
 
-- `synthesis_service.py`: multi-source synthesis (concept page / summary / comparison / brief /
-  FAQ / timeline) with agreement/disagreement/contradiction sections and per-claim citations;
-  output distinguishes source-supported fact vs user opinion vs AI inference.
-- `connection_service.py`: "Discover connections" job — similarity (embeddings + graph),
-  duplicates, contradictions, missing links; suggestions surface as reviewable cards mapped to
-  operations (`add_link`, `add_relationship`, merge-via-plan). **No automatic merges.**
-- Graph: `origin: ai-suggested` edges rendered distinctly (edge model already supports it).
+- ✅ `synthesis_service.py`: multi-source synthesis (summary / concept / comparison /
+  research-brief / project-plan / FAQ / timeline) with dedicated agreement / disagreement /
+  contradiction / missing-information sections, and the model's own inferences quarantined
+  into a labelled "AI inferences" section. **Citation validation is load-bearing**: a cited
+  `STRATA-SOURCE-NNN` that was never in the context is stripped and reported as an attempted
+  invention. Output is one `create_note` plan into `Reports/` with `report_kind`,
+  `ai-inferred`, `generated_by`, and `derived_from::` links; source notes are never touched.
+  Surfaced as the "Synthesize selection" mode in the Changes tab (background job).
+- ✅ `connection_service.py`: "Discover connections" — deliberately model-free (semantic
+  similarity, duplicate threshold, unlinked mentions), so every suggestion carries a score
+  and an inspectable reason and nothing can be hallucinated. Suggestions surface in the
+  Links tab with Accept (a one-op `add_relationship` plan through the standard review/apply
+  engine — snapshot, audit, undo) and Dismiss. **Duplicates propose a `supersedes`
+  relationship; merging stays human.** `workspace_duplicates()` feeds the Phase 6 health
+  dashboard.
 
 ## Phase 5 — Structured memory ⏳
 

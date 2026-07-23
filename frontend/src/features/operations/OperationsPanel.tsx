@@ -24,9 +24,19 @@ type Phase =
   | { kind: "applied"; planId: string; summary: string }
   | { kind: "error"; message: string };
 
-type Mode = "plan" | "notes" | "process";
+type Mode = "plan" | "notes" | "process" | "synthesize";
 
 const NOTE_COUNT_CHOICES = [1, 2, 3, 5, 10];
+
+const SYNTHESIS_KINDS: { value: string; label: string }[] = [
+  { value: "summary", label: "Summary" },
+  { value: "concept", label: "Concept page" },
+  { value: "comparison", label: "Comparison" },
+  { value: "research-brief", label: "Research brief" },
+  { value: "project-plan", label: "Project plan" },
+  { value: "faq", label: "FAQ" },
+  { value: "timeline", label: "Timeline" },
+];
 
 export function OperationsPanel(): JSX.Element {
   const state = useStore();
@@ -35,6 +45,7 @@ export function OperationsPanel(): JSX.Element {
   const [mode, setMode] = useState<Mode>("plan");
   // 0 means "let the model decide how many notes the material splits into".
   const [noteCount, setNoteCount] = useState(0);
+  const [synthesisKind, setSynthesisKind] = useState("summary");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   const layerIds = useMemo(
@@ -103,6 +114,18 @@ export function OperationsPanel(): JSX.Element {
           provider_id: provider,
           model,
           note_ids: state.selectedIds,
+          confirmed_remote: false,
+        });
+        pendingRef.current = request_id;
+        setPhase({ kind: "generating", requestId: request_id });
+        return;
+      }
+      if (mode === "synthesize") {
+        const { request_id } = await bridge.operations.synthesizeNotes({
+          provider_id: provider,
+          model,
+          note_ids: state.selectedIds,
+          kind: synthesisKind,
           confirmed_remote: false,
         });
         pendingRef.current = request_id;
@@ -182,8 +205,34 @@ export function OperationsPanel(): JSX.Element {
             <option value="plan">Reorganise the workspace</option>
             <option value="notes">Generate new notes</option>
             <option value="process">Process into knowledge</option>
+            <option value="synthesize">Synthesize selection</option>
           </select>
         </label>
+
+        {mode === "synthesize" && (
+          <>
+            <label className="operations__mode">
+              <span className="label">Synthesis kind</span>
+              <select
+                className="select"
+                value={synthesisKind}
+                aria-label="Synthesis kind"
+                onChange={(event) => setSynthesisKind(event.target.value)}
+              >
+                {SYNTHESIS_KINDS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="operations__hint">
+              {summary.noteCount >= 2
+                ? `Combines ${summary.noteCount} selected note(s) into one cited document in Reports/. Source notes are never modified; invented citations are stripped and reported.`
+                : "Select at least two notes to synthesise."}
+            </p>
+          </>
+        )}
 
         {mode === "process" && (
           <p className="operations__hint">
@@ -220,7 +269,7 @@ export function OperationsPanel(): JSX.Element {
           </p>
         )}
 
-        {mode !== "process" && (
+        {mode !== "process" && mode !== "synthesize" && (
           <>
             <span className="label">
               {mode === "notes"
@@ -245,7 +294,11 @@ export function OperationsPanel(): JSX.Element {
           className="button button--ai"
           disabled={
             phase.kind === "generating" ||
-            (mode === "process" ? summary.noteCount === 0 : !prompt.trim())
+            (mode === "process"
+              ? summary.noteCount === 0
+              : mode === "synthesize"
+                ? summary.noteCount < 2
+                : !prompt.trim())
           }
           onClick={() => void generate()}
         >
@@ -254,12 +307,16 @@ export function OperationsPanel(): JSX.Element {
               ? "Writing notes…"
               : mode === "process"
                 ? "Processing…"
-                : "Designing a plan…"
+                : mode === "synthesize"
+                  ? "Synthesising…"
+                  : "Designing a plan…"
             : mode === "notes"
               ? "Generate notes"
               : mode === "process"
                 ? "Process into knowledge"
-                : "Propose changes"}
+                : mode === "synthesize"
+                  ? "Synthesize"
+                  : "Propose changes"}
         </button>
       </div>
 
