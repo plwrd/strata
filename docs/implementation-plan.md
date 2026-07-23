@@ -50,20 +50,30 @@ injection gap. Shipped in PR #62:
 - Deferred to Phase 3: provider-native structured output (extraction still uses
   prompt+validated-JSON; the validation layer is in place either way).
 
-## Phase 3 — Retrieval and AI chat ⏳ (depends on M4 search)
+## Phase 3 — Retrieval and AI chat ✅
 
-- Real embedder behind the existing `Embedder` ABC (local via Ollama/llama.cpp embeddings path;
-  per-layer embeddings policy already modeled); private vectors stay in-memory.
-- `retrieval_service.py`: scope (selection/folder/lens/date-range) → permission filter → hybrid
-  rank → chunking with heading + character-range anchors → token-budget fit; retrieval trace
-  stored on the execution record.
-- Composer → conversation: persisted `AIConversation` threads, multi-turn context replay,
-  "which notes did the AI see" for every turn.
-- Save-as-asset actions on every response (note/report/concept/decision/template/append) — each a
-  one-op plan with provenance frontmatter; regeneration produces a diff, never an overwrite.
-- Prompt library (`prompt_library_service.py`): saved prompts with versions, categories, model
-  preference, usage stats; runnable from editor and composer; attachable to templates.
-- Citation validation: cited source ids must exist in the retrieval trace.
+- ✅ `retrieval_service.py`: "ask the workspace" — the prompt is hybrid-ranked (lexical +
+  semantic + tags + recency) into a small bounded set of note ids that then flow through the
+  *same* context-plan → policy-gate → neutralised-render path as a manual selection. Permission
+  clean by construction (only readable layers are ever indexed; locked indexes are destroyed).
+  The retrieval trace lands on the execution record (`source_object_ids`), and the UI shows
+  exactly which notes were used.
+- ✅ Conversations (`conversation_service.py`): persisted multi-turn threads under
+  `.strata/ai/conversations.jsonl`. The backend owns the thread — replay comes from Python's
+  store, never the client; private-layer turns persist redacted and never re-enter a context;
+  the policy gate re-runs on every turn. `clear_history` wipes conversations too.
+- ✅ Save-as-asset: every finished answer offers Save as note / Save as report / Append —
+  implemented as a one-operation plan through the operation engine (snapshot, audit, undo)
+  with `ai-inferred` + `generated_by` + `derived_from::` provenance; an existing title is
+  never overwritten (uniquified instead).
+- ✅ Prompt library (`prompt_library_service.py`): versioned saved prompts
+  (`.strata/ai/prompts.jsonl` — append-only, the file is the version trail), categories, model
+  preference, usage counts, last-used; composer panel to fill-from/save-to the library.
+- Deferred (tracked for Phase 7 / M4): a model embedder behind the `Embedder` ABC. Mixing
+  per-layer embedding policies with per-provider vector dimensions needs its own design pass;
+  the hashing embedder remains the honest local default and the retrieval pipeline is
+  unchanged by the swap. Citation-id validation lands with synthesis (Phase 4), where cited
+  ids become load-bearing.
 
 ## Phase 4 — Synthesis and connections ⏳
 

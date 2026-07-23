@@ -18,12 +18,15 @@ from app.services.ai_service import AIService
 from app.services.capture_service import CaptureService
 from app.services.collaboration_service import CollaborationService
 from app.services.context_export_service import ContextExportService
+from app.services.conversation_service import ConversationService
 from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
 from app.services.knowledge_service import KnowledgeService
 from app.services.note_service import NoteService
 from app.services.operation_service import OperationService
+from app.services.prompt_library_service import PromptLibraryService
+from app.services.retrieval_service import RetrievalService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
 from app.services.snapshot_service import SnapshotService
@@ -81,6 +84,9 @@ class Services:
         self.ai_generation = AIGenerationService(self.ai)
         self.capture = CaptureService(self.workspace, self.notes, self.settings)
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
+        self.retrieval = RetrievalService(self.search)
+        self.prompts = PromptLibraryService(self.workspace)
+        self.conversations = ConversationService(self.workspace)
         self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()
         self.collaboration = self._build_collaboration()

@@ -178,6 +178,7 @@ class AIService:
         kind: ExecutionKind = "ai-request",
         source_object_ids: list[str] | None = None,
         execution_id: str | None = None,
+        conversation_messages: list[AIMessage] | None = None,
     ) -> AsyncIterator[AIEvent]:
         """Send a request, after the policy gate says it may go.
 
@@ -217,6 +218,10 @@ class AIService:
             max_output_tokens=max_output_tokens,
             messages=[
                 AIMessage(role="system", content=UNTRUSTED_PREAMBLE),
+                # Prior turns of the conversation, replayed from Python's own
+                # store (never from the client). Redacted turns were dropped
+                # before this point.
+                *(conversation_messages or []),
                 AIMessage(
                     role="user",
                     content=(

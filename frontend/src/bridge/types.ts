@@ -445,6 +445,34 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+export interface UsedSource {
+  object_id: string;
+  title: string;
+  is_private: boolean;
+}
+
+export interface AISendResponse {
+  request_id: string;
+  execution_id: string;
+  conversation_id: string;
+  sources: UsedSource[];
+}
+
+export interface SavedPrompt {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  prompt_text: string;
+  model_preference: string;
+  temperature: number | null;
+  version: number;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string;
+}
+
 /**
  * One persisted model call — the workspace's durable AI memory. `redacted`
  * records that content fields were stripped before persisting because the

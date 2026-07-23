@@ -1739,3 +1739,51 @@
   gap: var(--space-2);
   font-size: var(--text-sm);
 }
+
+/* --- Response: sources used, save actions --------------------------------- */
+
+.response__sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.response__save {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* --- Prompt library -------------------------------------------------------- */
+
+.prompt-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prompt-library__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.prompt-library__row .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.prompt-library__save {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.prompt-library__save .input {
+  flex: 1;
+  min-width: 140px;
+}

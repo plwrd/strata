@@ -114,6 +114,12 @@ class AIHistoryService:
         records = self._load(EXECUTIONS_FILE, AIExecutionRecord)
         return list(reversed(records))[: max(0, limit)]
 
+    def get_execution(self, execution_id: str) -> AIExecutionRecord | None:
+        for record in self._load(EXECUTIONS_FILE, AIExecutionRecord):
+            if record.id == execution_id:
+                return record
+        return None
+
     # -- applied plans -------------------------------------------------------
 
     def record_applied_plan(self, plan: AppliedPlan, *, involves_private: bool) -> None:
