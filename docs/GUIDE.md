@@ -53,6 +53,16 @@ directory on disk: you can back it up, put it in Git, or copy it to a USB
 stick. There is currently no workspace picker in the UI — one default
 workspace opens on launch.
 
+### First-run tutorial
+
+The first time Strata opens with a fresh settings file, a short **interactive
+tour** walks through the shell: modes, Capture, Layers, writing, the graph,
+and AI selection privacy. Skip it with Escape or the Skip button; finish it
+with Finish. Either way it will not auto-open again.
+
+Replay anytime from **More → Tutorial** in the command bar. The seeded
+**Start Here** note (in a new workspace) remains the longer, in-note walkthrough.
+
 ---
 
 ## 2. The window

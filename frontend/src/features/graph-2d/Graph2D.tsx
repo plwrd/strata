@@ -143,10 +143,8 @@ export function Graph2D({
       context.stroke();
     }
 
-    // Canvas shadows are the single most expensive 2D operation, and the 2D
-    // path is exactly where low-GPU machines land. Past this budget, only the
-    // selection keeps its glow — the state signal survives, the decoration pays.
-    const glowBudget = graph.nodes.length <= 1500;
+    // Canvas shadows are expensive; past this budget only selection keeps a glow.
+    const glowBudget = graph.nodes.length <= 400;
 
     for (const node of graph.nodes) {
       const point = positions[node.id];
@@ -159,7 +157,7 @@ export function Graph2D({
       // shifting to ignition-gold when selected.
       if (glowBudget || isSelected) {
         context.shadowColor = glowColor(node, isSelected);
-        context.shadowBlur = isSelected ? 22 : 10;
+        context.shadowBlur = isSelected ? 16 : 6;
       }
       context.fillStyle = nodeColor(node, isSelected);
       context.beginPath();

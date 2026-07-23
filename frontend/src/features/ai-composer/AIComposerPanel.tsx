@@ -146,7 +146,11 @@ export function AIComposerPanel(): JSX.Element {
   };
 
   return (
-    <section className="composer" aria-label="AI Context Composer">
+    <section
+      className="composer"
+      aria-label="AI Context Composer"
+      data-tour="inspector-ai"
+    >
       <header className="composer__header">
         <h2 className="composer__title">AI Context Composer</h2>
         <span className="tag tag--ai">{summary.count} selected</span>

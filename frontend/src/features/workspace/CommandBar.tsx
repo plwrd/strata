@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { CaptureDialog } from "../capture/CaptureDialog";
 import { HealthDialog } from "../health/HealthDialog";
+import { requestTourReplay } from "../onboarding/useOnboardingTour";
 import { useStore, type AppMode } from "../../state/store";
 
 const MODES: { value: AppMode; label: string; hint: string }[] = [
@@ -63,7 +64,11 @@ export function CommandBar(): JSX.Element {
         </span>
       </div>
 
-      <nav className="commandbar__modes" aria-label="Application mode">
+      <nav
+        className="commandbar__modes"
+        aria-label="Application mode"
+        data-tour="modes"
+      >
         {MODES.map((entry) => (
           <button
             key={entry.value}
@@ -82,6 +87,7 @@ export function CommandBar(): JSX.Element {
         <button
           type="button"
           className="button button--primary commandbar__capture"
+          data-tour="capture"
           title="Capture text or a page into the Inbox"
           onClick={() => setCapturing(true)}
         >
@@ -128,6 +134,17 @@ export function CommandBar(): JSX.Element {
               role="group"
               aria-label="More workspace controls"
             >
+              <button
+                type="button"
+                className="button button--ghost"
+                title="Replay the first-run tour of the shell"
+                onClick={() => {
+                  setMoreOpen(false);
+                  requestTourReplay();
+                }}
+              >
+                Tutorial
+              </button>
               <button
                 type="button"
                 className="button button--ghost"

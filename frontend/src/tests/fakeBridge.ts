@@ -562,6 +562,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           last_workspace_path: "",
           developer_tools: false,
           relay_url: "",
+          onboarding_tour_completed: true,
         },
       }),
       update_settings: (payload) => ({
@@ -578,6 +579,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           last_workspace_path: "",
           developer_tools: false,
           relay_url: "",
+          onboarding_tour_completed: true,
           ...(payload["values"] as object),
         },
       }),

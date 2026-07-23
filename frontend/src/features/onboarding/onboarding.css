@@ -1,0 +1,111 @@
+/* First-run tutorial overlay — tokens only; sits above dialogs. */
+
+.tour-welcome.dialog-backdrop,
+.tour-done.dialog-backdrop {
+  z-index: var(--z-tour);
+}
+
+.tour-welcome .dialog,
+.tour-done .dialog {
+  border-color: var(--border-accent);
+  box-shadow: var(--glow-accent), 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+
+.tour-welcome__brand {
+  color: var(--accent-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0 0 var(--space-2);
+}
+
+.tour-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-tour);
+  pointer-events: none;
+}
+
+.tour-spotlight__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 6, 13, 0.72);
+  /* Cutout via box-shadow on the hole element below. */
+  pointer-events: auto;
+}
+
+.tour-spotlight__hole {
+  position: absolute;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 9999px rgba(4, 6, 13, 0.72);
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  pointer-events: none;
+  transition:
+    top var(--motion-base) var(--ease-out),
+    left var(--motion-base) var(--ease-out),
+    width var(--motion-base) var(--ease-out),
+    height var(--motion-base) var(--ease-out);
+}
+
+:root[data-motion="reduced"] .tour-spotlight__hole {
+  transition: none;
+}
+
+:root:not([data-motion="reduced"]) .tour-spotlight__hole {
+  animation: tour-pulse 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes tour-pulse {
+  0%,
+  100% {
+    outline-color: var(--accent-primary);
+  }
+  50% {
+    outline-color: color-mix(in srgb, var(--accent-primary) 55%, white);
+  }
+}
+
+.tour-card {
+  position: fixed;
+  z-index: calc(var(--z-tour) + 1);
+  width: min(360px, calc(100vw - 2rem));
+  padding: var(--space-4);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--glow-accent), 0 18px 40px rgba(0, 0, 0, 0.55);
+  color: var(--text-primary);
+  pointer-events: auto;
+}
+
+.tour-card__progress {
+  margin: 0 0 var(--space-2);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tour-card__title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.tour-card__body {
+  margin: 0 0 var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.tour-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

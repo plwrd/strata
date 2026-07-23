@@ -66,6 +66,12 @@ class AppSettings(BaseModel):
     # redirects) and can be switched off entirely here.
     url_import_enabled: bool = True
 
+    # -- Onboarding ----------------------------------------------------------
+    #
+    # False until the first-run tutorial is skipped or finished. Replay from
+    # More → Tutorial does not clear this; Skip/Finish set it true again.
+    onboarding_tour_completed: bool = False
+
 
 class SettingsService:
     def __init__(self, path: Path) -> None:

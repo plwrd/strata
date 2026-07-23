@@ -53,6 +53,7 @@ export function NavigatorAccordion({ sections }: Props): JSX.Element {
               id={buttonId}
               type="button"
               className="nav-section__toggle"
+              data-tour-section={section.id}
               aria-expanded={open}
               aria-controls={panelId}
               onClick={() => toggle(section.id)}

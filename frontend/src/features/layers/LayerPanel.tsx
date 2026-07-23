@@ -78,7 +78,7 @@ export function LayerPanel(): JSX.Element {
   };
 
   return (
-    <section className="layers" aria-label="Layers">
+    <section className="layers" aria-label="Layers" data-tour="layers">
       <div className="layers__header">
         <h2 className="sidebar__heading">Layers</h2>
         <div className="layers__header-actions">
@@ -204,6 +204,11 @@ export function LayerPanel(): JSX.Element {
           onCreated={(layerName, key) => {
             setCreating(false);
             if (key) setRecoveryKey({ layer: layerName, key });
+            // Reload the graph after the modal unmounts so WebGL is not rebuilt
+            // under the dialog (that was the create-layer window flicker).
+            requestAnimationFrame(() => {
+              void useStore.getState().reloadGraph();
+            });
           }}
         />
       )}

@@ -841,9 +841,10 @@ export const useStore = create<StrataState>((set, get) => ({
         set({ connectionMessage: describeError(error) });
       }
       await get().reloadTree();
-      await get().reloadGraph();
     }
     await get().refreshLayers();
+    // Graph reload is deferred to the dialog close path — rebuilding WebGL under
+    // an open modal (especially with backdrop-filter) reads as full-window flicker.
     // Returned to the caller to display once, and never written into the store.
     return response.recovery_key;
   },
@@ -1068,7 +1069,8 @@ export const useStore = create<StrataState>((set, get) => ({
     get().selectMany(ids);
   },
 
-  setHovered: (id) => set({ hoveredId: id }),
+  setHovered: (id) =>
+    set((state) => (state.hoveredId === id ? state : { hoveredId: id })),
 
   async setSemanticEdges(on) {
     set({ semanticEdges: on });

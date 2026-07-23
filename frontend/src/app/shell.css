@@ -297,6 +297,10 @@
   inset: 0;
   width: 100%;
   height: 100%;
+  /* Promote a stable compositor layer so the WebGL canvas and CSS overlays
+     do not thrash each other under Qt WebEngine. */
+  isolation: isolate;
+  transform: translateZ(0);
 }
 
 .graph-2d-zoom {
@@ -575,6 +579,16 @@
   padding: var(--space-3);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+}
+
+.dialog__private-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dialog__private-fields--collapsed {
+  display: none;
 }
 
 .dialog__choice {
@@ -1244,8 +1258,9 @@
   z-index: var(--z-dialog);
   display: grid;
   place-items: center;
-  background: rgba(4, 6, 13, 0.82);
-  backdrop-filter: blur(3px);
+  /* Solid dim — no backdrop-filter. Blurring a live WebGL/canvas stage under Qt
+     WebEngine causes the whole window to flicker when dialogs open or close. */
+  background: rgba(4, 6, 13, 0.92);
 }
 
 .dialog {

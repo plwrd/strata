@@ -83,9 +83,10 @@ export function nodeRadius(node: GraphNode): number {
 }
 
 export function edgeColor(selected: boolean, origin: string): string {
-  if (selected)
-    return cssToken("--graph-edge-selected", "rgba(34,224,245,0.95)");
+  // Opaque RGB only — THREE.Color ignores alpha and floods the console when
+  // given rgba(...), which also hid real GPU warnings during Explore.
+  if (selected) return cssToken("--graph-edge-selected-solid", "#22e0f5");
   if (origin === "ai-suggested")
-    return cssToken("--graph-edge-ai", "rgba(160,107,255,0.8)");
-  return cssToken("--graph-edge-default", "rgba(111,127,168,0.35)");
+    return cssToken("--graph-edge-ai-solid", "#a06bff");
+  return cssToken("--graph-edge-default-solid", "#6f7fa8");
 }

@@ -191,7 +191,7 @@ export function NodeGlow({
 
   if (data.count === 0) return null;
   return (
-    <points geometry={geometry} frustumCulled={false}>
+    <points geometry={geometry} frustumCulled={false} renderOrder={5}>
       <shaderMaterial
         ref={materialRef}
         vertexShader={GLOW_VERTEX}
@@ -240,7 +240,7 @@ export function Starfield({
 
   return (
     <group ref={groupRef}>
-      <points geometry={geometry} frustumCulled={false}>
+      <points geometry={geometry} frustumCulled={false} renderOrder={3}>
         <shaderMaterial
           ref={materialRef}
           vertexShader={STAR_VERTEX}
@@ -291,7 +291,7 @@ export function Nebula({
   if (data.count === 0) return null;
   return (
     <group ref={groupRef}>
-      <points geometry={geometry} frustumCulled={false}>
+      <points geometry={geometry} frustumCulled={false} renderOrder={2}>
         <shaderMaterial
           ref={materialRef}
           vertexShader={NEBULA_VERTEX}
@@ -336,7 +336,7 @@ export function EdgeParticles({
 
   if (data.count === 0) return null;
   return (
-    <points geometry={geometry} frustumCulled={false}>
+    <points geometry={geometry} frustumCulled={false} renderOrder={4}>
       <shaderMaterial
         ref={materialRef}
         vertexShader={FLOW_VERTEX}

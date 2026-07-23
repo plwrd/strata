@@ -12,6 +12,11 @@ import { CollaborationPanel } from "../features/collaboration/CollaborationPanel
 import { EditorPane } from "../features/editor/EditorPane";
 import { FileTree } from "../features/explorer/FileTree";
 import { LinksPanel } from "../features/links/LinksPanel";
+import { OnboardingTour } from "../features/onboarding/OnboardingTour";
+import {
+  registerShellChrome,
+  type InspectorTab,
+} from "../features/onboarding/shellChrome";
 import { OperationsPanel } from "../features/operations/OperationsPanel";
 import { PropertiesPanel } from "../features/properties/PropertiesPanel";
 import { Graph2D } from "../features/graph-2d/Graph2D";
@@ -31,8 +36,6 @@ import { useStore } from "../state/store";
 import { AppContextMenu } from "./ContextMenu";
 import { NavigatorAccordion } from "./NavigatorAccordion";
 import { SelectionRing } from "./SelectionRing";
-
-type InspectorTab = "ai" | "operations" | "properties" | "links";
 
 const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
   { value: "ai", label: "AI" },
@@ -64,6 +67,15 @@ export function App(): JSX.Element {
     void state.initialise();
     // Deliberately once: initialise() is the app's cold start.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    registerShellChrome({
+      setNavOpen,
+      setInspectorOpen,
+      setInspectorTab,
+    });
+    return () => registerShellChrome(null);
   }, []);
 
   // Ctrl/Cmd+N: new note in the first unlocked layer — the shortcut the empty
@@ -198,7 +210,7 @@ export function App(): JSX.Element {
           ) : state.mode === "views" ? (
             <ViewsStage />
           ) : (
-            <div className="stage__graph">
+            <div className="stage__graph" data-tour="graph">
               {state.loadingGraph || computing ? (
                 <p className="stage__loading mono" role="status">
                   {computing ? "computing layout…" : "loading graph…"}
@@ -295,6 +307,7 @@ export function App(): JSX.Element {
                 role="tab"
                 aria-selected={inspectorTab === tab.value}
                 className={`inspector__tab ${inspectorTab === tab.value ? "inspector__tab--active" : ""}`}
+                data-tour={tab.value === "ai" ? "inspector-ai-tab" : undefined}
                 onClick={() => setInspectorTab(tab.value)}
               >
                 {tab.label}
@@ -313,6 +326,7 @@ export function App(): JSX.Element {
 
       <StatusBar />
       <AppContextMenu />
+      <OnboardingTour />
     </div>
   );
 }

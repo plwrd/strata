@@ -124,6 +124,7 @@
   --z-panel: 10;
   --z-overlay: 100;
   --z-dialog: 1000;
+  --z-tour: 1100;
 }
 
 /* Dimmer variant: same hues, lower luminance for long writing sessions. */

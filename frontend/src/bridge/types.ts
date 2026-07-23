@@ -729,6 +729,8 @@ export interface AppSettings {
   last_workspace_path: string;
   developer_tools: boolean;
   relay_url: string;
+  /** False until the first-run tutorial is skipped or finished. */
+  onboarding_tour_completed: boolean;
 }
 
 export interface JobRecord {
