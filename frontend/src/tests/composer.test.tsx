@@ -36,7 +36,9 @@ describe("AI Context Composer", () => {
   it("says nothing is selected before anything is selected", () => {
     render(<AIComposerPanel />);
 
-    expect(screen.getByText(/Select nodes in the graph/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Select notes to build context/i),
+    ).toBeInTheDocument();
   });
 
   it("lists every source that would be included, with its stable id", async () => {

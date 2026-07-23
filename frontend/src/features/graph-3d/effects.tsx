@@ -28,6 +28,7 @@ import type {
   NebulaData,
   StarfieldData,
 } from "./galaxy";
+import { GRAPH_LABEL_FONT } from "./graphFont";
 
 const GLOW_VERTEX = /* glsl */ `
   attribute float aSize;
@@ -364,6 +365,7 @@ export function NodeLabels({
             position={[p[0] * scale, p[1] * scale + 1.6, p[2] * scale]}
           >
             <Text
+              font={GRAPH_LABEL_FONT}
               fontSize={active ? 1.05 : 0.8}
               color={active ? "#f2f7ff" : "#93a1bd"}
               outlineWidth={0.05}
@@ -373,7 +375,7 @@ export function NodeLabels({
               maxWidth={26}
             >
               {node.label.length > 34
-                ? `${node.label.slice(0, 34)}…`
+                ? `${node.label.slice(0, 34)}...`
                 : node.label}
             </Text>
           </Billboard>

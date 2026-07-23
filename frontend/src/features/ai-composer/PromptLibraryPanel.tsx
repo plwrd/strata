@@ -96,7 +96,7 @@ export function PromptLibraryPanel(): JSX.Element {
           <option value="" disabled>
             {prompts.length
               ? `Saved prompts (${prompts.length})`
-              : "No saved prompts yet"}
+              : "No saved prompts"}
           </option>
           {prompts.map((entry) => (
             <option key={entry.id} value={entry.id}>

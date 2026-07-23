@@ -227,6 +227,12 @@ export function generateFlows(
         { type: "goto", description: "Open harness", url: "/humazie.html" },
         {
           type: "click",
+          description: "Open More menu",
+          role: "button",
+          name: "More",
+        },
+        {
+          type: "click",
           description: "Open Health",
           role: "button",
           name: "◉ Health",
@@ -255,7 +261,10 @@ export function generateFlows(
       safeToExecute: true,
       cleanup: [],
       relatedRoutes: ["#explore"],
-      relatedFiles: ["frontend/src/features/health/HealthDialog.tsx"],
+      relatedFiles: [
+        "frontend/src/features/health/HealthDialog.tsx",
+        "frontend/src/features/workspace/CommandBar.tsx",
+      ],
       category: "dialogs",
     }),
   );
@@ -404,6 +413,12 @@ export function generateFlows(
           name: "⇣ Capture",
         },
         {
+          type: "click",
+          description: "Open More menu",
+          role: "button",
+          name: "More",
+        },
+        {
           type: "expect_visible",
           description: "Health has accessible name",
           role: "button",
@@ -465,6 +480,12 @@ export function generateFlows(
       actions: [
         { type: "goto", description: "Open harness", url: "/humazie.html" },
         {
+          type: "click",
+          description: "Expand Search section",
+          role: "button",
+          name: "Search",
+        },
+        {
           type: "fill",
           description: "Type a search query",
           label: "Search the workspace",
@@ -482,7 +503,10 @@ export function generateFlows(
       safeToExecute: true,
       cleanup: [],
       relatedRoutes: ["#explore"],
-      relatedFiles: ["frontend/src/features/search/SearchPanel.tsx"],
+      relatedFiles: [
+        "frontend/src/features/search/SearchPanel.tsx",
+        "frontend/src/app/NavigatorAccordion.tsx",
+      ],
       category: "forms",
     }),
   );
@@ -637,6 +661,12 @@ export function generateFlows(
       testData: {},
       actions: [
         { type: "goto", description: "Open harness", url: "/humazie.html" },
+        {
+          type: "click",
+          description: "Open More menu",
+          role: "button",
+          name: "More",
+        },
         {
           type: "click",
           description: "Switch to reduced motion",

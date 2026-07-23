@@ -22,10 +22,10 @@ import { RecoveryKeyDialog } from "./RecoveryKeyDialog";
 import { UnlockDialog } from "./UnlockDialog";
 
 const AI_ACCESS_OPTIONS: { value: LayerAIPolicy["access"]; label: string }[] = [
-  { value: "disabled", label: "AI: disabled" },
-  { value: "local-only", label: "AI: local only" },
-  { value: "remote-with-confirmation", label: "AI: remote, ask each time" },
-  { value: "remote-always", label: "AI: remote allowed" },
+  { value: "disabled", label: "AI off" },
+  { value: "local-only", label: "AI local" },
+  { value: "remote-with-confirmation", label: "AI remote · ask" },
+  { value: "remote-always", label: "AI remote" },
 ];
 
 export function LayerPanel(): JSX.Element {
@@ -110,11 +110,57 @@ export function LayerPanel(): JSX.Element {
 
           return (
             <li key={layer.id} className="layers__item">
-              <span
-                className={`layers__dot layers__dot--${locked ? "locked" : layer.visibility}`}
-                aria-hidden="true"
-              />
-              <span className="layers__name">{layer.display_name}</span>
+              <div className="layers__item-main">
+                <span
+                  className={`layers__dot layers__dot--${locked ? "locked" : layer.visibility}`}
+                  aria-hidden="true"
+                />
+                <span
+                  className="layers__name"
+                  title={`${layer.display_name} · ${locked ? "locked" : layer.visibility}`}
+                >
+                  {layer.display_name}
+                </span>
+
+                {locked ? (
+                  <span className="tag tag--locked">locked</span>
+                ) : (
+                  <span className="visually-hidden">{layer.visibility}</span>
+                )}
+
+                {isPrivate && (
+                  <span className="layers__actions">
+                    {locked ? (
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        onClick={() => setUnlocking(layer)}
+                      >
+                        Unlock
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="tree__action"
+                          title="Lock this layer now"
+                          onClick={() => void handleLock(layer)}
+                        >
+                          🔒
+                        </button>
+                        <button
+                          type="button"
+                          className="tree__action"
+                          title="Password, recovery key, and key rotation"
+                          onClick={() => setManaging(layer)}
+                        >
+                          ⚙
+                        </button>
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
 
               <select
                 className="select layers__ai-policy"
@@ -134,45 +180,6 @@ export function LayerPanel(): JSX.Element {
                   </option>
                 ))}
               </select>
-
-              <span
-                className={`tag ${locked ? "tag--locked" : isPrivate ? "tag--private" : "tag--public"}`}
-              >
-                {locked ? "locked" : layer.visibility}
-              </span>
-
-              {isPrivate && (
-                <span className="layers__actions">
-                  {locked ? (
-                    <button
-                      type="button"
-                      className="button button--ghost"
-                      onClick={() => setUnlocking(layer)}
-                    >
-                      Unlock
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        className="tree__action"
-                        title="Lock this layer now"
-                        onClick={() => void handleLock(layer)}
-                      >
-                        🔒
-                      </button>
-                      <button
-                        type="button"
-                        className="tree__action"
-                        title="Password, recovery key, and key rotation"
-                        onClick={() => setManaging(layer)}
-                      >
-                        ⚙
-                      </button>
-                    </>
-                  )}
-                </span>
-              )}
             </li>
           );
         })}
@@ -184,10 +191,11 @@ export function LayerPanel(): JSX.Element {
         </p>
       )}
 
-      <p className="layers__hint">
-        A layer is a permission and encryption boundary, not a folder. A locked
-        layer contributes nothing — no titles, no search results, no graph
-        nodes, and nothing to an AI model.
+      <p
+        className="layers__hint"
+        title="A locked layer contributes nothing to search, the graph, or AI."
+      >
+        Layers are permission boundaries — locked ones stay invisible.
       </p>
 
       {creating && (

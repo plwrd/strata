@@ -29,6 +29,7 @@ import { StatusBar } from "../features/workspace/StatusBar";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useStore } from "../state/store";
 import { AppContextMenu } from "./ContextMenu";
+import { NavigatorAccordion } from "./NavigatorAccordion";
 import { SelectionRing } from "./SelectionRing";
 
 type InspectorTab = "ai" | "operations" | "properties" | "links";
@@ -131,36 +132,63 @@ export function App(): JSX.Element {
       <CommandBar />
 
       <div className="shell__body">
-        <button
-          type="button"
-          className="drawer-toggle drawer-toggle--left"
-          aria-expanded={navOpen}
-          aria-controls="navigator"
-          onClick={() => setNavOpen((open) => !open)}
-        >
-          {navOpen ? "◀" : "▶"}
-          <span className="visually-hidden">Toggle the navigator</span>
-        </button>
-
         <aside
           id="navigator"
           className={`navigator ${navOpen ? "" : "navigator--closed"}`}
           aria-label="Navigator"
         >
+          <button
+            type="button"
+            className="drawer-toggle drawer-toggle--nav"
+            aria-expanded={navOpen}
+            aria-controls="navigator"
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            {navOpen ? "◀" : "▶"}
+            <span className="visually-hidden">Toggle the navigator</span>
+          </button>
           <div className="scroll-y navigator__scroll">
-            <LayerPanel />
-            <FileTree />
-            <SearchPanel />
-            <CollaborationPanel />
-            {state.graph && (
-              <GraphList
-                graph={state.graph}
-                selectedIds={state.selectedIds}
-                onSelect={handleSelect}
-                onOpen={(id) => void state.openNoteById(id)}
-                onSelectAll={(ids) => state.selectMany(ids)}
-              />
-            )}
+            <NavigatorAccordion
+              sections={[
+                {
+                  id: "layers",
+                  label: "Layers",
+                  defaultOpen: true,
+                  children: <LayerPanel />,
+                },
+                {
+                  id: "files",
+                  label: "Files",
+                  defaultOpen: true,
+                  children: <FileTree />,
+                },
+                {
+                  id: "search",
+                  label: "Search",
+                  children: <SearchPanel />,
+                },
+                {
+                  id: "collab",
+                  label: "Collaboration",
+                  children: <CollaborationPanel />,
+                },
+                {
+                  id: "graph",
+                  label: "Graph",
+                  children: state.graph ? (
+                    <GraphList
+                      graph={state.graph}
+                      selectedIds={state.selectedIds}
+                      onSelect={handleSelect}
+                      onOpen={(id) => void state.openNoteById(id)}
+                      onSelectAll={(ids) => state.selectMany(ids)}
+                    />
+                  ) : (
+                    <p className="empty-state">Graph not loaded yet.</p>
+                  ),
+                },
+              ]}
+            />
           </div>
         </aside>
 
@@ -240,22 +268,21 @@ export function App(): JSX.Element {
           )}
         </main>
 
-        <button
-          type="button"
-          className="drawer-toggle drawer-toggle--right"
-          aria-expanded={inspectorOpen}
-          aria-controls="inspector"
-          onClick={() => setInspectorOpen((open) => !open)}
-        >
-          {inspectorOpen ? "▶" : "◀"}
-          <span className="visually-hidden">Toggle the inspector</span>
-        </button>
-
         <aside
           id="inspector"
           className={`inspector ${inspectorOpen ? "" : "inspector--closed"}`}
           aria-label="Inspector"
         >
+          <button
+            type="button"
+            className="drawer-toggle drawer-toggle--inspector"
+            aria-expanded={inspectorOpen}
+            aria-controls="inspector"
+            onClick={() => setInspectorOpen((open) => !open)}
+          >
+            {inspectorOpen ? "▶" : "◀"}
+            <span className="visually-hidden">Toggle the inspector</span>
+          </button>
           <div
             className="inspector__tabs"
             role="tablist"

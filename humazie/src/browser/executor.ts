@@ -491,7 +491,7 @@ export class BrowserExecutionAgent {
       await region.scrollIntoViewIfNeeded();
       const select = region.getByLabel("AI policy for Knowledge");
       await select.scrollIntoViewIfNeeded();
-      await select.selectOption({ label: "AI: local only" });
+      await select.selectOption({ label: "AI local" });
       return;
     }
     if (description.includes("no unexpected console errors")) {
