@@ -123,13 +123,35 @@ injection gap. Shipped in PR #62:
   finding paired with the action that fixes it, each listed note clickable. Locked layers are
   reported as excluded rather than silently missing.
 
-## Phase 7 — Hardening ⏳ (merges with existing M11)
+## Phase 7 — Hardening ✅ (the AI-memory scope; M11 packaging work continues separately)
 
-- Privacy controls panel: per-layer AI policy editor UI (model exists), clear-history, provider
-  allowlist, URL-fetch restriction toggle.
-- Prompt-injection test suite expansion (imported-document adversarial corpus); fuzz the capture
-  and import paths; performance at 10k+ notes with retrieval; accessibility audit of new UI;
-  backup/recovery docs covering `.strata/ai/`; deployment docs.
+- ✅ Per-layer AI policy editor in the Layers panel (disabled / local only / remote-ask /
+  remote-allowed) — the select states the rule, Python enforces it on every request, and a
+  locked layer stays unreadable regardless. **Fixed en route: `set_ai_policy` never persisted
+  the change** — policies silently reverted on restart; they now save through
+  `WorkspaceService.set_layer_ai_policy` (regression test included).
+- ✅ Prompt-injection pipeline tests: an adversarial capture (`</source>` breakout, embedded
+  "SYSTEM:" instruction, forged source tag) is pushed through the *real* context construction
+  of processing and synthesis — the hostile text must arrive inside a neutralised data
+  boundary; and a model that parrots the forged citation still loses it to citation
+  validation.
+- ✅ Privacy controls shipped across earlier phases, now documented together in the GUIDE:
+  clear AI history + conversations, `url_import_enabled` kill-switch, per-layer AI policy,
+  redaction-by-default for private layers, receipts.
+- ✅ Backup guidance: `.strata/ai/` (history, prompts, conversations) and `.strata/versions/`
+  are part of the workspace and travel with any backup of it.
+- Continuing under the existing M11 (not this project's scope): packaging/signing, macOS
+  notarization, 100k-note performance tier, key-rotation crash journal, accessibility audit
+  sweep, PySide6 licensing review — plus the deferred model embedder (Phase 3 note).
+
+## Definition-of-done deviations, stated plainly
+
+- Version history covers Markdown layers only (private layers: snapshots + encrypted trash) —
+  a deliberate privacy rule, not a gap.
+- Structured output uses prompt + strict Pydantic validation rather than provider-native
+  schema modes; validation rejects, never repairs. Provider-native structured output remains
+  a clean upgrade behind `AIRequest.json_schema`.
+- Weekly reviews are manual-first; no scheduler exists by design until users ask.
 
 ## Sequencing rationale
 

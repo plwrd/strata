@@ -13,16 +13,23 @@
  */
 
 import { useState } from "react";
-import { BridgeCallError } from "../../bridge/client";
-import type { LayerDescriptor } from "../../bridge/types";
+import { bridge, BridgeCallError } from "../../bridge/client";
+import type { LayerAIPolicy, LayerDescriptor } from "../../bridge/types";
 import { useStore } from "../../state/store";
 import { CreateLayerDialog } from "./CreateLayerDialog";
 import { KeyManagementDialog } from "./KeyManagementDialog";
 import { RecoveryKeyDialog } from "./RecoveryKeyDialog";
 import { UnlockDialog } from "./UnlockDialog";
 
+const AI_ACCESS_OPTIONS: { value: LayerAIPolicy["access"]; label: string }[] = [
+  { value: "disabled", label: "AI: disabled" },
+  { value: "local-only", label: "AI: local only" },
+  { value: "remote-with-confirmation", label: "AI: remote, ask each time" },
+  { value: "remote-always", label: "AI: remote allowed" },
+];
+
 export function LayerPanel(): JSX.Element {
-  const { layers, lockLayer, lockAllLayers } = useStore();
+  const { layers, lockLayer, lockAllLayers, refreshLayers } = useStore();
   const [creating, setCreating] = useState(false);
   const [unlocking, setUnlocking] = useState<LayerDescriptor | null>(null);
   const [managing, setManaging] = useState<LayerDescriptor | null>(null);
@@ -44,6 +51,28 @@ export function LayerPanel(): JSX.Element {
         cause instanceof BridgeCallError
           ? cause.message
           : "Could not lock the layer.",
+      );
+    }
+  };
+
+  const setAccess = async (
+    layer: LayerDescriptor,
+    access: LayerAIPolicy["access"],
+  ): Promise<void> => {
+    try {
+      // The policy is enforced in Python on every request; this select only
+      // states the rule. Widening access never touches the other capability
+      // flags, and a locked layer stays unreadable regardless.
+      await bridge.layers.setAIPolicy(layer.id, {
+        ...layer.ai_policy,
+        access,
+      });
+      await refreshLayers();
+    } catch (cause) {
+      setError(
+        cause instanceof BridgeCallError
+          ? cause.message
+          : "Could not change the AI policy.",
       );
     }
   };
@@ -86,6 +115,25 @@ export function LayerPanel(): JSX.Element {
                 aria-hidden="true"
               />
               <span className="layers__name">{layer.display_name}</span>
+
+              <select
+                className="select layers__ai-policy"
+                aria-label={`AI policy for ${layer.display_name}`}
+                title="What this layer's content may reach. Enforced in Python on every request; a locked layer is never readable regardless."
+                value={layer.ai_policy?.access ?? "local-only"}
+                onChange={(event) =>
+                  void setAccess(
+                    layer,
+                    event.target.value as LayerAIPolicy["access"],
+                  )
+                }
+              >
+                {AI_ACCESS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
 
               <span
                 className={`tag ${locked ? "tag--locked" : isPrivate ? "tag--private" : "tag--public"}`}
