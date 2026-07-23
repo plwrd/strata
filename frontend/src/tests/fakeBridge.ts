@@ -13,24 +13,77 @@
 import * as Y from "yjs";
 import { __resetChannelForTests } from "../bridge/client";
 import type {
+  AIExecutionRecord,
+  ConnectionSuggestion,
   ContextPlan,
+  HealthReport,
   GraphSnapshot,
   LayerDescriptor,
   Note,
   NoteMetadata,
   PlanReview,
+  SavedPrompt,
 } from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
 type Signal = { connect: (listener: (value: string) => void) => void };
 
+export interface FakeVersion {
+  created_at: string;
+  origin: string;
+  change: string;
+  title: string;
+  content: string;
+}
+
 export interface FakeBridgeOptions {
   graph?: GraphSnapshot;
   plan?: ContextPlan;
   review?: PlanReview;
+  /** Seed the persisted AI history the fake serves via `ai.list_history`. */
+  executions?: AIExecutionRecord[];
+  /** Seed the version trail served via `notes.list_versions` (oldest first). */
+  versions?: FakeVersion[];
+  versionsSupported?: boolean;
+  /** Seed the prompt library served via `ai.list_prompts`. */
+  prompts?: SavedPrompt[];
+  /** Seed connection suggestions served via `graph.suggest_connections`. */
+  suggestions?: ConnectionSuggestion[];
+  /** Seed the health report served via `workspace.knowledge_health`. */
+  health?: HealthReport;
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
+}
+
+/** Payloads sent to capture/import/process endpoints, for assertions. */
+export const captured: Record<string, unknown>[] = [];
+
+/** A plausible persisted execution record for tests to seed history with. */
+export function sampleExecution(
+  overrides: Partial<AIExecutionRecord> = {},
+): AIExecutionRecord {
+  return {
+    id: "exec_1",
+    kind: "ai-request",
+    created_at: "2026-07-14T10:00:00+00:00",
+    provider: "ollama",
+    model: "llama3",
+    is_remote: false,
+    layer_ids: ["layer_a"],
+    prompt: "What did I decide about encryption?",
+    response_text: "You chose XChaCha20-Poly1305.",
+    source_object_ids: ["n1"],
+    source_count: 1,
+    private_source_count: 0,
+    input_tokens: 11,
+    output_tokens: 7,
+    result: "completed",
+    error_message: "",
+    duration_ms: 1200,
+    redacted: false,
+    ...overrides,
+  };
 }
 
 export const SAMPLE_GRAPH: GraphSnapshot = {
@@ -423,6 +476,13 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     ...PRIVATE_LAYER,
     state: privateState,
   });
+  let executions: AIExecutionRecord[] = [...(options.executions ?? [])];
+  captured.length = 0;
+  const noteVersions: FakeVersion[] = [...(options.versions ?? [])];
+  const versionsSupported = options.versionsSupported ?? true;
+  const savedPrompts: SavedPrompt[] = (options.prompts ?? []).map((entry) => ({
+    ...entry,
+  }));
 
   const handlers: Record<string, Record<string, Handler | Signal>> = {
     workspace: {
@@ -478,6 +538,14 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
         lenses: [],
       }),
+      knowledge_health: () => ({
+        report: options.health ?? {
+          items: [],
+          duplicates: [],
+          total_notes: 5,
+          locked_layers: 1,
+        },
+      }),
     },
     settings: {
       get_settings: () => ({
@@ -527,6 +595,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       }),
       shortest_path: (payload) => ({
         node_ids: [payload["source_id"], "n1", payload["target_id"]],
+      }),
+      suggest_connections: () => ({
+        suggestions: options.suggestions ?? [],
       }),
       cluster_of: (payload) => ({
         node_ids: [payload["node_id"], "n2"],
@@ -674,6 +745,55 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         path: "attachments/a.png",
         markdown: "![a.png](attachments/a.png)",
       }),
+      capture: (payload) => {
+        captured.push(payload);
+        return {
+          note: fakeNote(
+            "n_capture",
+            (payload["content"] as string) ?? "",
+            (payload["title"] as string) || "Captured",
+          ),
+          schema_id: "capture",
+          issues: [],
+        };
+      },
+      import_url: (payload) => {
+        captured.push(payload);
+        return {
+          note: fakeNote("n_import", "Imported page text.", "Imported page"),
+          schema_id: "capture",
+          issues: [],
+        };
+      },
+      list_versions: () => ({
+        versions: noteVersions.map((version, index) => ({
+          index,
+          created_at: version.created_at,
+          origin: version.origin,
+          change: version.change,
+          title: version.title,
+          size_chars: version.content.length,
+        })),
+        supported: versionsSupported,
+        detail: versionsSupported
+          ? ""
+          : "Private-layer notes keep no version files on disk.",
+      }),
+      get_version: (payload) => ({
+        version: {
+          ...noteVersions[payload["index"] as number]!,
+          index: payload["index"] as number,
+          properties: {},
+        },
+      }),
+      restore_version: (payload) => {
+        const version = noteVersions[payload["index"] as number]!;
+        return {
+          note: fakeNote("n1", version.content),
+          schema_id: null,
+          issues: [],
+        };
+      },
       changed: {
         connect: (listener: (value: string) => void) =>
           changeListeners.push(listener),
@@ -684,6 +804,22 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     },
     operations: {
       generate_plan: () => ({ request_id: "req_plan_1" }),
+      process_notes: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_process_1" };
+      },
+      synthesize_notes: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_synth_1" };
+      },
+      refresh_project: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_refresh_1" };
+      },
+      generate_weekly: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_weekly_1" };
+      },
       review_plan: (payload) => ({
         review: options.review ?? {
           plan: payload["plan"],
@@ -737,6 +873,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           model: "llama3",
           prompt: "",
           undone: false,
+          redacted: false,
         },
       }),
       undo_plan: () => ({
@@ -750,6 +887,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           model: "llama3",
           prompt: "",
           undone: true,
+          redacted: false,
         },
       }),
       audit_log: () => ({ entries: [] }),
@@ -902,6 +1040,15 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         privateState = "locked";
         return { locked: 1 };
       },
+      set_ai_policy: (payload) => {
+        captured.push(payload);
+        return {
+          layer: {
+            ...PUBLIC_LAYER,
+            ai_policy: payload["policy"] as LayerDescriptor["ai_policy"],
+          },
+        };
+      },
       change_password: () => ({ layer: privateLayer() }),
       reissue_recovery_key: () => ({ recovery_key: FAKE_RECOVERY_KEY }),
       rotate_key: () => ({ objects_reencrypted: 12, layer: privateLayer() }),
@@ -955,9 +1102,75 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         provider_id: "ollama",
         reason: "Ollama runs on this machine.",
       }),
-      send_request: () => ({ request_id: "req_ai_1" }),
+      send_request: (payload) => {
+        captured.push(payload);
+        return {
+          request_id: "req_ai_1",
+          execution_id: "exec_fake_1",
+          conversation_id:
+            (payload["conversation_id"] as string) || "conv_fake_1",
+          sources: payload["retrieve"]
+            ? [
+                {
+                  object_id: "n1",
+                  title: "Encryption Architecture",
+                  is_private: false,
+                },
+              ]
+            : [],
+        };
+      },
       cancel_request: () => ({ cancelled: true }),
       privacy_receipts: () => ({ receipts: [] }),
+      save_output: (payload) => {
+        captured.push(payload);
+        return {
+          note_id: "n_saved",
+          title: payload["title"] as string,
+          plan_id: "plan_saved",
+        };
+      },
+      list_prompts: () => ({ prompts: [...savedPrompts] }),
+      save_prompt: (payload) => {
+        const record = {
+          id:
+            (payload["prompt_id"] as string) ||
+            `prompt_${savedPrompts.length + 1}`,
+          name: payload["name"] as string,
+          description: (payload["description"] as string) ?? "",
+          category: (payload["category"] as string) ?? "other",
+          prompt_text: payload["prompt_text"] as string,
+          model_preference: "",
+          temperature: null,
+          version: 1,
+          usage_count: 0,
+          created_at: "2026-07-14T10:00:00+00:00",
+          updated_at: "2026-07-14T10:00:00+00:00",
+          last_used_at: "",
+        };
+        savedPrompts.push(record);
+        return { prompt: record };
+      },
+      use_prompt: (payload) => {
+        const found = savedPrompts.find(
+          (entry) => entry.id === payload["prompt_id"],
+        )!;
+        found.usage_count += 1;
+        return { prompt: { ...found } };
+      },
+      delete_prompt: (payload) => {
+        const index = savedPrompts.findIndex(
+          (entry) => entry.id === payload["prompt_id"],
+        );
+        if (index >= 0) savedPrompts.splice(index, 1);
+        return { deleted: true };
+      },
+      list_history: () => ({ executions: [...executions] }),
+      clear_history: () => {
+        const cleared = executions.length > 0 ? 2 : 0;
+        executions = [];
+        return { cleared_files: cleared };
+      },
       aiEvent: {
         connect: (listener: (value: string) => void) =>
           aiListeners.push(listener),

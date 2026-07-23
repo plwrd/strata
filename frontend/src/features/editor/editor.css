@@ -301,6 +301,18 @@
   gap: 2px;
 }
 
+.tree__layer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: var(--radius-sm);
+}
+
+.tree__layer-row:hover .tree__actions,
+.tree__layer-row:focus-within .tree__actions {
+  display: flex;
+}
+
 .tree__layer-name {
   display: block;
   padding: var(--space-1) var(--space-2);
@@ -308,6 +320,12 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+}
+
+/* A folder (or layer root) the pointer is dragging over: a legal drop target. */
+.tree__row--drop {
+  background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-primary);
 }
 
 .tree__list,

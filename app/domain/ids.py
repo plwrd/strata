@@ -40,6 +40,10 @@ def new_export_id() -> str:
     return f"exp_{secrets.token_hex(_SHORT_ID_BYTES)}"
 
 
+def new_execution_id() -> str:
+    return f"exec_{secrets.token_hex(_SHORT_ID_BYTES)}"
+
+
 def shard_for(object_id: str) -> str:
     """Return the two-character storage shard for an object id.
 

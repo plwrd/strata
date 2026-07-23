@@ -250,6 +250,7 @@ BUILTIN_SCHEMAS: list[NoteSchema] = [
             ),
             _p("date", "date"),
             _p("deciders", "multi-select"),
+            _p("review_date", "date", description="When this decision should be revisited."),
         ],
         template=("## Context\n\n## Decision\n\n## Consequences\n\n## Alternatives considered\n"),
         allowed_relationships=["supersedes", "depends_on", "contradicts", "evidence_for"],
@@ -310,7 +311,142 @@ BUILTIN_SCHEMAS: list[NoteSchema] = [
         ],
         template="## Impact\n\n## Timeline\n\n## Root cause\n\n## Actions\n",
     ),
+    # -- The knowledge loop (docs/target-architecture.md §2) -------------------
+    #
+    # Raw material lands as a `capture`, processing promotes it into `concept` /
+    # `person` / `organization` pages, synthesis produces `report`s, and
+    # `template` / `weekly-review` close the loop. AI-authored pages start at
+    # review_status "ai-inferred" and only a human marks them "reviewed".
+    NoteSchema(
+        id="capture",
+        name="Capture",
+        icon="⇣",
+        node_style="source",
+        properties=[
+            _p("type", "select", options=["capture"], required=True, default="capture"),
+            _p(
+                "processing_status",
+                "status",
+                options=["raw", "processing", "processed", "archived"],
+                required=True,
+                default="raw",
+            ),
+            _p("source_url", "url"),
+            _p("source_author", "text"),
+            _p("published_at", "date"),
+            _p("captured_at", "datetime"),
+            _p("capture_reason", "text", description="Why this was worth keeping."),
+        ],
+        allowed_relationships=["references", "evidence_for", "relates_to"],
+    ),
+    NoteSchema(
+        id="concept",
+        name="Concept",
+        icon="✦",
+        node_style="concept",
+        properties=[
+            _p("type", "select", options=["concept"], required=True, default="concept"),
+            _p(
+                "review_status",
+                "status",
+                options=["unverified", "ai-inferred", "reviewed"],
+                required=True,
+                default="unverified",
+            ),
+            _p("confidence", "progress", minimum=0, maximum=100),
+            _p("last_verified", "date"),
+            _p("generated_by", "text", description="AI execution id when AI-authored."),
+        ],
+        template="## Definition\n\n## Why it matters\n\n## Sources\n\n## Related\n",
+        allowed_relationships=["expands", "supports", "contradicts", "relates_to", "derived_from"],
+    ),
+    NoteSchema(
+        id="organization",
+        name="Organization",
+        icon="▩",
+        node_style="person",
+        properties=[
+            _p("type", "select", options=["organization"], required=True, default="organization"),
+            _p("website", "url"),
+            _p("industry", "text"),
+        ],
+        allowed_relationships=["relates_to", "depends_on"],
+    ),
+    NoteSchema(
+        id="report",
+        name="Report",
+        icon="▤",
+        node_style="note",
+        properties=[
+            _p("type", "select", options=["report"], required=True, default="report"),
+            _p(
+                "report_kind",
+                "select",
+                options=[
+                    "summary",
+                    "comparison",
+                    "research-brief",
+                    "project-plan",
+                    "faq",
+                    "timeline",
+                    "concept-synthesis",
+                ],
+            ),
+            _p(
+                "review_status",
+                "status",
+                options=["unverified", "ai-inferred", "reviewed"],
+                required=True,
+                default="ai-inferred",
+            ),
+            _p("generated_by", "text"),
+        ],
+        allowed_relationships=["derived_from", "references", "supersedes"],
+    ),
+    NoteSchema(
+        id="template",
+        name="Template",
+        icon="▦",
+        node_style="note",
+        properties=[
+            _p("type", "select", options=["template"], required=True, default="template"),
+            _p("for_schema", "text", description="The schema this template instantiates."),
+            _p("template_version", "number", default=1),
+        ],
+        allowed_relationships=["relates_to"],
+    ),
+    NoteSchema(
+        id="weekly-review",
+        name="Weekly review",
+        icon="◔",
+        node_style="note",
+        properties=[
+            _p("type", "select", options=["weekly-review"], required=True, default="weekly-review"),
+            _p("week_start", "date", required=True),
+            _p(
+                "review_status",
+                "status",
+                options=["unverified", "ai-inferred", "reviewed"],
+                required=True,
+                default="ai-inferred",
+            ),
+            _p("generated_by", "text"),
+        ],
+        template=(
+            "## Learned\n\n## Decided\n\n## Completed\n\n## Unresolved\n\n"
+            "## Emerging themes\n\n## Next\n"
+        ),
+        allowed_relationships=["references", "derived_from"],
+    ),
 ]
+
+# The default knowledge areas, seeded as folders in a new workspace's first
+# public layer. Conventions, not walls: users can rename or ignore them.
+KNOWLEDGE_AREAS: tuple[str, ...] = ("Inbox", "Knowledge", "Reports", "Templates")
+INBOX_FOLDER = "Inbox"
+KNOWLEDGE_FOLDER = "Knowledge"
+REPORTS_FOLDER = "Reports"
+TEMPLATES_FOLDER = "Templates"
 
 
 def schema_by_id(schema_id: str) -> NoteSchema | None:

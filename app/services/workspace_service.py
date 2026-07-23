@@ -24,6 +24,7 @@ from app.domain.layer import (
     LayerStorage,
     LayerVisibility,
 )
+from app.domain.schema import KNOWLEDGE_AREAS
 from app.domain.views import ViewConfig
 from app.domain.workspace import KnowledgeLens, WorkspaceDescriptor
 from app.infrastructure.encryption.layer_header import LayerHeader
@@ -102,8 +103,13 @@ class WorkspaceService:
         self._layer_stores = {}
 
         layer, _recovery = self.create_layer("Knowledge", visibility="public")
+        # The knowledge loop's default areas (docs/target-architecture.md §2).
+        # Folders, not walls — an existing workspace is never forced into them.
+        markdown_store = self.layer_store(layer.id)
+        for area in KNOWLEDGE_AREAS:
+            (markdown_store.root / area).mkdir(parents=True, exist_ok=True)
         if seed_demo:
-            seed_demo_workspace(self.layer_store(layer.id))
+            seed_demo_workspace(markdown_store)
         self._install_default_lenses()
         logger.info("workspace.created", workspace_id=descriptor.id)
         if self._on_open:
@@ -218,6 +224,16 @@ class WorkspaceService:
         self._save()
         logger.info("layer.created", layer_id=layer.id, visibility=visibility)
         return layer, recovery_key
+
+    def set_layer_ai_policy(self, layer_id: str, policy: LayerAIPolicy) -> LayerDescriptor:
+        """Change a layer's AI policy — and persist it. A policy that silently
+        reverted on restart would be a lie the settings screen told."""
+        layer = self.require_layer(layer_id)
+        layer.ai_policy = policy
+        layer.updated_at = now_iso()
+        self._save()
+        logger.info("layer.ai_policy_changed", layer_id=layer_id, access=policy.access)
+        return layer
 
     def rename_layer(self, layer_id: str, display_name: str) -> LayerDescriptor:
         layer = self.require_layer(layer_id)

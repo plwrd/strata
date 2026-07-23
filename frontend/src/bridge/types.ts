@@ -445,6 +445,89 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+export interface HealthItem {
+  key: string;
+  label: string;
+  count: number;
+  note_ids: string[];
+  note_titles: string[];
+  recommendation: string;
+}
+
+export interface HealthReport {
+  items: HealthItem[];
+  duplicates: ConnectionSuggestion[];
+  total_notes: number;
+  locked_layers: number;
+}
+
+export interface ConnectionSuggestion {
+  note_a: string;
+  note_a_title: string;
+  note_b: string;
+  note_b_title: string;
+  layer_id: string;
+  kind: "similar" | "duplicate" | "mention";
+  score: number;
+  explanation: string;
+  excerpt: string;
+  suggested_relationship: string;
+}
+
+export interface UsedSource {
+  object_id: string;
+  title: string;
+  is_private: boolean;
+}
+
+export interface AISendResponse {
+  request_id: string;
+  execution_id: string;
+  conversation_id: string;
+  sources: UsedSource[];
+}
+
+export interface SavedPrompt {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  prompt_text: string;
+  model_preference: string;
+  temperature: number | null;
+  version: number;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string;
+}
+
+/**
+ * One persisted model call — the workspace's durable AI memory. `redacted`
+ * records that content fields were stripped before persisting because the
+ * execution involved a private layer.
+ */
+export interface AIExecutionRecord {
+  id: string;
+  kind: "ai-request" | "plan-generation";
+  created_at: string;
+  provider: string;
+  model: string;
+  is_remote: boolean;
+  layer_ids: string[];
+  prompt: string;
+  response_text: string;
+  source_object_ids: string[];
+  source_count: number;
+  private_source_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  result: "completed" | "cancelled" | "failed";
+  error_message: string;
+  duration_ms: number;
+  redacted: boolean;
+}
+
 // --- transactional AI operations ------------------------------------------
 
 export interface Operation {
@@ -461,6 +544,34 @@ export interface Operation {
   property_value: string;
   tag: string;
   rationale: string;
+  properties?: Record<string, string>;
+}
+
+// --- version history --------------------------------------------------------
+
+export interface NoteVersionSummary {
+  index: number;
+  created_at: string;
+  origin: string;
+  change: string;
+  title: string;
+  size_chars: number;
+}
+
+export interface NoteVersion {
+  index: number;
+  created_at: string;
+  origin: string;
+  change: string;
+  title: string;
+  content: string;
+  properties: Record<string, unknown>;
+}
+
+export interface VersionListResponse {
+  versions: NoteVersionSummary[];
+  supported: boolean;
+  detail: string;
 }
 
 export interface OperationPlan {
@@ -515,6 +626,7 @@ export interface AppliedPlan {
   model: string;
   prompt: string;
   undone: boolean;
+  redacted: boolean;
 }
 
 export interface PlanStreamEvent {

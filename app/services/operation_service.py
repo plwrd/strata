@@ -29,6 +29,7 @@ from app.domain.operations import (
     PlanReview,
 )
 from app.infrastructure.logging.logger import get_logger
+from app.services.ai_history_service import AIHistoryService
 from app.services.note_service import NoteService
 from app.services.snapshot_service import SnapshotService
 from app.services.workspace_service import WorkspaceService
@@ -67,10 +68,12 @@ class OperationService:
         workspace: WorkspaceService,
         notes: NoteService,
         snapshots: SnapshotService,
+        history: AIHistoryService | None = None,
     ) -> None:
         self._workspace = workspace
         self._notes = notes
         self._snapshots = snapshots
+        self._history = history
         self._applied: list[AppliedPlan] = []
 
     # -- validation and diff -------------------------------------------------
@@ -268,7 +271,7 @@ class OperationService:
                 if entry.index not in approved or not entry.valid:
                     continue
                 operation = review.plan.operations[entry.index]
-                result = self._execute(operation, entry.index)
+                result = self._execute(operation, entry.index, origin=f"ai:{review.plan.id}")
                 results.append(result)
                 if not result.applied:
                     raise InvalidRequestError(result.error or "An operation failed.")
@@ -291,6 +294,12 @@ class OperationService:
             prompt=review.plan.prompt,
         )
         self._applied.append(applied)
+        if self._history is not None:
+            # The durable audit record. Redacted before it reaches disk when the
+            # plan touched a private layer; the session copy above stays complete.
+            self._history.record_applied_plan(
+                applied, involves_private=bool(fresh.private_layers_touched)
+            )
         logger.info(
             "operations.applied",
             plan_id=review.plan.id,
@@ -299,7 +308,7 @@ class OperationService:
         )
         return applied
 
-    def _execute(self, operation: Operation, index: int) -> OperationResult:
+    def _execute(self, operation: Operation, index: int, *, origin: str) -> OperationResult:
         def ok(note_id: str | None, detail: str) -> OperationResult:
             return OperationResult(
                 index=index, type=operation.type, applied=True, note_id=note_id, detail=detail
@@ -312,9 +321,9 @@ class OperationService:
 
             if operation.type in ("create_note", "create_task"):
                 content = operation.content
-                properties: dict[str, object] = (
-                    {"type": "task"} if operation.type == "create_task" else {}
-                )
+                properties: dict[str, object] = dict(operation.properties)
+                if operation.type == "create_task":
+                    properties.setdefault("type", "task")
                 note = self._notes.create_note(
                     layer_id=operation.layer_id,
                     folder_path=operation.folder_path,
@@ -325,13 +334,17 @@ class OperationService:
                 return ok(note.metadata.id, f"Created {note.metadata.title}")
 
             if operation.type == "update_note":
-                note = self._notes.update_note(operation.note_id or "", operation.content)
+                note = self._notes.update_note(
+                    operation.note_id or "", operation.content, origin=origin
+                )
                 return ok(note.metadata.id, f"Updated {note.metadata.title}")
 
             if operation.type == "append_note":
                 current = self._notes.get_note(operation.note_id or "")
                 note = self._notes.update_note(
-                    operation.note_id or "", current.content.rstrip() + "\n\n" + operation.content
+                    operation.note_id or "",
+                    current.content.rstrip() + "\n\n" + operation.content,
+                    origin=origin,
                 )
                 return ok(note.metadata.id, f"Appended to {note.metadata.title}")
 
@@ -351,7 +364,9 @@ class OperationService:
                 elif operation.type == "remove_tag" and operation.tag in tags:
                     tags.remove(operation.tag)
                 updated = self._notes.update_properties(
-                    operation.note_id or "", {**note.metadata.properties, "tags": tags}
+                    operation.note_id or "",
+                    {**note.metadata.properties, "tags": tags},
+                    origin=origin,
                 )
                 return ok(
                     updated.metadata.id, f"{operation.type.replace('_', ' ')} #{operation.tag}"
@@ -362,16 +377,19 @@ class OperationService:
                 updated = self._notes.update_properties(
                     operation.note_id or "",
                     {**note.metadata.properties, operation.property_key: operation.property_value},
+                    origin=origin,
                 )
                 return ok(updated.metadata.id, f"Set {operation.property_key}")
 
             if operation.type in ("add_link", "add_relationship"):
-                return self._apply_link(operation, index)
+                return self._apply_link(operation, index, origin=origin)
 
             if operation.type == "archive_note":
                 note = self._notes.get_note(operation.note_id or "")
                 updated = self._notes.update_properties(
-                    operation.note_id or "", {**note.metadata.properties, "archived": True}
+                    operation.note_id or "",
+                    {**note.metadata.properties, "archived": True},
+                    origin=origin,
                 )
                 return ok(updated.metadata.id, f"Archived {note.metadata.title}")
 
@@ -388,7 +406,7 @@ class OperationService:
                 index=index, type=operation.type, applied=False, error=exc.message
             )
 
-    def _apply_link(self, operation: Operation, index: int) -> OperationResult:
+    def _apply_link(self, operation: Operation, index: int, *, origin: str) -> OperationResult:
         """Add a typed link by appending a `relationship:: [[Target]]` line."""
         note = self._notes.get_note(operation.note_id or "")
         target_title = operation.target_title
@@ -402,7 +420,9 @@ class OperationService:
 
         relationship = operation.relationship or "references"
         line = f"\n{relationship}:: [[{target_title}]]\n"
-        updated = self._notes.update_note(operation.note_id or "", note.content.rstrip() + line)
+        updated = self._notes.update_note(
+            operation.note_id or "", note.content.rstrip() + line, origin=origin
+        )
         return OperationResult(
             index=index,
             type=operation.type,
@@ -422,17 +442,41 @@ class OperationService:
             ),
             None,
         )
+        if applied is None and self._history is not None:
+            # Not from this session — a persisted plan from an earlier run. Its
+            # snapshot is still on disk, so undo works across restarts.
+            applied = next(
+                (
+                    item
+                    for item in self._history.list_applied_plans()
+                    if item.plan_id == plan_id and not item.undone
+                ),
+                None,
+            )
         if applied is None:
             raise NotFoundError("No applied plan to undo.")
 
         self._snapshots.restore(applied.snapshot_id, take_safety_snapshot=False)
         applied.undone = True
+        if self._history is not None:
+            self._history.mark_plan_undone(plan_id)
         logger.info("operations.undone", plan_id=plan_id)
         return applied
 
     def audit_log(self) -> list[AppliedPlan]:
-        """Every AI change, newest first. The reviewable history of what the AI did."""
-        return list(reversed(self._applied))
+        """Every AI change, newest first. The reviewable history of what the AI did.
+
+        This session's plans (complete) first, then persisted plans from earlier
+        sessions — which are redacted copies when they touched a private layer.
+        """
+        session = list(reversed(self._applied))
+        if self._history is None:
+            return session
+        session_ids = {plan.plan_id for plan in session}
+        persisted = [
+            plan for plan in self._history.list_applied_plans() if plan.plan_id not in session_ids
+        ]
+        return session + persisted
 
 
 def _preview(text: str) -> str:

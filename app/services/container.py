@@ -13,17 +13,28 @@ from pathlib import Path
 from app.domain.collaboration import TreeNode
 from app.infrastructure.crdt.relay import DirectoryRelay, HttpRelay, Relay
 from app.services.ai_generation_service import AIGenerationService
+from app.services.ai_history_service import AIHistoryService
 from app.services.ai_service import AIService
+from app.services.capture_service import CaptureService
 from app.services.collaboration_service import CollaborationService
+from app.services.connection_service import ConnectionService
 from app.services.context_export_service import ContextExportService
+from app.services.conversation_service import ConversationService
 from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
+from app.services.knowledge_service import KnowledgeService
+from app.services.memory_service import MemoryService
 from app.services.note_service import NoteService
 from app.services.operation_service import OperationService
+from app.services.prompt_library_service import PromptLibraryService
+from app.services.retrieval_service import RetrievalService
+from app.services.review_service import ReviewService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
 from app.services.snapshot_service import SnapshotService
+from app.services.synthesis_service import SynthesisService
+from app.services.version_service import VersionService
 from app.services.view_service import ViewService
 from app.services.watch_service import WatchService
 from app.services.workspace_service import WorkspaceService
@@ -59,16 +70,33 @@ class Services:
             on_close=self.watcher.stop,
             encryption=self.encryption,
         )
-        self.notes = NoteService(self.workspace)
+        self.versions = VersionService(self.workspace)
+        self.notes = NoteService(self.workspace, versions=self.versions)
         self.search = SearchService(self.notes, self.workspace)
         # The graph asks the search service for semantic similarity, but only through
         # a plain function — the two stay decoupled (ADR-0010).
         self.graph = GraphService(self.workspace, self.notes, self.search.similar_pairs)
         self.exports = ContextExportService(self.workspace, self.notes, self.graph)
-        self.ai = AIService(self.workspace, self.settings)
+        # AI memory: receipts, execution records, and the applied-plan audit log
+        # persist under the workspace's .strata/ai/ and survive restarts.
+        self.history = AIHistoryService(self.workspace)
+        self.ai = AIService(self.workspace, self.settings, history=self.history)
         self.snapshots = SnapshotService(self.workspace)
-        self.operations = OperationService(self.workspace, self.notes, self.snapshots)
+        self.operations = OperationService(
+            self.workspace, self.notes, self.snapshots, history=self.history
+        )
         self.ai_generation = AIGenerationService(self.ai)
+        self.capture = CaptureService(self.workspace, self.notes, self.settings)
+        self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
+        self.retrieval = RetrievalService(self.search)
+        self.prompts = PromptLibraryService(self.workspace)
+        self.conversations = ConversationService(self.workspace)
+        self.synthesis = SynthesisService(self.ai, self.notes, self.exports)
+        self.connections = ConnectionService(self.notes, self.search)
+        self.memory = MemoryService(self.ai, self.notes, self.exports)
+        self.review = ReviewService(
+            self.ai, self.notes, self.exports, self.connections, self.prompts
+        )
         self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()
         self.collaboration = self._build_collaboration()

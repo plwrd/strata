@@ -11,6 +11,7 @@
 import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
 import { dropSession } from "../features/collaboration/collabDoc";
+import type { ImportedFile } from "../features/explorer/importDrop";
 import type {
   AIStreamEvent,
   AppSettings,
@@ -30,6 +31,7 @@ import type {
   NoteSchema,
   PolicyView,
   PrivacyReceipt,
+  UsedSource,
   ProviderView,
   SearchResult,
   TrashEntry,
@@ -46,6 +48,12 @@ export type ViewMode = "source" | "live" | "reading";
 export interface Tab {
   id: string;
   title: string;
+}
+
+/** Optional content created together with a new layer, so it starts usable. */
+export interface LayerStarter {
+  folders: string[];
+  firstNote: boolean;
 }
 
 const EMPTY_LINKS: LinksResponse = {
@@ -147,6 +155,11 @@ interface StrataState {
   aiError: string | null;
   aiRequestId: string | null;
   receipts: PrivacyReceipt[];
+  // "Ask the workspace": with nothing selected, retrieval picks the context.
+  askWorkspace: boolean;
+  conversationId: string | null;
+  aiExecutionId: string | null;
+  aiSources: UsedSource[];
 
   // actions
   initialise: () => Promise<void>;
@@ -184,6 +197,16 @@ interface StrataState {
     filename: string,
     base64: string,
   ) => Promise<string>;
+  /**
+   * Import files dropped from the OS into a folder. Text files become notes;
+   * anything else is stored as an attachment wrapped in a note that embeds it.
+   * Returns how many files were imported before the first failure.
+   */
+  importFiles: (
+    layerId: string,
+    folderPath: string,
+    files: ImportedFile[],
+  ) => Promise<number>;
 
   // layers
   //
@@ -195,6 +218,7 @@ interface StrataState {
     visibility: "public" | "private",
     password: string | null,
     withRecoveryKey: boolean,
+    starter?: LayerStarter,
   ) => Promise<string | null>;
   unlockLayer: (layerId: string, password: string) => Promise<void>;
   unlockLayerWithRecoveryKey: (
@@ -262,6 +286,8 @@ interface StrataState {
   sendToModel: (confirmedRemote: boolean) => Promise<void>;
   cancelAIRequest: () => Promise<void>;
   clearAIOutput: () => void;
+  newAIThread: () => void;
+  setAskWorkspace: (on: boolean) => void;
   loadReceipts: () => Promise<void>;
 }
 
@@ -349,6 +375,10 @@ export const useStore = create<StrataState>((set, get) => ({
   aiError: null,
   aiRequestId: null,
   receipts: [],
+  askWorkspace: true,
+  conversationId: null,
+  aiExecutionId: null,
+  aiSources: [],
 
   async initialise() {
     try {
@@ -742,15 +772,77 @@ export const useStore = create<StrataState>((set, get) => ({
     return response.markdown;
   },
 
+  async importFiles(layerId, folderPath, files) {
+    let imported = 0;
+    // Grown locally as we go, so ten dropped "notes.md" files become
+    // "notes", "notes 2", … instead of nine conflict errors.
+    const titles = get().tree?.notes.map((note) => note.title) ?? [];
+    try {
+      for (const file of files) {
+        const title = uniqueTitle(titles, file.title);
+        titles.push(title);
+        if (file.kind === "text") {
+          await bridge.notes.create(layerId, title, folderPath, file.text);
+        } else {
+          // The bytes go to Python as an attachment (encrypted in a private
+          // layer); the note only carries the embed, so it shows in the tree.
+          const response = await bridge.notes.saveAttachment(
+            layerId,
+            file.name,
+            file.base64,
+          );
+          await bridge.notes.create(
+            layerId,
+            title,
+            folderPath,
+            `${response.markdown}\n`,
+          );
+        }
+        imported += 1;
+      }
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+    await get().reloadTree();
+    await get().reloadGraph();
+    return imported;
+  },
+
   // -- layers ---------------------------------------------------------------
 
-  async createLayer(name, visibility, password, withRecoveryKey) {
+  async createLayer(name, visibility, password, withRecoveryKey, starter) {
     const response = await bridge.layers.create(
       name,
       visibility,
       password,
       withRecoveryKey,
     );
+    // Starter content is best-effort: the layer exists at this point, so a
+    // failure here must not surface as "the layer could not be created".
+    if (starter) {
+      try {
+        const layerId = response.layer.id;
+        for (const folder of starter.folders) {
+          await bridge.notes.createFolder(layerId, "", folder);
+        }
+        if (starter.firstNote) {
+          const title = uniqueTitle(
+            get().tree?.notes.map((note) => note.title) ?? [],
+            "Welcome",
+          );
+          await bridge.notes.create(
+            layerId,
+            title,
+            "",
+            `# ${title}\n\nThe first note in **${name}**. Rename it, or start writing.\n`,
+          );
+        }
+      } catch (error) {
+        set({ connectionMessage: describeError(error) });
+      }
+      await get().reloadTree();
+      await get().reloadGraph();
+    }
     await get().refreshLayers();
     // Returned to the caller to display once, and never written into the store.
     return response.recovery_key;
@@ -1190,6 +1282,8 @@ export const useStore = create<StrataState>((set, get) => ({
       model,
       depth,
       contentMode,
+      askWorkspace,
+      conversationId,
     } = get();
     const selectable = selectedIds.filter((id) => isExportable(graph, id));
     if (!prompt.trim()) {
@@ -1197,9 +1291,15 @@ export const useStore = create<StrataState>((set, get) => ({
       return;
     }
 
-    set({ aiOutput: "", aiError: null, aiStreaming: true, aiRequestId: null });
+    set({
+      aiOutput: "",
+      aiError: null,
+      aiStreaming: true,
+      aiRequestId: null,
+      aiSources: [],
+    });
     try {
-      const { request_id } = await bridge.ai.send({
+      const response = await bridge.ai.send({
         provider_id: providerId,
         // The CLI picks its own model; everything else needs one chosen.
         model: model || "default",
@@ -1208,8 +1308,17 @@ export const useStore = create<StrataState>((set, get) => ({
         depth,
         content_mode: contentMode,
         confirmed_remote: confirmedRemote,
+        // With nothing selected, retrieval ranks a small context server-side —
+        // never the whole workspace.
+        retrieve: askWorkspace && selectable.length === 0,
+        conversation_id: conversationId ?? "",
       });
-      set({ aiRequestId: request_id });
+      set({
+        aiRequestId: response.request_id,
+        aiExecutionId: response.execution_id || null,
+        conversationId: response.conversation_id || conversationId,
+        aiSources: response.sources ?? [],
+      });
     } catch (error) {
       // A denial or a missing key surfaces here, before any streaming starts.
       set({
@@ -1221,6 +1330,17 @@ export const useStore = create<StrataState>((set, get) => ({
       });
     }
   },
+
+  newAIThread: () =>
+    set({
+      conversationId: null,
+      aiOutput: "",
+      aiError: null,
+      aiSources: [],
+      aiExecutionId: null,
+    }),
+
+  setAskWorkspace: (on) => set({ askWorkspace: on }),
 
   async cancelAIRequest() {
     const id = get().aiRequestId;

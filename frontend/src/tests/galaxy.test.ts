@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { GraphEdge, GraphNode } from "../bridge/types";
 import {
   buildEdgeParticles,
+  buildNebula,
   buildNodeGlow,
   buildStarfield,
   mulberry32,
@@ -78,6 +79,48 @@ describe("buildStarfield", () => {
       expect(r).toBeGreaterThanOrEqual(100 - 1e-6);
       expect(r).toBeLessThanOrEqual(300 + 1e-6);
     }
+  });
+});
+
+describe("buildNebula", () => {
+  it("is deterministic for a given seed", () => {
+    const one = buildNebula(90, 240, 5);
+    const two = buildNebula(90, 240, 5);
+    expect(one.positions).toEqual(two.positions);
+    expect(one.sizes).toEqual(two.sizes);
+    expect(one.count).toBe(90);
+  });
+
+  it("keeps every puff within reach of the shell and sized like a cloud", () => {
+    const data = buildNebula(60, 200);
+    for (let i = 0; i < data.count; i += 1) {
+      const r = Math.hypot(
+        data.positions[i * 3]!,
+        data.positions[i * 3 + 1]!,
+        data.positions[i * 3 + 2]!,
+      );
+      // centre radius ≤ 200, plus scatter ≤ 200 * 0.22 on each axis
+      expect(r).toBeLessThanOrEqual(200 + 200 * 0.22 * Math.sqrt(3) + 1e-6);
+      expect(data.sizes[i]!).toBeGreaterThan(0);
+    }
+  });
+
+  it("clusters puffs instead of spreading them uniformly", () => {
+    // With clustering, many puffs share a centre: the average pairwise distance
+    // within a cluster stride is far below the shell diameter.
+    const data = buildNebula(64, 200, 3);
+    const centres = Math.max(3, Math.round(64 / 30));
+    let near = 0;
+    for (let i = centres; i < data.count; i += 1) {
+      const j = i - centres; // same centre, previous ring
+      const d = Math.hypot(
+        data.positions[i * 3]! - data.positions[j * 3]!,
+        data.positions[i * 3 + 1]! - data.positions[j * 3 + 1]!,
+        data.positions[i * 3 + 2]! - data.positions[j * 3 + 2]!,
+      );
+      if (d < 200) near += 1;
+    }
+    expect(near).toBeGreaterThan((data.count - centres) * 0.9);
   });
 });
 

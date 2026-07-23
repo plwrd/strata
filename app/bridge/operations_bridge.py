@@ -22,6 +22,8 @@ from app.domain.ids import new_job_id
 from app.domain.operations import AppliedPlan, OperationPlan, PlanReview
 from app.services.ai_generation_service import MAX_GENERATED_NOTES
 from app.services.container import Services
+from app.services.knowledge_service import ProcessingProfile
+from app.services.synthesis_service import SynthesisKind
 
 
 class GeneratePlanRequest(BaseModel):
@@ -43,6 +45,52 @@ class GenerateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str
+
+
+class ProcessNotesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    note_ids: list[str] = Field(min_length=1, max_length=25)
+    confirmed_remote: bool = False
+    # "meeting" extracts participants, decisions and action items anchored to
+    # verbatim transcript passages.
+    profile: ProcessingProfile = "general"
+
+
+class ProcessNotesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+
+
+class SynthesizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    note_ids: list[str] = Field(min_length=2, max_length=25)
+    kind: SynthesisKind = "summary"
+    confirmed_remote: bool = False
+
+
+class RefreshProjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    note_id: str = Field(min_length=1, max_length=128)
+    confirmed_remote: bool = False
+
+
+class WeeklyReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    days: int = Field(default=7, ge=1, le=90)
+    confirmed_remote: bool = False
 
 
 class ReviewPlanRequest(BaseModel):
@@ -165,6 +213,210 @@ class OperationsBridge(QObject):
 
     def _emit(self, request_id: str, payload: dict[str, Any]) -> None:
         self.planEvent.emit(json.dumps({"requestId": request_id, **payload}))
+
+    # -- process into knowledge ----------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(ProcessNotesRequest)
+    def process_notes(self, request: ProcessNotesRequest) -> ProcessNotesResponse:
+        """Extract structured knowledge from the selected notes, as a plan.
+
+        Runs as a background job (it calls a model), reports progress on the
+        jobs channel, and delivers the finished plan on ``planEvent`` under the
+        job's id — from there it enters the normal review → apply flow.
+        """
+        notes = self._services.notes.get_notes(request.note_ids)
+        if not notes:
+            raise InvalidRequestError("None of the selected notes are readable.")
+        private_layers = {
+            layer.id
+            for layer in self._services.workspace.descriptor.layers
+            if layer.visibility == "private"
+        }
+        involves_private = any(note.metadata.layer_id in private_layers for note in notes)
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, f"Processing {len(notes)} note(s)")
+            try:
+                proposal = self._services.knowledge.process_sync(
+                    note_ids=request.note_ids,
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    confirmed_remote=request.confirmed_remote,
+                    profile=request.profile,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "Processing failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Proposal ready for review")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"Process {len(notes)} note(s) into knowledge",
+            work=work,
+            privacy="private" if involves_private else "public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
+
+    # -- multi-source synthesis ----------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(SynthesizeRequest)
+    def synthesize_notes(self, request: SynthesizeRequest) -> ProcessNotesResponse:
+        """Combine the selected notes into one cited document — as a plan.
+
+        Source notes are never modified. The synthesis arrives on ``planEvent``
+        under the job's id and enters the normal review → apply flow; citations
+        of sources that were never sent are stripped and reported.
+        """
+        notes = self._services.notes.get_notes(request.note_ids)
+        if len(notes) < 2:
+            raise InvalidRequestError("Select at least two readable notes to synthesise.")
+        private_layers = {
+            layer.id
+            for layer in self._services.workspace.descriptor.layers
+            if layer.visibility == "private"
+        }
+        involves_private = any(note.metadata.layer_id in private_layers for note in notes)
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, f"Synthesising {len(notes)} note(s)")
+            try:
+                proposal = self._services.synthesis.synthesize_sync(
+                    note_ids=request.note_ids,
+                    kind=request.kind,
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    confirmed_remote=request.confirmed_remote,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "Synthesis failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Synthesis ready for review")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"Synthesise {len(notes)} note(s) ({request.kind})",
+            work=work,
+            privacy="private" if involves_private else "public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
+
+    # -- project memory ------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(RefreshProjectRequest)
+    def refresh_project(self, request: RefreshProjectRequest) -> ProcessNotesResponse:
+        """Propose an updated project page from its surrounding notes.
+
+        The update is an ``update_note`` — destructive by classification — so
+        the review shows the full before/after and never pre-approves it.
+        """
+        note = self._services.notes.get_note(request.note_id)
+        private_layers = {
+            layer.id
+            for layer in self._services.workspace.descriptor.layers
+            if layer.visibility == "private"
+        }
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, "Reading the project's neighbourhood")
+            try:
+                proposal = self._services.memory.refresh_project_sync(
+                    note_id=request.note_id,
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    confirmed_remote=request.confirmed_remote,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "Refresh failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Update ready for review")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"Refresh project memory: {note.metadata.title}"[:120],
+            work=work,
+            privacy="private" if note.metadata.layer_id in private_layers else "public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
+
+    # -- weekly review -------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(WeeklyReviewRequest)
+    def generate_weekly(self, request: WeeklyReviewRequest) -> ProcessNotesResponse:
+        """Generate the weekly review from everything that changed in the window."""
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, "Gathering the week's changes")
+            try:
+                proposal = self._services.review.generate_weekly_sync(
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    days=request.days,
+                    confirmed_remote=request.confirmed_remote,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "The review failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Review ready")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"Weekly review ({request.days} day(s))",
+            work=work,
+            privacy="public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
 
     @Slot(str, result=str)
     @bridge_method(ReviewPlanRequest)

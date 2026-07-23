@@ -155,6 +155,7 @@ class AIGenerationService:
             layer_ids=layer_ids,
             confirmed_remote=confirmed_remote,
             max_output_tokens=8000,
+            kind="plan-generation",
         ):
             if event.kind == "delta":
                 full += event.text

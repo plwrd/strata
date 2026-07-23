@@ -24,6 +24,7 @@ import type {
   GraphSnapshot,
   HealthResponse,
   JobRecord,
+  LayerAIPolicy,
   LayerDescriptor,
   LinkHealthResponse,
   LinksResponse,
@@ -34,6 +35,13 @@ import type {
   OperationPlan,
   PlanReview,
   PolicyView,
+  AIExecutionRecord,
+  AISendResponse,
+  ConnectionSuggestion,
+  HealthReport,
+  NoteVersion,
+  SavedPrompt,
+  VersionListResponse,
   PrivacyReceipt,
   ProviderHealthView,
   ProviderView,
@@ -249,6 +257,8 @@ export const bridge = {
     choose: (name = "Strata") =>
       call<WorkspaceState>("workspace", "choose_workspace", { name }),
     close: () => call<WorkspaceState>("workspace", "close_workspace"),
+    knowledgeHealth: () =>
+      call<{ report: HealthReport }>("workspace", "knowledge_health"),
   },
 
   layers: {
@@ -309,6 +319,11 @@ export const bridge = {
         "rotate_key",
         { layer_id, password },
       ),
+    setAIPolicy: (layer_id: string, policy: LayerAIPolicy) =>
+      call<{ layer: LayerDescriptor }>("layers", "set_ai_policy", {
+        layer_id,
+        policy,
+      }),
   },
 
   notes: {
@@ -377,6 +392,31 @@ export const bridge = {
         data_base64,
       }),
 
+    capture: (request: {
+      content?: string;
+      title?: string;
+      layer_id?: string;
+      source_url?: string;
+      source_author?: string;
+      capture_reason?: string;
+      tags?: string[];
+    }) => call<NoteResponse>("notes", "capture", request),
+    importUrl: (request: {
+      url: string;
+      layer_id?: string;
+      capture_reason?: string;
+    }) => call<NoteResponse>("notes", "import_url", request),
+
+    listVersions: (note_id: string) =>
+      call<VersionListResponse>("notes", "list_versions", { note_id }),
+    getVersion: (note_id: string, index: number) =>
+      call<{ version: NoteVersion }>("notes", "get_version", {
+        note_id,
+        index,
+      }),
+    restoreVersion: (note_id: string, index: number) =>
+      call<NoteResponse>("notes", "restore_version", { note_id, index }),
+
     /** Push channel: the workspace changed on disk (by Strata, or externally). */
     onChanged: (listener: (origin: string) => void) =>
       subscribe("notes", "changed", listener),
@@ -403,6 +443,12 @@ export const bridge = {
       }),
     clusterOf: (node_id: string) =>
       call<{ node_ids: string[] }>("graph", "cluster_of", { node_id }),
+    suggestConnections: (note_id: string, limit = 8) =>
+      call<{ suggestions: ConnectionSuggestion[] }>(
+        "graph",
+        "suggest_connections",
+        { note_id, limit },
+      ),
   },
 
   search: {
@@ -469,11 +515,46 @@ export const bridge = {
       content_mode?: ContentMode;
       max_output_tokens?: number;
       confirmed_remote?: boolean;
-    }) => call<{ request_id: string }>("ai", "send_request", request),
+      retrieve?: boolean;
+      retrieve_limit?: number;
+      conversation_id?: string;
+    }) => call<AISendResponse>("ai", "send_request", request),
+    saveOutput: (request: {
+      execution_id?: string;
+      content: string;
+      title: string;
+      target: "note" | "report" | "append";
+      layer_id?: string;
+      note_id?: string;
+    }) =>
+      call<{ note_id: string; title: string; plan_id: string }>(
+        "ai",
+        "save_output",
+        request,
+      ),
+    listPrompts: () => call<{ prompts: SavedPrompt[] }>("ai", "list_prompts"),
+    savePrompt: (request: {
+      prompt_id?: string;
+      name: string;
+      prompt_text: string;
+      description?: string;
+      category?: string;
+      model_preference?: string;
+      temperature?: number | null;
+    }) => call<{ prompt: SavedPrompt }>("ai", "save_prompt", request),
+    usePrompt: (prompt_id: string) =>
+      call<{ prompt: SavedPrompt }>("ai", "use_prompt", { prompt_id }),
+    deletePrompt: (prompt_id: string) =>
+      call<{ deleted: boolean }>("ai", "delete_prompt", { prompt_id }),
     cancel: (request_id: string) =>
       call<{ cancelled: boolean }>("ai", "cancel_request", { request_id }),
     receipts: () =>
       call<{ receipts: PrivacyReceipt[] }>("ai", "privacy_receipts"),
+    listHistory: (limit = 100) =>
+      call<{ executions: AIExecutionRecord[] }>("ai", "list_history", {
+        limit,
+      }),
+    clearHistory: () => call<{ cleared_files: number }>("ai", "clear_history"),
     onEvent: (listener: (payload: string) => void) =>
       subscribe("ai", "aiEvent", listener),
   },
@@ -504,6 +585,35 @@ export const bridge = {
       mode?: "plan" | "notes";
       note_count?: number;
     }) => call<{ request_id: string }>("operations", "generate_plan", request),
+    processNotes: (request: {
+      provider_id: string;
+      model: string;
+      note_ids: string[];
+      confirmed_remote?: boolean;
+      profile?: "general" | "meeting";
+    }) => call<{ request_id: string }>("operations", "process_notes", request),
+    synthesizeNotes: (request: {
+      provider_id: string;
+      model: string;
+      note_ids: string[];
+      kind: string;
+      confirmed_remote?: boolean;
+    }) =>
+      call<{ request_id: string }>("operations", "synthesize_notes", request),
+    refreshProject: (request: {
+      provider_id: string;
+      model: string;
+      note_id: string;
+      confirmed_remote?: boolean;
+    }) =>
+      call<{ request_id: string }>("operations", "refresh_project", request),
+    generateWeekly: (request: {
+      provider_id: string;
+      model: string;
+      days?: number;
+      confirmed_remote?: boolean;
+    }) =>
+      call<{ request_id: string }>("operations", "generate_weekly", request),
     review: (plan: OperationPlan, allowed_layer_ids: string[]) =>
       call<{ review: PlanReview }>("operations", "review_plan", {
         plan,

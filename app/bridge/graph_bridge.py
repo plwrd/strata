@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, Slot
 
 from app.bridge.envelope import bridge_method
 from app.domain.graph import GraphSnapshot
+from app.services.connection_service import ConnectionSuggestion
 from app.services.container import Services
 from app.services.graph_service import DEFAULT_NODE_LIMIT
 
@@ -55,6 +56,19 @@ class NeighboursRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     node_id: str = Field(min_length=1, max_length=128)
+
+
+class SuggestConnectionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note_id: str = Field(min_length=1, max_length=128)
+    limit: int = Field(default=8, ge=1, le=25)
+
+
+class SuggestionsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggestions: list[ConnectionSuggestion] = Field(default_factory=list)
 
 
 class NeighboursResponse(BaseModel):
@@ -119,4 +133,16 @@ class GraphBridge(QObject):
             node_ids=[
                 object_id for object_id, cluster in clusters.items() if cluster == target_cluster
             ]
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(SuggestConnectionsRequest)
+    def suggest_connections(self, request: SuggestConnectionsRequest) -> SuggestionsResponse:
+        """Computed connection suggestions for one note — similarity and
+        unlinked mentions, each with a score and an inspectable reason. Nothing
+        is applied here; accepting one goes through the operation flow."""
+        return SuggestionsResponse(
+            suggestions=self._services.connections.suggest_for_note(
+                request.note_id, limit=request.limit
+            )
         )

@@ -172,9 +172,9 @@ class LayerBridge(QObject):
     @Slot(str, result=str)
     @bridge_method(SetAIPolicyRequest)
     def set_ai_policy(self, request: SetAIPolicyRequest) -> LayerResponse:
-        layer = self._services.workspace.require_layer(request.layer_id)
-        layer.ai_policy = request.policy
-        return LayerResponse(layer=layer)
+        return LayerResponse(
+            layer=self._services.workspace.set_layer_ai_policy(request.layer_id, request.policy)
+        )
 
     # -- private layers ------------------------------------------------------
 
