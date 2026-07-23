@@ -114,6 +114,14 @@ def test_an_absurd_count_is_clamped() -> None:
     assert "Create exactly 20 note(s)" in ai.calls[0]["prompt"]
 
 
+def test_generation_is_recorded_as_a_plan_generation_execution() -> None:
+    ai = StubAI(NOTES_REPLY)
+
+    generate(ai)
+
+    assert ai.calls[0]["kind"] == "plan-generation"
+
+
 @pytest.mark.parametrize("reply", ["not json at all", "{broken", '{"operations": "nope"}'])
 def test_garbage_in_notes_mode_is_an_empty_plan_not_a_crash(reply: str) -> None:
     ai = StubAI(reply)

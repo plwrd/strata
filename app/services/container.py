@@ -13,6 +13,7 @@ from pathlib import Path
 from app.domain.collaboration import TreeNode
 from app.infrastructure.crdt.relay import DirectoryRelay, HttpRelay, Relay
 from app.services.ai_generation_service import AIGenerationService
+from app.services.ai_history_service import AIHistoryService
 from app.services.ai_service import AIService
 from app.services.collaboration_service import CollaborationService
 from app.services.context_export_service import ContextExportService
@@ -65,9 +66,14 @@ class Services:
         # a plain function — the two stay decoupled (ADR-0010).
         self.graph = GraphService(self.workspace, self.notes, self.search.similar_pairs)
         self.exports = ContextExportService(self.workspace, self.notes, self.graph)
-        self.ai = AIService(self.workspace, self.settings)
+        # AI memory: receipts, execution records, and the applied-plan audit log
+        # persist under the workspace's .strata/ai/ and survive restarts.
+        self.history = AIHistoryService(self.workspace)
+        self.ai = AIService(self.workspace, self.settings, history=self.history)
         self.snapshots = SnapshotService(self.workspace)
-        self.operations = OperationService(self.workspace, self.notes, self.snapshots)
+        self.operations = OperationService(
+            self.workspace, self.notes, self.snapshots, history=self.history
+        )
         self.ai_generation = AIGenerationService(self.ai)
         self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()

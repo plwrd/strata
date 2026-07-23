@@ -29,6 +29,7 @@ from app.domain.export import (
     ExportTarget,
     PrivacyReceipt,
 )
+from app.domain.history import AIExecutionRecord
 from app.domain.ids import new_job_id
 from app.services.ai_service import CATALOGUE
 from app.services.container import Services
@@ -162,6 +163,24 @@ class ReceiptsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     receipts: list[PrivacyReceipt] = Field(default_factory=list)
+
+
+class HistoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=100, ge=1, le=500)
+
+
+class HistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    executions: list[AIExecutionRecord] = Field(default_factory=list)
+
+
+class ClearHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cleared_files: int = 0
 
 
 class RouteRequest(BaseModel):
@@ -356,10 +375,11 @@ class AIComposerBridge(QObject):
         sources = ""
         layer_ids: list[str] = []
         if plan is not None:
+            # The same rendering as an export: delimiters inside note content are
+            # neutralised, so a note containing "</source>" cannot break out of the
+            # untrusted-data section of the request.
             sources = "\n\n".join(
-                f'<source id="{source.source_id}" title="{source.title}">\n'
-                f"{source.content}\n</source>"
-                for source in plan.sources
+                self._services.exports.render_source_block(source) for source in plan.sources
             )
             layer_ids = sorted({source.layer_id for source in plan.sources})
 
@@ -420,6 +440,9 @@ class AIComposerBridge(QObject):
                     confirmed_remote=request.confirmed_remote,
                     max_output_tokens=request.max_output_tokens,
                     cancel=cancel,
+                    source_object_ids=(
+                        [source.object_id for source in plan.sources] if plan else []
+                    ),
                 ):
                     self._emit(request_id, event.model_dump())
             except PermissionDeniedError as exc:
@@ -459,6 +482,25 @@ class AIComposerBridge(QObject):
         """What has left this machine. Records the *fact* of the content, not the
         content: a receipt that quoted the note would itself be a leak."""
         return ReceiptsResponse(receipts=self._services.ai.receipts())
+
+    # -- history -------------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(HistoryRequest)
+    def list_history(self, request: HistoryRequest) -> HistoryResponse:
+        """The workspace's persisted AI activity, newest first.
+
+        Records that involved a private layer come back redacted — metadata only —
+        because that is all that ever reached disk (docs/ai-memory-design.md §3).
+        """
+        return HistoryResponse(executions=self._services.ai.executions(request.limit))
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def clear_history(self, _request: EmptyRequest) -> ClearHistoryResponse:
+        """Delete the persisted AI history. User-initiated, and only ever history:
+        this cannot touch layer content."""
+        return ClearHistoryResponse(cleared_files=self._services.ai.clear_history())
 
 
 def _run_async(coroutine: Any) -> Any:

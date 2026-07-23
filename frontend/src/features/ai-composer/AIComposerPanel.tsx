@@ -17,6 +17,7 @@ import type {
   ExportTarget,
 } from "../../bridge/types";
 import { summariseSelection, useStore } from "../../state/store";
+import { AIHistoryPanel } from "./AIHistoryPanel";
 import { ContextSourceList } from "./ContextSourceList";
 import { PrivacyReview } from "./PrivacyReview";
 import { PromptEditor } from "./PromptEditor";
@@ -151,10 +152,13 @@ export function AIComposerPanel(): JSX.Element {
       </header>
 
       {state.selectedIds.length === 0 ? (
-        <p className="empty-state">
-          Select nodes in the graph, the tree or the search results. Whatever
-          you illuminate is exactly what a model would see — nothing more.
-        </p>
+        <div className="composer__body scroll-y">
+          <p className="empty-state">
+            Select nodes in the graph, the tree or the search results. Whatever
+            you illuminate is exactly what a model would see — nothing more.
+          </p>
+          <AIHistoryPanel />
+        </div>
       ) : (
         <div className="composer__body scroll-y">
           <ContextSourceList
@@ -283,6 +287,8 @@ export function AIComposerPanel(): JSX.Element {
               {status.message}
             </p>
           )}
+
+          <AIHistoryPanel />
         </div>
       )}
 

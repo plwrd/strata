@@ -445,6 +445,32 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+/**
+ * One persisted model call — the workspace's durable AI memory. `redacted`
+ * records that content fields were stripped before persisting because the
+ * execution involved a private layer.
+ */
+export interface AIExecutionRecord {
+  id: string;
+  kind: "ai-request" | "plan-generation";
+  created_at: string;
+  provider: string;
+  model: string;
+  is_remote: boolean;
+  layer_ids: string[];
+  prompt: string;
+  response_text: string;
+  source_object_ids: string[];
+  source_count: number;
+  private_source_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  result: "completed" | "cancelled" | "failed";
+  error_message: string;
+  duration_ms: number;
+  redacted: boolean;
+}
+
 // --- transactional AI operations ------------------------------------------
 
 export interface Operation {
@@ -515,6 +541,7 @@ export interface AppliedPlan {
   model: string;
   prompt: string;
   undone: boolean;
+  redacted: boolean;
 }
 
 export interface PlanStreamEvent {

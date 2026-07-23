@@ -34,6 +34,7 @@ import type {
   OperationPlan,
   PlanReview,
   PolicyView,
+  AIExecutionRecord,
   PrivacyReceipt,
   ProviderHealthView,
   ProviderView,
@@ -474,6 +475,11 @@ export const bridge = {
       call<{ cancelled: boolean }>("ai", "cancel_request", { request_id }),
     receipts: () =>
       call<{ receipts: PrivacyReceipt[] }>("ai", "privacy_receipts"),
+    listHistory: (limit = 100) =>
+      call<{ executions: AIExecutionRecord[] }>("ai", "list_history", {
+        limit,
+      }),
+    clearHistory: () => call<{ cleared_files: number }>("ai", "clear_history"),
     onEvent: (listener: (payload: string) => void) =>
       subscribe("ai", "aiEvent", listener),
   },
