@@ -145,6 +145,23 @@ Click **＋** in the Layers panel. The dialog asks for:
 Starter content works identically for public and private layers — in a private
 layer the starter folders and note are encrypted like everything else.
 
+### Per-layer AI policy
+
+Every layer row carries an **AI policy** select: *disabled*, *local only*,
+*remote — ask each time*, or *remote allowed*. The select states the rule;
+Python enforces it on every single request, and a **locked layer is never
+readable by AI regardless of its policy**. Private layers default to
+local-only. Changes persist with the workspace.
+
+Related privacy controls: **Clear history** in the AI panel deletes recorded
+executions, receipts and conversations; the `url_import_enabled` setting turns
+off page imports entirely; requests that would send private content to a
+remote model always stop at an explicit confirmation.
+
+When backing up a workspace, back up the whole directory: `.strata/ai/`
+(AI history, saved prompts, conversations) and `.strata/versions/` (note
+version trails) are part of it and travel with it.
+
 ### Locking and unlocking
 
 - **Unlock** on a locked private layer asks for the password (or the recovery

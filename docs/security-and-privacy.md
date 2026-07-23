@@ -67,6 +67,8 @@ row fails review.
 | `graph.suggest_connections` (read) | 4 | Model-free computation over readable layers only (locked layers have no index); returns suggestions, applies nothing — accepting routes through the operation engine |
 | `operations.refresh_project` / `generate_weekly` (AI, jobs) | 5–6 | Same gate/flow as `process_notes`; project refresh proposes a destructive `update_note` that the review diffs and never pre-approves; weekly review reads only readable layers |
 | `workspace.knowledge_health` (read) | 6 | Pure arithmetic over readable notes + prompt metadata; locked layers contribute nothing and are reported as excluded; returns ids/titles the session user can already see |
+| `layers.set_ai_policy` persistence fix + Layers-panel editor | 7 | Pre-existing method now persists via `WorkspaceService.set_layer_ai_policy` (a policy that reverted on restart was a settings lie); the UI select only states the rule — enforcement stays in `evaluate_policy` on every request |
+| Prompt-injection pipeline tests | 7 | `tests/security/test_prompt_injection_pipeline.py`: breakout/forged-tag corpus through the real processing and synthesis context builders; forged citations die in validation even when parroted |
 
 ## 5. Privacy controls roadmap
 

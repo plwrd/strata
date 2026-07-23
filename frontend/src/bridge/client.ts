@@ -24,6 +24,7 @@ import type {
   GraphSnapshot,
   HealthResponse,
   JobRecord,
+  LayerAIPolicy,
   LayerDescriptor,
   LinkHealthResponse,
   LinksResponse,
@@ -318,6 +319,11 @@ export const bridge = {
         "rotate_key",
         { layer_id, password },
       ),
+    setAIPolicy: (layer_id: string, policy: LayerAIPolicy) =>
+      call<{ layer: LayerDescriptor }>("layers", "set_ai_policy", {
+        layer_id,
+        policy,
+      }),
   },
 
   notes: {

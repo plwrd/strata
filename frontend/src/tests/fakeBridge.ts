@@ -1040,6 +1040,15 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         privateState = "locked";
         return { locked: 1 };
       },
+      set_ai_policy: (payload) => {
+        captured.push(payload);
+        return {
+          layer: {
+            ...PUBLIC_LAYER,
+            ai_policy: payload["policy"] as LayerDescriptor["ai_policy"],
+          },
+        };
+      },
       change_password: () => ({ layer: privateLayer() }),
       reissue_recovery_key: () => ({ recovery_key: FAKE_RECOVERY_KEY }),
       rotate_key: () => ({ objects_reencrypted: 12, layer: privateLayer() }),

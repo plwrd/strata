@@ -1906,3 +1906,8 @@
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+
+.layers__ai-policy {
+  max-width: 150px;
+  font-size: var(--text-sm);
+}

@@ -225,6 +225,16 @@ class WorkspaceService:
         logger.info("layer.created", layer_id=layer.id, visibility=visibility)
         return layer, recovery_key
 
+    def set_layer_ai_policy(self, layer_id: str, policy: LayerAIPolicy) -> LayerDescriptor:
+        """Change a layer's AI policy — and persist it. A policy that silently
+        reverted on restart would be a lie the settings screen told."""
+        layer = self.require_layer(layer_id)
+        layer.ai_policy = policy
+        layer.updated_at = now_iso()
+        self._save()
+        logger.info("layer.ai_policy_changed", layer_id=layer_id, access=policy.access)
+        return layer
+
     def rename_layer(self, layer_id: str, display_name: str) -> LayerDescriptor:
         layer = self.require_layer(layer_id)
         layer.display_name = display_name
