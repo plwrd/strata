@@ -16,6 +16,7 @@ import type {
   AIExecutionRecord,
   ConnectionSuggestion,
   ContextPlan,
+  HealthReport,
   GraphSnapshot,
   LayerDescriptor,
   Note,
@@ -48,6 +49,8 @@ export interface FakeBridgeOptions {
   prompts?: SavedPrompt[];
   /** Seed connection suggestions served via `graph.suggest_connections`. */
   suggestions?: ConnectionSuggestion[];
+  /** Seed the health report served via `workspace.knowledge_health`. */
+  health?: HealthReport;
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
@@ -535,6 +538,14 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
         lenses: [],
       }),
+      knowledge_health: () => ({
+        report: options.health ?? {
+          items: [],
+          duplicates: [],
+          total_notes: 5,
+          locked_layers: 1,
+        },
+      }),
     },
     settings: {
       get_settings: () => ({
@@ -800,6 +811,14 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       synthesize_notes: (payload) => {
         captured.push(payload);
         return { request_id: "req_synth_1" };
+      },
+      refresh_project: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_refresh_1" };
+      },
+      generate_weekly: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_weekly_1" };
       },
       review_plan: (payload) => ({
         review: options.review ?? {

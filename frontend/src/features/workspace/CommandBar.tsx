@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CaptureDialog } from "../capture/CaptureDialog";
+import { HealthDialog } from "../health/HealthDialog";
 import { useStore, type AppMode } from "../../state/store";
 
 const MODES: { value: AppMode; label: string; hint: string }[] = [
@@ -25,6 +26,7 @@ export function CommandBar(): JSX.Element {
 
   const reduced = settings?.motion === "reduced";
   const [capturing, setCapturing] = useState(false);
+  const [healthOpen, setHealthOpen] = useState(false);
 
   return (
     <header className="commandbar">
@@ -61,6 +63,15 @@ export function CommandBar(): JSX.Element {
           onClick={() => setCapturing(true)}
         >
           ⇣ Capture
+        </button>
+
+        <button
+          type="button"
+          className="button button--ghost"
+          title="What needs attention, and how to fix it"
+          onClick={() => setHealthOpen(true)}
+        >
+          ◉ Health
         </button>
 
         <div className="segmented" role="group" aria-label="Graph dimension">
@@ -100,6 +111,7 @@ export function CommandBar(): JSX.Element {
       </div>
 
       {capturing && <CaptureDialog onClose={() => setCapturing(false)} />}
+      {healthOpen && <HealthDialog onClose={() => setHealthOpen(false)} />}
     </header>
   );
 }

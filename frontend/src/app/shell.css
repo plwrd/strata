@@ -1847,3 +1847,62 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* --- Knowledge health dialog ----------------------------------------------- */
+
+.health-dialog {
+  width: min(640px, 94vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.health-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-y: auto;
+}
+
+.health-dialog__item {
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.health-dialog__item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.health-dialog__label {
+  font-weight: 600;
+}
+
+.health-dialog__recommendation {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.health-dialog__notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.operations__meeting {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}

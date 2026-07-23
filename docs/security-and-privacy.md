@@ -65,6 +65,8 @@ row fails review.
 | Conversations file (`.strata/ai/conversations.jsonl`) | 3 | Same redaction rule as executions: private-layer turns persist as shape-only (empty content, `redacted: true`); verified by `test_conversations.py` sentinel grep |
 | `operations.synthesize_notes` (AI, job) | 4 | Same gate/flow as `process_notes`; citations validated against the actual context — invented ids stripped and reported; source notes never modified |
 | `graph.suggest_connections` (read) | 4 | Model-free computation over readable layers only (locked layers have no index); returns suggestions, applies nothing — accepting routes through the operation engine |
+| `operations.refresh_project` / `generate_weekly` (AI, jobs) | 5–6 | Same gate/flow as `process_notes`; project refresh proposes a destructive `update_note` that the review diffs and never pre-approves; weekly review reads only readable layers |
+| `workspace.knowledge_health` (read) | 6 | Pure arithmetic over readable notes + prompt metadata; locked layers contribute nothing and are reported as excluded; returns ids/titles the session user can already see |
 
 ## 5. Privacy controls roadmap
 

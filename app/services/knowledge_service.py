@@ -19,6 +19,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -37,7 +38,10 @@ logger = get_logger(__name__)
 
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
+ProcessingProfile = Literal["general", "meeting"]
+
 MAX_SOURCES = 25
+MAX_PARTICIPANTS = 12
 MAX_CONCEPTS = 12
 MAX_ENTITIES = 8
 MAX_DECISIONS = 8
@@ -76,6 +80,34 @@ Rules:
 - Confidence is your honest estimate between 0 and 1.
 - Empty lists are fine. Do not pad."""
 
+MEETING_INSTRUCTIONS = """You extract structured memory from a meeting transcript or meeting notes.
+
+Return ONLY one JSON object of this exact shape, with no prose around it:
+
+{
+  "summary": "what the meeting was about and what came out of it",
+  "participants": ["names of people who took part"],
+  "decisions": [
+    {"decision": "what was decided", "rationale": "why", "owner": "who owns it",
+     "date": "", "excerpt": "the exact passage this came from"}
+  ],
+  "action_items": [
+    {"action": "what must be done", "owner": "who", "deadline": "when",
+     "excerpt": "the exact passage this came from"}
+  ],
+  "risks": ["risks and blockers raised"],
+  "open_questions": ["unresolved questions and follow-up topics"],
+  "suggested_tags": ["lowercase-topic-tags"],
+  "concepts": [], "entities": [], "related_note_ids": [], "claims_to_verify": []
+}
+
+Rules:
+- "excerpt" is a short VERBATIM quote from the transcript — the evidence, not a
+  paraphrase. Every decision and action item needs one.
+- Decisions are proposals for the user to confirm, so include only what the
+  transcript actually supports.
+- Empty lists are fine. Do not pad."""
+
 
 def _now() -> str:
     return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
@@ -101,6 +133,7 @@ class KnowledgeService:
         provider_id: str,
         model: str,
         confirmed_remote: bool = False,
+        profile: ProcessingProfile = "general",
     ) -> KnowledgeProposal:
         """Extract knowledge from the selected notes and propose a plan."""
         if not note_ids:
@@ -117,7 +150,8 @@ class KnowledgeService:
             for note in self._notes.list_notes()
         )
         blocks = "\n\n".join(self._exports.render_source_block(source) for source in plan.sources)
-        context = f"{listing}\n\nMaterial to process:\n\n{blocks}\n\n{PROCESS_INSTRUCTIONS}"
+        instructions = MEETING_INSTRUCTIONS if profile == "meeting" else PROCESS_INSTRUCTIONS
+        context = f"{listing}\n\nMaterial to process:\n\n{blocks}\n\n{instructions}"
         layer_ids = sorted({source.layer_id for source in plan.sources})
         execution_id = new_execution_id()
 
@@ -145,7 +179,7 @@ class KnowledgeService:
         sources = [
             note for note in self._notes.get_notes(note_ids) if note.metadata.id in set(note_ids)
         ]
-        return self._propose(extraction, sources, execution_id, provider_id, model)
+        return self._propose(extraction, sources, execution_id, provider_id, model, profile)
 
     def process_sync(self, **kwargs: object) -> KnowledgeProposal:
         """Blocking wrapper for the bridge's worker thread."""
@@ -195,6 +229,7 @@ class KnowledgeService:
         execution_id: str,
         provider: str,
         model: str,
+        profile: ProcessingProfile = "general",
     ) -> KnowledgeProposal:
         all_notes = self._notes.list_notes()
         existing_titles = {note.metadata.title.strip().lower() for note in all_notes}
@@ -251,14 +286,67 @@ class KnowledgeService:
                 )
             )
 
+        if profile == "meeting":
+            for name in extraction.participants[:MAX_PARTICIPANTS]:
+                if not name.strip() or name.strip().lower() in existing_titles:
+                    continue
+                operations.append(
+                    Operation(
+                        type="create_note",
+                        layer_id=source_layer,
+                        folder_path=KNOWLEDGE_FOLDER,
+                        title=name.strip()[:200],
+                        content=f"# {name.strip()}\n\n{derived}\n",
+                        properties={"type": "person", **provenance()},
+                        rationale="Meeting participant",
+                    )
+                )
+            if extraction.summary:
+                meeting_title = f"Meeting summary: {sources[0].metadata.title}"[:200]
+                if meeting_title.strip().lower() not in existing_titles:
+                    sections = [f"# {meeting_title}", "", extraction.summary, ""]
+                    if extraction.participants:
+                        sections += [
+                            "## Participants",
+                            "",
+                            "\n".join(f"- {name}" for name in extraction.participants),
+                            "",
+                        ]
+                    if extraction.risks:
+                        sections += [
+                            "## Risks and blockers",
+                            "",
+                            "\n".join(f"- {risk}" for risk in extraction.risks),
+                            "",
+                        ]
+                    if extraction.open_questions:
+                        sections += [
+                            "## Unresolved",
+                            "",
+                            "\n".join(f"- {question}" for question in extraction.open_questions),
+                            "",
+                        ]
+                    operations.append(
+                        Operation(
+                            type="create_note",
+                            layer_id=source_layer,
+                            folder_path=KNOWLEDGE_FOLDER,
+                            title=meeting_title,
+                            content="\n".join(sections) + f"\n{derived}\n",
+                            properties={"type": "meeting", "date": _now(), **provenance()},
+                            rationale="Meeting summary extracted from the transcript",
+                        )
+                    )
+
         for decision in extraction.decisions[:MAX_DECISIONS]:
             title = f"Decision: {decision.decision[:80]}"
             if title.strip().lower() in existing_titles:
                 continue
+            evidence = f"## Source passage\n\n> {decision.excerpt}\n\n" if decision.excerpt else ""
             body = (
                 f"# {title}\n\n## Decision\n\n{decision.decision}\n\n"
                 f"## Rationale\n\n{decision.rationale or '_Not stated in the source._'}\n\n"
-                f"{derived}\n"
+                f"{evidence}{derived}\n"
             )
             operations.append(
                 Operation(
@@ -279,13 +367,14 @@ class KnowledgeService:
             )
 
         for item in extraction.action_items[:MAX_TASKS]:
+            item_evidence = f"> {item.excerpt}\n\n" if item.excerpt else ""
             operations.append(
                 Operation(
                     type="create_task",
                     layer_id=source_layer,
                     folder_path=KNOWLEDGE_FOLDER,
                     title=item.action[:200],
-                    content=f"# {item.action}\n\n{derived}\n",
+                    content=f"# {item.action}\n\n{item_evidence}{derived}\n",
                     properties={
                         "status": "not started",
                         **({"assignee": item.owner} if item.owner else {}),

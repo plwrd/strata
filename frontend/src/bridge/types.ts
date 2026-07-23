@@ -445,6 +445,22 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+export interface HealthItem {
+  key: string;
+  label: string;
+  count: number;
+  note_ids: string[];
+  note_titles: string[];
+  recommendation: string;
+}
+
+export interface HealthReport {
+  items: HealthItem[];
+  duplicates: ConnectionSuggestion[];
+  total_notes: number;
+  locked_layers: number;
+}
+
 export interface ConnectionSuggestion {
   note_a: string;
   note_a_title: string;

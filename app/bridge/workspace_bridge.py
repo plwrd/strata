@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Slot
 from app.bridge.envelope import EmptyRequest, bridge_method
 from app.domain.workspace import KnowledgeLens, WorkspaceDescriptor
 from app.services.container import Services
+from app.services.review_service import HealthReport
 
 APP_PROTOCOL_VERSION = 1
 
@@ -48,10 +49,28 @@ class OpenWorkspaceRequest(BaseModel):
     name: str = Field(default="Strata Workspace", min_length=1, max_length=200)
 
 
+class KnowledgeHealthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    report: HealthReport
+
+
 class WorkspaceBridge(QObject):
     def __init__(self, services: Services, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._services = services
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def knowledge_health(self, _request: EmptyRequest) -> KnowledgeHealthResponse:
+        """Model-free health arithmetic over the readable workspace, with the
+        action that fixes each finding. Locked layers contribute nothing and
+        their count is reported so the picture is honestly incomplete."""
+        return KnowledgeHealthResponse(
+            report=self._services.review.health(
+                locked_layers=len(self._services.workspace.locked_layers())
+            )
+        )
 
     @Slot(str, result=str)
     @bridge_method(EmptyRequest)

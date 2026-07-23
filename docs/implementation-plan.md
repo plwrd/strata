@@ -93,24 +93,35 @@ injection gap. Shipped in PR #62:
   relationship; merging stays human.** `workspace_duplicates()` feeds the Phase 6 health
   dashboard.
 
-## Phase 5 — Structured memory ⏳
+## Phase 5 — Structured memory ✅
 
-- Meeting memory: transcript processing profile of the extraction service (participants,
-  decisions + rationale, action items with owners/deadlines, risks, follow-ups), each item
-  anchored to a transcript passage; person/project page linking.
-- Decision log: `decision` schema extended (options, rationale, review date, superseded-by);
-  decision-log view; AI detects candidate decisions but **user confirms** each.
-- Project memory: per-project memory page + "Refresh project memory" action (diff-based update
-  via operation plan).
-- Action items: `task` schema + views; extraction wired to meeting/processing pipelines.
+- ✅ Meeting memory: a `meeting` profile of "Process into knowledge" — participants become
+  person pages, the meeting gets a summary page (risks, unresolved, follow-ups), and every
+  decision and action item **quotes its verbatim transcript passage** as evidence. Decisions
+  arrive `status: proposed` — the AI detects, the user confirms. Surfaced as a "Treat as
+  meeting transcript" toggle on the process mode.
+- ✅ Decision log: `decision` schema gains `review_date`; decisions due for review surface in
+  the health report; retrieval chat answers "why did we choose X" from the decision pages.
+- ✅ Project memory: "Refresh project memory" (`memory_service.py`) — compares the selected
+  page with its linked neighbourhood and proposes an `update_note`, which is destructive by
+  classification, so the review shows the **full before/after diff and never pre-approves**.
+  The model must list every change it made; unchanged pages propose nothing.
+- ✅ Action items: extracted by both profiles as `create_task` operations with owner/deadline
+  properties and evidence quotes.
 
-## Phase 6 — Recurring intelligence ⏳
+## Phase 6 — Recurring intelligence ✅
 
-- `review_service.py`: weekly synthesis (manual "Generate review" first; optional local
-  scheduling later — no cloud, no telemetry) saved as a cited `weekly-review` note.
-- Knowledge-health dashboard: unprocessed captures, stale/orphan notes, broken links (exists via
-  `link_health`), unreviewed AI outputs (`review_status: ai-inferred`), decisions due for review,
-  unused prompts — as a views-engine dashboard with recommended actions, each an operation plan.
+- ✅ `review_service.py`: weekly synthesis — manual "Generate review" in the Changes tab
+  (7/14/30-day window) gathers everything created or changed, asks the review questions
+  (learned / decided / completed / unresolved / themes / next / promote-from-Inbox), and saves
+  a `weekly-review` note in `Reports/` with `derived_from::` citations to every note it read.
+  A quiet week proposes nothing. Scheduling is deliberately not built until asked for — a
+  surprise AI run is a surprise send.
+- ✅ Knowledge health (`◉ Health` in the command bar): model-free arithmetic — unprocessed
+  captures, stale notes, unreviewed AI pages, orphans, broken links, sourceless
+  reports/concepts, decisions due for review, unused prompts, probable duplicate pairs — each
+  finding paired with the action that fixes it, each listed note clickable. Locked layers are
+  reported as excluded rather than silently missing.
 
 ## Phase 7 — Hardening ⏳ (merges with existing M11)
 

@@ -37,6 +37,7 @@ import type {
   AIExecutionRecord,
   AISendResponse,
   ConnectionSuggestion,
+  HealthReport,
   NoteVersion,
   SavedPrompt,
   VersionListResponse,
@@ -255,6 +256,8 @@ export const bridge = {
     choose: (name = "Strata") =>
       call<WorkspaceState>("workspace", "choose_workspace", { name }),
     close: () => call<WorkspaceState>("workspace", "close_workspace"),
+    knowledgeHealth: () =>
+      call<{ report: HealthReport }>("workspace", "knowledge_health"),
   },
 
   layers: {
@@ -581,6 +584,7 @@ export const bridge = {
       model: string;
       note_ids: string[];
       confirmed_remote?: boolean;
+      profile?: "general" | "meeting";
     }) => call<{ request_id: string }>("operations", "process_notes", request),
     synthesizeNotes: (request: {
       provider_id: string;
@@ -590,6 +594,20 @@ export const bridge = {
       confirmed_remote?: boolean;
     }) =>
       call<{ request_id: string }>("operations", "synthesize_notes", request),
+    refreshProject: (request: {
+      provider_id: string;
+      model: string;
+      note_id: string;
+      confirmed_remote?: boolean;
+    }) =>
+      call<{ request_id: string }>("operations", "refresh_project", request),
+    generateWeekly: (request: {
+      provider_id: string;
+      model: string;
+      days?: number;
+      confirmed_remote?: boolean;
+    }) =>
+      call<{ request_id: string }>("operations", "generate_weekly", request),
     review: (plan: OperationPlan, allowed_layer_ids: string[]) =>
       call<{ review: PlanReview }>("operations", "review_plan", {
         plan,
