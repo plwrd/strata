@@ -36,6 +36,7 @@ import type {
   PolicyView,
   AIExecutionRecord,
   AISendResponse,
+  ConnectionSuggestion,
   NoteVersion,
   SavedPrompt,
   VersionListResponse,
@@ -433,6 +434,12 @@ export const bridge = {
       }),
     clusterOf: (node_id: string) =>
       call<{ node_ids: string[] }>("graph", "cluster_of", { node_id }),
+    suggestConnections: (note_id: string, limit = 8) =>
+      call<{ suggestions: ConnectionSuggestion[] }>(
+        "graph",
+        "suggest_connections",
+        { note_id, limit },
+      ),
   },
 
   search: {
@@ -575,6 +582,14 @@ export const bridge = {
       note_ids: string[];
       confirmed_remote?: boolean;
     }) => call<{ request_id: string }>("operations", "process_notes", request),
+    synthesizeNotes: (request: {
+      provider_id: string;
+      model: string;
+      note_ids: string[];
+      kind: string;
+      confirmed_remote?: boolean;
+    }) =>
+      call<{ request_id: string }>("operations", "synthesize_notes", request),
     review: (plan: OperationPlan, allowed_layer_ids: string[]) =>
       call<{ review: PlanReview }>("operations", "review_plan", {
         plan,

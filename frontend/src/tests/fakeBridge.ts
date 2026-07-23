@@ -14,6 +14,7 @@ import * as Y from "yjs";
 import { __resetChannelForTests } from "../bridge/client";
 import type {
   AIExecutionRecord,
+  ConnectionSuggestion,
   ContextPlan,
   GraphSnapshot,
   LayerDescriptor,
@@ -45,6 +46,8 @@ export interface FakeBridgeOptions {
   versionsSupported?: boolean;
   /** Seed the prompt library served via `ai.list_prompts`. */
   prompts?: SavedPrompt[];
+  /** Seed connection suggestions served via `graph.suggest_connections`. */
+  suggestions?: ConnectionSuggestion[];
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
@@ -582,6 +585,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       shortest_path: (payload) => ({
         node_ids: [payload["source_id"], "n1", payload["target_id"]],
       }),
+      suggest_connections: () => ({
+        suggestions: options.suggestions ?? [],
+      }),
       cluster_of: (payload) => ({
         node_ids: [payload["node_id"], "n2"],
       }),
@@ -790,6 +796,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       process_notes: (payload) => {
         captured.push(payload);
         return { request_id: "req_process_1" };
+      },
+      synthesize_notes: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_synth_1" };
       },
       review_plan: (payload) => ({
         review: options.review ?? {

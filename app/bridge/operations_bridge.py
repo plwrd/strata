@@ -22,6 +22,7 @@ from app.domain.ids import new_job_id
 from app.domain.operations import AppliedPlan, OperationPlan, PlanReview
 from app.services.ai_generation_service import MAX_GENERATED_NOTES
 from app.services.container import Services
+from app.services.synthesis_service import SynthesisKind
 
 
 class GeneratePlanRequest(BaseModel):
@@ -58,6 +59,16 @@ class ProcessNotesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str
+
+
+class SynthesizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    note_ids: list[str] = Field(min_length=2, max_length=25)
+    kind: SynthesisKind = "summary"
+    confirmed_remote: bool = False
 
 
 class ReviewPlanRequest(BaseModel):
@@ -231,6 +242,62 @@ class OperationsBridge(QObject):
         record = self._services.jobs.submit(
             job_type="ai_request",
             title=f"Process {len(notes)} note(s) into knowledge",
+            work=work,
+            privacy="private" if involves_private else "public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
+
+    # -- multi-source synthesis ----------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(SynthesizeRequest)
+    def synthesize_notes(self, request: SynthesizeRequest) -> ProcessNotesResponse:
+        """Combine the selected notes into one cited document — as a plan.
+
+        Source notes are never modified. The synthesis arrives on ``planEvent``
+        under the job's id and enters the normal review → apply flow; citations
+        of sources that were never sent are stripped and reported.
+        """
+        notes = self._services.notes.get_notes(request.note_ids)
+        if len(notes) < 2:
+            raise InvalidRequestError("Select at least two readable notes to synthesise.")
+        private_layers = {
+            layer.id
+            for layer in self._services.workspace.descriptor.layers
+            if layer.visibility == "private"
+        }
+        involves_private = any(note.metadata.layer_id in private_layers for note in notes)
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, f"Synthesising {len(notes)} note(s)")
+            try:
+                proposal = self._services.synthesis.synthesize_sync(
+                    note_ids=request.note_ids,
+                    kind=request.kind,
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    confirmed_remote=request.confirmed_remote,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "Synthesis failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Synthesis ready for review")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"Synthesise {len(notes)} note(s) ({request.kind})",
             work=work,
             privacy="private" if involves_private else "public",
         )

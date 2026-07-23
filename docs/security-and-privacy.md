@@ -63,6 +63,8 @@ row fails review.
 | `ai.save_output` (write) | 3 | Mutation via the operation engine (reviewed one-op plan: snapshot, audit, undo); provenance stamped; titles uniquified, never overwritten; append targets validated through `get_note` |
 | `ai.list_prompts` / `save_prompt` / `use_prompt` / `delete_prompt` | 3 | Workspace-local files only; prompt text renders into the instruction channel, never the sources block; no content from layers |
 | Conversations file (`.strata/ai/conversations.jsonl`) | 3 | Same redaction rule as executions: private-layer turns persist as shape-only (empty content, `redacted: true`); verified by `test_conversations.py` sentinel grep |
+| `operations.synthesize_notes` (AI, job) | 4 | Same gate/flow as `process_notes`; citations validated against the actual context — invented ids stripped and reported; source notes never modified |
+| `graph.suggest_connections` (read) | 4 | Model-free computation over readable layers only (locked layers have no index); returns suggestions, applies nothing — accepting routes through the operation engine |
 
 ## 5. Privacy controls roadmap
 

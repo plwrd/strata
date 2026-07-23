@@ -1787,3 +1787,63 @@
   flex: 1;
   min-width: 140px;
 }
+
+/* --- Connection suggestions ------------------------------------------------ */
+
+.connections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.connections__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.connections__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connections__item {
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.connections__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.connections__pair {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.connections__why {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.connections__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

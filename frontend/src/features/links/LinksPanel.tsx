@@ -6,6 +6,7 @@
  */
 
 import { useStore } from "../../state/store";
+import { ConnectionSuggestions } from "./ConnectionSuggestions";
 
 export function LinksPanel(): JSX.Element {
   const { links, openNote, openNoteById, linkHealth } = useStore();
@@ -93,6 +94,8 @@ export function LinksPanel(): JSX.Element {
           </ul>
         </>
       )}
+
+      <ConnectionSuggestions />
     </section>
   );
 }
