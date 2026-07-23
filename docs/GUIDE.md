@@ -485,6 +485,25 @@ Ask with **Ask locally** / **Ask (remote)**; answers stream in with a **Stop**
 button. Every remote request also writes a privacy receipt on the backend
 (there is no receipts browser in the UI yet).
 
+### AI history
+
+Every model request — asks and plan generations alike — is recorded in the
+workspace's **AI history**, at the bottom of the AI panel. It persists on disk
+(`.strata/ai/` inside the workspace) and survives a restart, so "what did I ask
+last week, with which sources, and what came back?" is always answerable.
+
+Two privacy rules apply:
+
+- A request that involved a **private layer** is stored **redacted**: provider,
+  model, token counts and timestamps only — never the prompt, the sources, or
+  the answer. The record shows a `redacted` badge.
+- **Clear history…** deletes the recorded history for the workspace (it is a
+  two-step action and touches only history, never notes).
+
+The same persistence covers privacy receipts and the applied-plans audit log —
+which means **Undo** for an applied AI plan now works even after restarting
+Strata.
+
 ---
 
 ## 13. AI operations: reorganise and generate notes

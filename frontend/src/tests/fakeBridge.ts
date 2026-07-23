@@ -13,6 +13,7 @@
 import * as Y from "yjs";
 import { __resetChannelForTests } from "../bridge/client";
 import type {
+  AIExecutionRecord,
   ContextPlan,
   GraphSnapshot,
   LayerDescriptor,
@@ -28,9 +29,38 @@ export interface FakeBridgeOptions {
   graph?: GraphSnapshot;
   plan?: ContextPlan;
   review?: PlanReview;
+  /** Seed the persisted AI history the fake serves via `ai.list_history`. */
+  executions?: AIExecutionRecord[];
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
+}
+
+/** A plausible persisted execution record for tests to seed history with. */
+export function sampleExecution(
+  overrides: Partial<AIExecutionRecord> = {},
+): AIExecutionRecord {
+  return {
+    id: "exec_1",
+    kind: "ai-request",
+    created_at: "2026-07-14T10:00:00+00:00",
+    provider: "ollama",
+    model: "llama3",
+    is_remote: false,
+    layer_ids: ["layer_a"],
+    prompt: "What did I decide about encryption?",
+    response_text: "You chose XChaCha20-Poly1305.",
+    source_object_ids: ["n1"],
+    source_count: 1,
+    private_source_count: 0,
+    input_tokens: 11,
+    output_tokens: 7,
+    result: "completed",
+    error_message: "",
+    duration_ms: 1200,
+    redacted: false,
+    ...overrides,
+  };
 }
 
 export const SAMPLE_GRAPH: GraphSnapshot = {
@@ -423,6 +453,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     ...PRIVATE_LAYER,
     state: privateState,
   });
+  let executions: AIExecutionRecord[] = [...(options.executions ?? [])];
 
   const handlers: Record<string, Record<string, Handler | Signal>> = {
     workspace: {
@@ -737,6 +768,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           model: "llama3",
           prompt: "",
           undone: false,
+          redacted: false,
         },
       }),
       undo_plan: () => ({
@@ -750,6 +782,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           model: "llama3",
           prompt: "",
           undone: true,
+          redacted: false,
         },
       }),
       audit_log: () => ({ entries: [] }),
@@ -958,6 +991,12 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       send_request: () => ({ request_id: "req_ai_1" }),
       cancel_request: () => ({ cancelled: true }),
       privacy_receipts: () => ({ receipts: [] }),
+      list_history: () => ({ executions: [...executions] }),
+      clear_history: () => {
+        const cleared = executions.length > 0 ? 2 : 0;
+        executions = [];
+        return { cleared_files: cleared };
+      },
       aiEvent: {
         connect: (listener: (value: string) => void) =>
           aiListeners.push(listener),

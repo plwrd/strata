@@ -120,6 +120,9 @@ class AppliedPlan(BaseModel):
     model: str = ""
     prompt: str = ""
     undone: bool = False
+    # True when the persisted copy had its content fields stripped because the
+    # plan touched a private layer (see docs/ai-memory-design.md §3).
+    redacted: bool = False
 
     @property
     def applied_count(self) -> int:

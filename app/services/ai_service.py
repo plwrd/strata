@@ -18,6 +18,7 @@ Three things this service is responsible for that a provider adapter is not:
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
@@ -32,7 +33,8 @@ from app.domain.ai import (
 )
 from app.domain.errors import PermissionDeniedError, UnsupportedError
 from app.domain.export import PrivacyReceipt
-from app.domain.ids import new_export_id
+from app.domain.history import AIExecutionRecord, ExecutionKind
+from app.domain.ids import new_execution_id, new_export_id
 from app.domain.layer import LayerDescriptor
 from app.infrastructure.ai_providers.anthropic import ANTHROPIC, AnthropicProvider
 from app.infrastructure.ai_providers.base import AIProvider
@@ -48,6 +50,7 @@ from app.infrastructure.ai_providers.openai_compatible import (
 )
 from app.infrastructure.keychain.credentials import CredentialStore
 from app.infrastructure.logging.logger import get_logger
+from app.services.ai_history_service import AIHistoryService
 from app.services.settings_service import SettingsService
 from app.services.workspace_service import WorkspaceService
 
@@ -87,10 +90,12 @@ class AIService:
         workspace: WorkspaceService,
         settings: SettingsService,
         credentials: CredentialStore | None = None,
+        history: AIHistoryService | None = None,
     ) -> None:
         self._workspace = workspace
         self._settings = settings
         self._credentials = credentials or CredentialStore()
+        self._history = history
         self._receipts: list[PrivacyReceipt] = []
 
     # -- providers -----------------------------------------------------------
@@ -170,6 +175,8 @@ class AIService:
         confirmed_remote: bool = False,
         max_output_tokens: int = 2048,
         cancel: asyncio.Event | None = None,
+        kind: ExecutionKind = "ai-request",
+        source_object_ids: list[str] | None = None,
     ) -> AsyncIterator[AIEvent]:
         """Send a request, after the policy gate says it may go.
 
@@ -221,12 +228,20 @@ class AIService:
 
         result: str = "completed"
         output_tokens = 0
+        input_tokens = 0
+        error_message = ""
+        chunks: list[str] = []
+        started = time.monotonic()
         try:
             async for event in provider.stream(request, cancel):
                 if event.kind == "error":
                     result = "failed"
+                    error_message = event.error
+                elif event.kind == "delta":
+                    chunks.append(event.text)
                 elif event.kind == "done":
                     output_tokens = event.output_tokens
+                    input_tokens = event.input_tokens
                 yield event
             if cancel.is_set():
                 result = "cancelled"
@@ -244,6 +259,31 @@ class AIService:
                 output_tokens=output_tokens,
                 result=result,
             )
+            # And so is the execution record — the durable memory of this call.
+            # The history service applies the private-layer redaction rule before
+            # anything reaches disk.
+            if self._history is not None:
+                self._history.record_execution(
+                    AIExecutionRecord(
+                        id=new_execution_id(),
+                        kind=kind,
+                        created_at=_now(),
+                        provider=provider.provider_id,
+                        model=model,
+                        is_remote=decision.remote,
+                        layer_ids=list(layer_ids),
+                        prompt=prompt,
+                        response_text="".join(chunks),
+                        source_object_ids=list(source_object_ids or []),
+                        source_count=object_count,
+                        private_source_count=private_object_count,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        result=result,  # type: ignore[arg-type]
+                        error_message=error_message,
+                        duration_ms=int((time.monotonic() - started) * 1000),
+                    )
+                )
 
     def _write_receipt(
         self,
@@ -273,6 +313,9 @@ class AIService:
             result=result,  # type: ignore[arg-type]
         )
         self._receipts.append(receipt)
+        if self._history is not None:
+            # Receipts are metadata by construction; the durable copy is verbatim.
+            self._history.record_receipt(receipt)
         logger.info(
             "ai.receipt",
             provider=provider.provider_id,
@@ -284,8 +327,30 @@ class AIService:
         return receipt
 
     def receipts(self) -> list[PrivacyReceipt]:
-        """Newest first. Contains what left the device, never what was in it."""
-        return list(reversed(self._receipts))
+        """Newest first. Contains what left the device, never what was in it.
+
+        Persisted receipts (this workspace's durable ledger) plus any written
+        this session before a workspace was open.
+        """
+        session = list(reversed(self._receipts))
+        if self._history is None:
+            return session
+        persisted = self._history.list_receipts()
+        persisted_ids = {receipt.id for receipt in persisted}
+        return [r for r in session if r.id not in persisted_ids] + persisted
+
+    def executions(self, limit: int = 100) -> list[AIExecutionRecord]:
+        """The persisted AI activity of the open workspace, newest first."""
+        if self._history is None:
+            return []
+        return self._history.list_executions(limit)
+
+    def clear_history(self) -> int:
+        """Delete persisted AI history and the session receipts. Returns files removed."""
+        self._receipts.clear()
+        if self._history is None:
+            return 0
+        return self._history.clear()
 
     # -- routing -------------------------------------------------------------
 
