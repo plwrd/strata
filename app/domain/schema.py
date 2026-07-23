@@ -250,6 +250,7 @@ BUILTIN_SCHEMAS: list[NoteSchema] = [
             ),
             _p("date", "date"),
             _p("deciders", "multi-select"),
+            _p("review_date", "date", description="When this decision should be revisited."),
         ],
         template=("## Context\n\n## Decision\n\n## Consequences\n\n## Alternatives considered\n"),
         allowed_relationships=["supersedes", "depends_on", "contradicts", "evidence_for"],

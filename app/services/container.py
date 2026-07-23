@@ -24,10 +24,12 @@ from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
 from app.services.knowledge_service import KnowledgeService
+from app.services.memory_service import MemoryService
 from app.services.note_service import NoteService
 from app.services.operation_service import OperationService
 from app.services.prompt_library_service import PromptLibraryService
 from app.services.retrieval_service import RetrievalService
+from app.services.review_service import ReviewService
 from app.services.search_service import SearchService
 from app.services.settings_service import SettingsService
 from app.services.snapshot_service import SnapshotService
@@ -91,6 +93,10 @@ class Services:
         self.conversations = ConversationService(self.workspace)
         self.synthesis = SynthesisService(self.ai, self.notes, self.exports)
         self.connections = ConnectionService(self.notes, self.search)
+        self.memory = MemoryService(self.ai, self.notes, self.exports)
+        self.review = ReviewService(
+            self.ai, self.notes, self.exports, self.connections, self.prompts
+        )
         self.views = ViewService(self.workspace, self.notes)
         self.jobs = JobService()
         self.collaboration = self._build_collaboration()

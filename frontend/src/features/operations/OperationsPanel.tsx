@@ -24,9 +24,28 @@ type Phase =
   | { kind: "applied"; planId: string; summary: string }
   | { kind: "error"; message: string };
 
-type Mode = "plan" | "notes" | "process" | "synthesize";
+type Mode =
+  "plan" | "notes" | "process" | "synthesize" | "refresh-project" | "weekly";
 
 const NOTE_COUNT_CHOICES = [1, 2, 3, 5, 10];
+
+const BUSY_LABEL: Record<Mode, string> = {
+  plan: "Designing a plan…",
+  notes: "Writing notes…",
+  process: "Processing…",
+  synthesize: "Synthesising…",
+  "refresh-project": "Refreshing…",
+  weekly: "Reviewing the week…",
+};
+
+const READY_LABEL: Record<Mode, string> = {
+  plan: "Propose changes",
+  notes: "Generate notes",
+  process: "Process into knowledge",
+  synthesize: "Synthesize",
+  "refresh-project": "Refresh project memory",
+  weekly: "Generate review",
+};
 
 const SYNTHESIS_KINDS: { value: string; label: string }[] = [
   { value: "summary", label: "Summary" },
@@ -46,6 +65,8 @@ export function OperationsPanel(): JSX.Element {
   // 0 means "let the model decide how many notes the material splits into".
   const [noteCount, setNoteCount] = useState(0);
   const [synthesisKind, setSynthesisKind] = useState("summary");
+  const [meetingProfile, setMeetingProfile] = useState(false);
+  const [reviewDays, setReviewDays] = useState(7);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   const layerIds = useMemo(
@@ -114,6 +135,29 @@ export function OperationsPanel(): JSX.Element {
           provider_id: provider,
           model,
           note_ids: state.selectedIds,
+          confirmed_remote: false,
+          profile: meetingProfile ? "meeting" : "general",
+        });
+        pendingRef.current = request_id;
+        setPhase({ kind: "generating", requestId: request_id });
+        return;
+      }
+      if (mode === "refresh-project") {
+        const { request_id } = await bridge.operations.refreshProject({
+          provider_id: provider,
+          model,
+          note_id: state.selectedIds[0] ?? "",
+          confirmed_remote: false,
+        });
+        pendingRef.current = request_id;
+        setPhase({ kind: "generating", requestId: request_id });
+        return;
+      }
+      if (mode === "weekly") {
+        const { request_id } = await bridge.operations.generateWeekly({
+          provider_id: provider,
+          model,
+          days: reviewDays,
           confirmed_remote: false,
         });
         pendingRef.current = request_id;
@@ -206,8 +250,41 @@ export function OperationsPanel(): JSX.Element {
             <option value="notes">Generate new notes</option>
             <option value="process">Process into knowledge</option>
             <option value="synthesize">Synthesize selection</option>
+            <option value="refresh-project">Refresh project memory</option>
+            <option value="weekly">Weekly review</option>
           </select>
         </label>
+
+        {mode === "refresh-project" && (
+          <p className="operations__hint">
+            {summary.noteCount === 1
+              ? "Compares the selected page with the notes that link to and from it, and proposes an updated page. The update is shown as a full before/after diff and is never pre-approved."
+              : "Select exactly one project (or any) note to refresh from its neighbourhood."}
+          </p>
+        )}
+
+        {mode === "weekly" && (
+          <>
+            <label className="operations__mode">
+              <span className="label">Review window</span>
+              <select
+                className="select"
+                value={reviewDays}
+                aria-label="Review window"
+                onChange={(event) => setReviewDays(Number(event.target.value))}
+              >
+                <option value={7}>Last 7 days</option>
+                <option value={14}>Last 14 days</option>
+                <option value={30}>Last 30 days</option>
+              </select>
+            </label>
+            <p className="operations__hint">
+              Reviews everything created or changed in the window and saves a
+              cited weekly-review note in Reports/ — what was learned, decided,
+              completed, left unresolved, and what to promote from the Inbox.
+            </p>
+          </>
+        )}
 
         {mode === "synthesize" && (
           <>
@@ -235,11 +312,24 @@ export function OperationsPanel(): JSX.Element {
         )}
 
         {mode === "process" && (
-          <p className="operations__hint">
-            {summary.noteCount > 0
-              ? `Extracts concepts, entities, decisions, tasks and tags from ${summary.noteCount} selected note(s), as a plan you review. New pages are marked ai-inferred until you verify them.`
-              : "Select the captures or notes to process — nothing is extracted from an empty selection."}
-          </p>
+          <>
+            <p className="operations__hint">
+              {summary.noteCount > 0
+                ? `Extracts concepts, entities, decisions, tasks and tags from ${summary.noteCount} selected note(s), as a plan you review. New pages are marked ai-inferred until you verify them.`
+                : "Select the captures or notes to process — nothing is extracted from an empty selection."}
+            </p>
+            <label className="operations__meeting">
+              <input
+                type="checkbox"
+                checked={meetingProfile}
+                onChange={(event) => setMeetingProfile(event.target.checked)}
+              />
+              <span>
+                Treat as meeting transcript — extract participants, decisions
+                and action items, each anchored to its verbatim passage
+              </span>
+            </label>
+          </>
         )}
 
         {mode === "notes" && (
@@ -269,7 +359,7 @@ export function OperationsPanel(): JSX.Element {
           </p>
         )}
 
-        {mode !== "process" && mode !== "synthesize" && (
+        {(mode === "plan" || mode === "notes") && (
           <>
             <span className="label">
               {mode === "notes"
@@ -298,25 +388,15 @@ export function OperationsPanel(): JSX.Element {
               ? summary.noteCount === 0
               : mode === "synthesize"
                 ? summary.noteCount < 2
-                : !prompt.trim())
+                : mode === "refresh-project"
+                  ? summary.noteCount !== 1
+                  : mode === "weekly"
+                    ? false
+                    : !prompt.trim())
           }
           onClick={() => void generate()}
         >
-          {phase.kind === "generating"
-            ? mode === "notes"
-              ? "Writing notes…"
-              : mode === "process"
-                ? "Processing…"
-                : mode === "synthesize"
-                  ? "Synthesising…"
-                  : "Designing a plan…"
-            : mode === "notes"
-              ? "Generate notes"
-              : mode === "process"
-                ? "Process into knowledge"
-                : mode === "synthesize"
-                  ? "Synthesize"
-                  : "Propose changes"}
+          {phase.kind === "generating" ? BUSY_LABEL[mode] : READY_LABEL[mode]}
         </button>
       </div>
 

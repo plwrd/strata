@@ -45,6 +45,9 @@ class ExtractedDecision(BaseModel):
     rationale: str = Field(default="", max_length=2000)
     owner: str = Field(default="", max_length=200)
     date: str = Field(default="", max_length=40)
+    # The passage the decision was extracted from — quoted on the decision
+    # record so every extracted item links back to its transcript evidence.
+    excerpt: str = Field(default="", max_length=1000)
 
 
 class ExtractedActionItem(BaseModel):
@@ -53,6 +56,7 @@ class ExtractedActionItem(BaseModel):
     action: str = Field(min_length=1, max_length=2000)
     owner: str = Field(default="", max_length=200)
     deadline: str = Field(default="", max_length=40)
+    excerpt: str = Field(default="", max_length=1000)
 
 
 class KnowledgeExtraction(BaseModel):
@@ -69,6 +73,9 @@ class KnowledgeExtraction(BaseModel):
     suggested_tags: list[str] = Field(default_factory=list)
     related_note_ids: list[str] = Field(default_factory=list)
     claims_to_verify: list[str] = Field(default_factory=list)
+    # Meeting profile only.
+    participants: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
 
 
 class KnowledgeProposal(BaseModel):
