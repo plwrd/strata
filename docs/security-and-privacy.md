@@ -55,8 +55,10 @@ row fails review.
 | --- | --- | --- |
 | `ai.list_history` (read) | 1 | Returns persisted history for the open workspace only; respects redaction (redacted records stay redacted even in-session after restart); no content from locked layers by construction |
 | `ai.clear_history` (delete) | 1 | Destructive but user-initiated privacy control; truncates `.strata/ai/*` only; cannot touch layer content |
-| `notes.capture` (write) | 2 | Pending — must reuse `create_note` validation; capture metadata schema-validated |
-| URL import (first new outbound call besides AI/relay) | 2 | Pending — requires new FR + receipt-equivalent record per A-010; controls in §3 |
+| `notes.capture` (write) | 2 | Reuses `create_note` validation end-to-end; capture metadata is schema-validated (`capture` schema); size-capped at the bridge |
+| `notes.import_url` + the fetch it performs (first new outbound call besides AI/relay) | 2 | SSRF guard: http/https only, embedded credentials refused, every resolved address checked against private/loopback/link-local/reserved ranges before the request, redirects refused, 2 MB / 20 s caps, text-only content types, HTML stripped to text, refusal messages generic. Kill-switch: `settings.url_import_enabled`. Residual risk: DNS rebinding between check and connect (documented; redirect refusal removes the cheap variant) |
+| `notes.list_versions` / `get_version` / `restore_version` (read/write) | 2 | Versions exist only for Markdown layers — `VersionService.supports()` is the single gate; private layers return `supported: false` and never write plaintext trails (verified by `test_versions.py`) |
+| `operations.process_notes` (AI, job) | 2 | Same policy gate as every model call (`AIService.run`, kind `processing`); job detail strings carry counts only; plan output re-validated by the standard review/apply flow |
 
 ## 5. Privacy controls roadmap
 

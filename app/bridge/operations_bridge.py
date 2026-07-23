@@ -45,6 +45,21 @@ class GenerateResponse(BaseModel):
     request_id: str
 
 
+class ProcessNotesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    note_ids: list[str] = Field(min_length=1, max_length=25)
+    confirmed_remote: bool = False
+
+
+class ProcessNotesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+
+
 class ReviewPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -165,6 +180,61 @@ class OperationsBridge(QObject):
 
     def _emit(self, request_id: str, payload: dict[str, Any]) -> None:
         self.planEvent.emit(json.dumps({"requestId": request_id, **payload}))
+
+    # -- process into knowledge ----------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(ProcessNotesRequest)
+    def process_notes(self, request: ProcessNotesRequest) -> ProcessNotesResponse:
+        """Extract structured knowledge from the selected notes, as a plan.
+
+        Runs as a background job (it calls a model), reports progress on the
+        jobs channel, and delivers the finished plan on ``planEvent`` under the
+        job's id — from there it enters the normal review → apply flow.
+        """
+        notes = self._services.notes.get_notes(request.note_ids)
+        if not notes:
+            raise InvalidRequestError("None of the selected notes are readable.")
+        private_layers = {
+            layer.id
+            for layer in self._services.workspace.descriptor.layers
+            if layer.visibility == "private"
+        }
+        involves_private = any(note.metadata.layer_id in private_layers for note in notes)
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, f"Processing {len(notes)} note(s)")
+            try:
+                proposal = self._services.knowledge.process_sync(
+                    note_ids=request.note_ids,
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    confirmed_remote=request.confirmed_remote,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "Processing failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Proposal ready for review")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"Process {len(notes)} note(s) into knowledge",
+            work=work,
+            privacy="private" if involves_private else "public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
 
     @Slot(str, result=str)
     @bridge_method(ReviewPlanRequest)

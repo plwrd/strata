@@ -9,48 +9,46 @@ Existing milestones M4 (search), M5 (graph), M9 (collaboration), M11 (hardening)
 parallel; where a phase depends on one, it is noted. TASKS.md remains the tactical tracker;
 this file is the strategic map for the AI-memory work specifically.
 
-## Phase 1 — Foundation: persistent AI memory 🔨
+## Phase 1 — Foundation: persistent AI memory ✅
 
 The audit (see [current-architecture.md](current-architecture.md) §4) found the core gap:
-every AI trace is amnesiac. Phase 1 makes AI activity durable and fixes the live-path
-injection gap.
+every AI trace is amnesiac. Phase 1 made AI activity durable and fixed the live-path
+injection gap. Shipped in PR #62:
 
 - ✅ Repository audit + these five documents.
-- 🔨 `app/domain/history.py`: `AIExecutionRecord` + redaction rules
+- ✅ `app/domain/history.py`: `AIExecutionRecord` + redaction rules
   ([ai-memory-design.md](ai-memory-design.md) §2–3).
-- 🔨 `app/services/ai_history_service.py`: JSONL persistence under `.strata/ai/` (receipts,
+- ✅ `app/services/ai_history_service.py`: JSONL persistence under `.strata/ai/` (receipts,
   executions, applied plans), corrupt-line tolerance, caps, `clear_history`.
-- 🔨 Wire `AIService.run` (records execution + receipt) and `OperationService`
-  (persistent audit log; **undo survives restart**).
-- 🔨 Security fix: `ai_bridge.send_request` renders sources through
-  `ContextExportService.render_source_block` (delimiter neutralisation on the live path).
-- 🔨 Bridge: `ai.list_history`, `ai.clear_history` (+ threat-model review entries).
-- 🔨 Frontend: AI history list in the AI inspector tab (provider, model, remote badge, tokens,
-  result, redaction badge); loading/empty/error states.
-- 🔨 Tests: unit (redaction, round-trip, corrupt lines, caps), integration (receipts and undo
-  across service reconstruction), security (no private plaintext in `.strata/ai/`), frontend.
-- Not in scope: note version history (moved to Phase 2 alongside the write-path changes capture
-  needs; snapshots remain the safety net until then).
+- ✅ `AIService.run` records executions + receipts; `OperationService` audit log persists;
+  **undo survives restart**.
+- ✅ Security fix: live request path now uses `render_source_block` delimiter neutralisation.
+- ✅ Bridge `ai.list_history`/`ai.clear_history`; AI history panel; tests (unit, security,
+  frontend).
 
-## Phase 2 — Capture and processing ⏳
+## Phase 2 — Capture and processing ✅
 
-- Default knowledge areas: `Inbox/`, `Knowledge/`, `Reports/`, `Templates/` folders seeded on
-  workspace create (existing workspaces: offered via a one-time operation plan, never forced).
-- New schemas: `capture`, `concept`, `organization`, `report`, `template`, `weekly-review`
-  (extend `BUILTIN_SCHEMAS`; `decision`, `meeting`, `person`, `project`, `task` exist).
-- `capture_service.py` + `notes.capture` bridge: quick capture (text/paste), capture metadata
-  (`source_url`, `capture_reason`, `processing_status: raw`), mobile-size capture dialog in UI;
-  URL import **behind SSRF guards** (scheme allowlist, private-network block, size/time caps,
-  content treated as untrusted) — the first new outbound call, so full threat-model review.
-- Per-note **version history**: versioned write path in `NoteService` (public: `.strata/versions/`;
-  private: encrypted `version` objects), `notes.list_versions/get_version/restore_version`,
-  version browser UI, origin tags (`human` / `ai:<execution_id>`).
-- `knowledge_service.py`: "Process into knowledge" — structured extraction (summary, concepts,
-  entities, decisions, action items, open questions, suggested tags, related notes) returned as
-  a schema-validated proposal, materialised as an **operation plan** for per-item approval.
-  Bulk processing via `JobService.submit()` (first production job call sites).
-- Make structured output real for extraction: tool-use on Anthropic, `json_object` on
-  OpenAI-compatible, validated-and-rejected on failure; prompts move to `app/ai/prompts/`.
+- ✅ Default knowledge areas: `Inbox/`, `Knowledge/`, `Reports/`, `Templates/` seeded on
+  workspace create (existing workspaces are never forced; capture creates `Inbox/` lazily).
+- ✅ New schemas: `capture`, `concept`, `organization`, `report`, `template`, `weekly-review`.
+- ✅ `capture_service.py` + `notes.capture`/`notes.import_url`: quick capture with metadata
+  (`source_url`, `capture_reason`, `processing_status: raw`), capture dialog in the command
+  bar; URL import behind SSRF guards (scheme allowlist, private-range block via pre-request
+  resolution, redirect refusal, size/time caps, `url_import_enabled` kill-switch) — reviewed
+  in [security-and-privacy.md](security-and-privacy.md) §4.
+- ✅ Per-note **version history** for Markdown layers: versioned write path in `NoteService`
+  (`.strata/versions/`, trail follows renames/moves, capped), origin tags
+  (`human` / `ai:<plan_id>` / `restore`), `notes.list_versions/get_version/restore_version`,
+  History panel in the Properties tab. Private layers deliberately keep **no** plaintext
+  version files (snapshots remain their recovery story) and the UI says so.
+- ✅ `knowledge_service.py`: "Process into knowledge" — schema-validated extraction
+  (summary, concepts, entities, decisions, action items, open questions, tags, related notes,
+  claims to verify) materialised as an operation plan with `ai-inferred` + `generated_by`
+  provenance on every page; invented note ids discarded; existing titles skipped; runs as a
+  background job (**first production `JobService.submit()` call site**) surfaced in the
+  Changes tab's new "Process into knowledge" mode.
+- Deferred to Phase 3: provider-native structured output (extraction still uses
+  prompt+validated-JSON; the validation layer is in place either way).
 
 ## Phase 3 — Retrieval and AI chat ⏳ (depends on M4 search)
 

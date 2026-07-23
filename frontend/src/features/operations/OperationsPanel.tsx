@@ -24,7 +24,7 @@ type Phase =
   | { kind: "applied"; planId: string; summary: string }
   | { kind: "error"; message: string };
 
-type Mode = "plan" | "notes";
+type Mode = "plan" | "notes" | "process";
 
 const NOTE_COUNT_CHOICES = [1, 2, 3, 5, 10];
 
@@ -93,10 +93,23 @@ export function OperationsPanel(): JSX.Element {
   }, []);
 
   const generate = async (): Promise<void> => {
-    if (!prompt.trim()) return;
     const provider = state.providerId;
     const model = state.model || "default";
     try {
+      if (mode === "process") {
+        // Process into knowledge works on the selection, not a prompt: the
+        // extraction instructions live in Python, next to their validation.
+        const { request_id } = await bridge.operations.processNotes({
+          provider_id: provider,
+          model,
+          note_ids: state.selectedIds,
+          confirmed_remote: false,
+        });
+        pendingRef.current = request_id;
+        setPhase({ kind: "generating", requestId: request_id });
+        return;
+      }
+      if (!prompt.trim()) return;
       const { request_id } = await bridge.operations.generate({
         provider_id: provider,
         model,
@@ -168,8 +181,17 @@ export function OperationsPanel(): JSX.Element {
           >
             <option value="plan">Reorganise the workspace</option>
             <option value="notes">Generate new notes</option>
+            <option value="process">Process into knowledge</option>
           </select>
         </label>
+
+        {mode === "process" && (
+          <p className="operations__hint">
+            {summary.noteCount > 0
+              ? `Extracts concepts, entities, decisions, tasks and tags from ${summary.noteCount} selected note(s), as a plan you review. New pages are marked ai-inferred until you verify them.`
+              : "Select the captures or notes to process — nothing is extracted from an empty selection."}
+          </p>
+        )}
 
         {mode === "notes" && (
           <label className="operations__mode">
@@ -198,35 +220,46 @@ export function OperationsPanel(): JSX.Element {
           </p>
         )}
 
-        <span className="label">
-          {mode === "notes"
-            ? "Describe the notes to generate"
-            : "Ask the AI to reorganise or generate"}
-        </span>
-        <textarea
-          className="textarea"
-          value={prompt}
-          placeholder={
-            mode === "notes"
-              ? "e.g. Split this note into one note per topic, or write a study guide as several notes."
-              : "e.g. Create a folder structure for a research project on encryption, with starter notes."
-          }
-          aria-label="Operation prompt"
-          onChange={(event) => setPrompt(event.target.value)}
-        />
+        {mode !== "process" && (
+          <>
+            <span className="label">
+              {mode === "notes"
+                ? "Describe the notes to generate"
+                : "Ask the AI to reorganise or generate"}
+            </span>
+            <textarea
+              className="textarea"
+              value={prompt}
+              placeholder={
+                mode === "notes"
+                  ? "e.g. Split this note into one note per topic, or write a study guide as several notes."
+                  : "e.g. Create a folder structure for a research project on encryption, with starter notes."
+              }
+              aria-label="Operation prompt"
+              onChange={(event) => setPrompt(event.target.value)}
+            />
+          </>
+        )}
         <button
           type="button"
           className="button button--ai"
-          disabled={!prompt.trim() || phase.kind === "generating"}
+          disabled={
+            phase.kind === "generating" ||
+            (mode === "process" ? summary.noteCount === 0 : !prompt.trim())
+          }
           onClick={() => void generate()}
         >
           {phase.kind === "generating"
             ? mode === "notes"
               ? "Writing notes…"
-              : "Designing a plan…"
+              : mode === "process"
+                ? "Processing…"
+                : "Designing a plan…"
             : mode === "notes"
               ? "Generate notes"
-              : "Propose changes"}
+              : mode === "process"
+                ? "Process into knowledge"
+                : "Propose changes"}
         </button>
       </div>
 

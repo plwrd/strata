@@ -160,6 +160,33 @@ layer the starter folders and note are encrypted like everything else.
 
 ---
 
+## 3½. Capture and the knowledge loop
+
+The **⇣ Capture** button in the command bar is the fastest way in: paste text
+(or import a page by URL) and it lands in the **Inbox/** folder as a raw
+capture — with the source URL, when you saved it, and *why* you kept it. New
+workspaces start with four conventional folders: **Inbox** (unprocessed
+material), **Knowledge** (processed concepts, people, decisions), **Reports**
+(finished AI-assisted outputs), and **Templates**.
+
+URL import fetches a page's *text* once, over a guarded fetch that refuses
+private and local addresses, redirects, and oversized pages. The page is stored
+as untrusted data. It can be switched off entirely (`url_import_enabled`).
+
+To turn raw captures into knowledge, select them and run **Process into
+knowledge** in the Changes tab (§13): the AI proposes concept pages, people and
+organizations, decision records, tasks and tags — every one marked
+`ai-inferred` with the AI execution that produced it, and every one subject to
+your review before anything is created.
+
+Every edit to a note in a public layer also leaves a **version** — see the
+History section of the Properties tab, where each prior state shows who
+replaced it (you, an AI plan, or a restore) and can be restored without ever
+silently overwriting anything. Private layers keep no version files on disk by
+design; snapshots remain their recovery mechanism.
+
+---
+
 ## 4. Files and folders
 
 The **Files** panel is a real tree over the real folders on disk. In a public

@@ -177,6 +177,7 @@ class AIService:
         cancel: asyncio.Event | None = None,
         kind: ExecutionKind = "ai-request",
         source_object_ids: list[str] | None = None,
+        execution_id: str | None = None,
     ) -> AsyncIterator[AIEvent]:
         """Send a request, after the policy gate says it may go.
 
@@ -265,7 +266,10 @@ class AIService:
             if self._history is not None:
                 self._history.record_execution(
                     AIExecutionRecord(
-                        id=new_execution_id(),
+                        # Callers may pre-generate the id so they can stamp
+                        # `generated_by` provenance on what they create from
+                        # the response.
+                        id=execution_id or new_execution_id(),
                         kind=kind,
                         created_at=_now(),
                         provider=provider.provider_id,

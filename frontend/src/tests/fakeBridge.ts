@@ -25,16 +25,30 @@ import type {
 type Handler = (payload: Record<string, unknown>) => unknown;
 type Signal = { connect: (listener: (value: string) => void) => void };
 
+export interface FakeVersion {
+  created_at: string;
+  origin: string;
+  change: string;
+  title: string;
+  content: string;
+}
+
 export interface FakeBridgeOptions {
   graph?: GraphSnapshot;
   plan?: ContextPlan;
   review?: PlanReview;
   /** Seed the persisted AI history the fake serves via `ai.list_history`. */
   executions?: AIExecutionRecord[];
+  /** Seed the version trail served via `notes.list_versions` (oldest first). */
+  versions?: FakeVersion[];
+  versionsSupported?: boolean;
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
 }
+
+/** Payloads sent to capture/import/process endpoints, for assertions. */
+export const captured: Record<string, unknown>[] = [];
 
 /** A plausible persisted execution record for tests to seed history with. */
 export function sampleExecution(
@@ -454,6 +468,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     state: privateState,
   });
   let executions: AIExecutionRecord[] = [...(options.executions ?? [])];
+  captured.length = 0;
+  const noteVersions: FakeVersion[] = [...(options.versions ?? [])];
+  const versionsSupported = options.versionsSupported ?? true;
 
   const handlers: Record<string, Record<string, Handler | Signal>> = {
     workspace: {
@@ -705,6 +722,55 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         path: "attachments/a.png",
         markdown: "![a.png](attachments/a.png)",
       }),
+      capture: (payload) => {
+        captured.push(payload);
+        return {
+          note: fakeNote(
+            "n_capture",
+            (payload["content"] as string) ?? "",
+            (payload["title"] as string) || "Captured",
+          ),
+          schema_id: "capture",
+          issues: [],
+        };
+      },
+      import_url: (payload) => {
+        captured.push(payload);
+        return {
+          note: fakeNote("n_import", "Imported page text.", "Imported page"),
+          schema_id: "capture",
+          issues: [],
+        };
+      },
+      list_versions: () => ({
+        versions: noteVersions.map((version, index) => ({
+          index,
+          created_at: version.created_at,
+          origin: version.origin,
+          change: version.change,
+          title: version.title,
+          size_chars: version.content.length,
+        })),
+        supported: versionsSupported,
+        detail: versionsSupported
+          ? ""
+          : "Private-layer notes keep no version files on disk.",
+      }),
+      get_version: (payload) => ({
+        version: {
+          ...noteVersions[payload["index"] as number]!,
+          index: payload["index"] as number,
+          properties: {},
+        },
+      }),
+      restore_version: (payload) => {
+        const version = noteVersions[payload["index"] as number]!;
+        return {
+          note: fakeNote("n1", version.content),
+          schema_id: null,
+          issues: [],
+        };
+      },
       changed: {
         connect: (listener: (value: string) => void) =>
           changeListeners.push(listener),
@@ -715,6 +781,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
     },
     operations: {
       generate_plan: () => ({ request_id: "req_plan_1" }),
+      process_notes: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_process_1" };
+      },
       review_plan: (payload) => ({
         review: options.review ?? {
           plan: payload["plan"],

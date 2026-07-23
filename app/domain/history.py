@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.operations import AppliedPlan
 
-ExecutionKind = Literal["ai-request", "plan-generation"]
+ExecutionKind = Literal["ai-request", "plan-generation", "processing"]
 ExecutionResult = Literal["completed", "cancelled", "failed"]
 
 

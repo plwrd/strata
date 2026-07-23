@@ -35,6 +35,8 @@ import type {
   PlanReview,
   PolicyView,
   AIExecutionRecord,
+  NoteVersion,
+  VersionListResponse,
   PrivacyReceipt,
   ProviderHealthView,
   ProviderView,
@@ -378,6 +380,31 @@ export const bridge = {
         data_base64,
       }),
 
+    capture: (request: {
+      content?: string;
+      title?: string;
+      layer_id?: string;
+      source_url?: string;
+      source_author?: string;
+      capture_reason?: string;
+      tags?: string[];
+    }) => call<NoteResponse>("notes", "capture", request),
+    importUrl: (request: {
+      url: string;
+      layer_id?: string;
+      capture_reason?: string;
+    }) => call<NoteResponse>("notes", "import_url", request),
+
+    listVersions: (note_id: string) =>
+      call<VersionListResponse>("notes", "list_versions", { note_id }),
+    getVersion: (note_id: string, index: number) =>
+      call<{ version: NoteVersion }>("notes", "get_version", {
+        note_id,
+        index,
+      }),
+    restoreVersion: (note_id: string, index: number) =>
+      call<NoteResponse>("notes", "restore_version", { note_id, index }),
+
     /** Push channel: the workspace changed on disk (by Strata, or externally). */
     onChanged: (listener: (origin: string) => void) =>
       subscribe("notes", "changed", listener),
@@ -510,6 +537,12 @@ export const bridge = {
       mode?: "plan" | "notes";
       note_count?: number;
     }) => call<{ request_id: string }>("operations", "generate_plan", request),
+    processNotes: (request: {
+      provider_id: string;
+      model: string;
+      note_ids: string[];
+      confirmed_remote?: boolean;
+    }) => call<{ request_id: string }>("operations", "process_notes", request),
     review: (plan: OperationPlan, allowed_layer_ids: string[]) =>
       call<{ review: PlanReview }>("operations", "review_plan", {
         plan,

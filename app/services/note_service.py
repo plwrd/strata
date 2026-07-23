@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app.domain.errors import ConflictError, InvalidRequestError, NotFoundError
 from app.domain.note import FolderNode, Note, NoteLink
+from app.domain.versions import NoteVersion, NoteVersionSummary
 from app.infrastructure.storage.markdown_store import (
     MARKDOWN_SUFFIX,
     MarkdownLayerStore,
@@ -29,6 +30,7 @@ from app.infrastructure.storage.markdown_store import (
 )
 from app.infrastructure.storage.paths import safe_filename
 from app.services.private_layer_access import PrivateLayerAccess
+from app.services.version_service import VersionService
 from app.services.workspace_service import WorkspaceService
 
 TRASH_DIR = "trash"
@@ -60,8 +62,15 @@ class LinkHealth:
 
 
 class NoteService:
-    def __init__(self, workspace: WorkspaceService) -> None:
+    def __init__(self, workspace: WorkspaceService, versions: VersionService | None = None) -> None:
         self._workspace = workspace
+        self._versions = versions
+
+    def _record_version(self, note: Note, *, origin: str, change: str) -> None:
+        """Capture the pre-mutation state. The version service itself refuses
+        private layers, so a caller here cannot leak one to disk."""
+        if self._versions is not None:
+            self._versions.record(note, origin=origin, change=change)
 
     # -- reading -------------------------------------------------------------
 
@@ -157,13 +166,14 @@ class NoteService:
             properties=dict(properties or {}),
         )
 
-    def update_note(self, note_id: str, content: str) -> Note:
+    def update_note(self, note_id: str, content: str, *, origin: str = "human") -> Note:
         """Overwrite the body, preserving the frontmatter block."""
         private = self._private_owner(note_id)
         if private is not None:
             return private.update_note(note_id, content)
 
-        store, _note, path = self._locate(note_id)
+        store, note, path = self._locate(note_id)
+        self._record_version(note, origin=origin, change="update")
         frontmatter, _ = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
         path.write_text(
             render_frontmatter(frontmatter) + content,
@@ -172,15 +182,55 @@ class NoteService:
         )
         return store.read_note(path)
 
-    def update_properties(self, note_id: str, properties: dict[str, object]) -> Note:
+    def update_properties(
+        self, note_id: str, properties: dict[str, object], *, origin: str = "human"
+    ) -> Note:
         private = self._private_owner(note_id)
         if private is not None:
             return private.update_properties(note_id, dict(properties))
 
-        store, _note, path = self._locate(note_id)
+        store, note, path = self._locate(note_id)
+        self._record_version(note, origin=origin, change="properties")
         _old, body = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
         path.write_text(
             render_frontmatter(dict(properties)) + body,
+            encoding="utf-8",
+            newline="\n",
+        )
+        return store.read_note(path)
+
+    # -- version history -----------------------------------------------------
+
+    def list_versions(self, note_id: str) -> list[NoteVersionSummary]:
+        """Newest first. Deliberately empty for private layers: their history
+        would be plaintext on disk (docs/ai-memory-design.md scope rules)."""
+        if self._versions is None:
+            return []
+        note = self.get_note(note_id)
+        return self._versions.list_versions(note.metadata.layer_id, note_id)
+
+    def get_version(self, note_id: str, index: int) -> NoteVersion:
+        if self._versions is None:
+            raise NotFoundError("Version history is not available.")
+        note = self.get_note(note_id)
+        return self._versions.get_version(note.metadata.layer_id, note_id, index)
+
+    def restore_version(self, note_id: str, index: int, *, origin: str = "human") -> Note:
+        """Restore an earlier state. Itself versioned — nothing is overwritten
+        silently; the state being replaced becomes the newest version."""
+        private = self._private_owner(note_id)
+        if private is not None:
+            raise InvalidRequestError(
+                "Private-layer notes are protected by snapshots, not version files."
+            )
+        if self._versions is None:
+            raise NotFoundError("Version history is not available.")
+
+        store, note, path = self._locate(note_id)
+        version = self._versions.get_version(note.metadata.layer_id, note_id, index)
+        self._record_version(note, origin=origin, change="restore")
+        path.write_text(
+            render_frontmatter(dict(version.properties)) + version.content,
             encoding="utf-8",
             newline="\n",
         )
@@ -212,8 +262,13 @@ class NoteService:
         if destination.exists():
             raise ConflictError("A note with that name already exists in this folder.")
 
+        self._record_version(note, origin="human", change="rename")
         path.replace(destination)
         renamed = store.read_note(destination)
+        # Public note ids are path-derived, so the id just changed — the history
+        # moves with the note or the trail would silently detach.
+        if self._versions is not None:
+            self._versions.relocate(store.layer_id, note_id, renamed.metadata.id)
 
         # The title lives in the filename unless frontmatter overrides it; if it
         # does, the frontmatter is the source of truth and must move too.
@@ -270,9 +325,13 @@ class NoteService:
             return note
         if destination.exists():
             raise ConflictError("A note with that name already exists in the destination folder.")
+        self._record_version(note, origin="human", change="move")
         destination.parent.mkdir(parents=True, exist_ok=True)
         path.replace(destination)
-        return store.read_note(destination)
+        moved = store.read_note(destination)
+        if self._versions is not None:
+            self._versions.relocate(store.layer_id, note_id, moved.metadata.id)
+        return moved
 
     def duplicate_note(self, note_id: str) -> Note:
         private = self._private_owner(note_id)
@@ -309,6 +368,7 @@ class NoteService:
             return private.trash_note(note_id)
 
         _store, note, path = self._locate(note_id)
+        self._record_version(note, origin="human", change="delete")
         trash = self._trash_root()
         # The trash entry records where it came from so restore is exact.
         stamp = f"{note.metadata.layer_id}__{safe_filename(note.metadata.folder_path or 'root')}"

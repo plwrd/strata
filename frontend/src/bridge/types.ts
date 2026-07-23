@@ -487,6 +487,34 @@ export interface Operation {
   property_value: string;
   tag: string;
   rationale: string;
+  properties?: Record<string, string>;
+}
+
+// --- version history --------------------------------------------------------
+
+export interface NoteVersionSummary {
+  index: number;
+  created_at: string;
+  origin: string;
+  change: string;
+  title: string;
+  size_chars: number;
+}
+
+export interface NoteVersion {
+  index: number;
+  created_at: string;
+  origin: string;
+  change: string;
+  title: string;
+  content: string;
+  properties: Record<string, unknown>;
+}
+
+export interface VersionListResponse {
+  versions: NoteVersionSummary[];
+  supported: boolean;
+  detail: string;
 }
 
 export interface OperationPlan {

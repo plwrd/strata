@@ -20,6 +20,7 @@ from app.domain.schema import (
     schema_for_note,
     validate_properties,
 )
+from app.domain.versions import NoteVersion, NoteVersionSummary
 from app.services.container import Services
 
 MAX_NOTE_BYTES = 512_000
@@ -219,6 +220,47 @@ class AttachmentRequest(BaseModel):
     data_base64: str = Field(max_length=MAX_ATTACHMENT_CHUNK)
 
 
+class CaptureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(default="", max_length=MAX_NOTE_BYTES)
+    title: str = Field(default="", max_length=200)
+    layer_id: str = Field(default="", max_length=128)
+    source_url: str = Field(default="", max_length=2048)
+    source_author: str = Field(default="", max_length=200)
+    capture_reason: str = Field(default="", max_length=1000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ImportUrlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048)
+    layer_id: str = Field(default="", max_length=128)
+    capture_reason: str = Field(default="", max_length=1000)
+
+
+class VersionListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    versions: list[NoteVersionSummary] = Field(default_factory=list)
+    supported: bool = True
+    detail: str = ""
+
+
+class VersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note_id: str = Field(min_length=1, max_length=128)
+    index: int = Field(ge=0, le=10_000)
+
+
+class VersionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: NoteVersion
+
+
 class AttachmentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -415,6 +457,69 @@ class NotesBridge(QObject):
             broken=[{"source_id": source, "target": target} for source, target in health.broken],
             orphans=health.orphans,
         )
+
+    # -- capture (docs/security-and-privacy.md §4 review log) -----------------
+
+    @Slot(str, result=str)
+    @bridge_method(CaptureRequest)
+    def capture(self, request: CaptureRequest) -> NoteResponse:
+        """Quick capture into the Inbox — organise later, that is the point."""
+        note = self._services.capture.capture(
+            content=request.content,
+            title=request.title,
+            layer_id=request.layer_id,
+            source_url=request.source_url,
+            source_author=request.source_author,
+            capture_reason=request.capture_reason,
+            tags=request.tags,
+        )
+        self._announce()
+        return self._with_schema(note)
+
+    @Slot(str, result=str)
+    @bridge_method(ImportUrlRequest)
+    def import_url(self, request: ImportUrlRequest) -> NoteResponse:
+        """Fetch a page (SSRF-guarded, redirect-refusing, size-capped) and store
+        its text as a raw capture. The page is untrusted data, never instructions."""
+        note = self._services.capture.import_url(
+            request.url,
+            layer_id=request.layer_id,
+            capture_reason=request.capture_reason,
+        )
+        self._announce()
+        return self._with_schema(note)
+
+    # -- version history ------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(NoteIdRequest)
+    def list_versions(self, request: NoteIdRequest) -> VersionListResponse:
+        note = self._services.notes.get_note(request.note_id)
+        layer = self._services.workspace.require_layer(note.metadata.layer_id)
+        if layer.storage != "markdown":
+            return VersionListResponse(
+                versions=[],
+                supported=False,
+                detail=(
+                    "Private-layer notes keep no version files on disk. "
+                    "Use snapshots to restore earlier states."
+                ),
+            )
+        return VersionListResponse(versions=self._services.notes.list_versions(request.note_id))
+
+    @Slot(str, result=str)
+    @bridge_method(VersionRequest)
+    def get_version(self, request: VersionRequest) -> VersionResponse:
+        return VersionResponse(
+            version=self._services.notes.get_version(request.note_id, request.index)
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(VersionRequest)
+    def restore_version(self, request: VersionRequest) -> NoteResponse:
+        note = self._services.notes.restore_version(request.note_id, request.index)
+        self._announce()
+        return self._with_schema(note)
 
     # -- schemas and attachments ---------------------------------------------
 

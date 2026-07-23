@@ -1,5 +1,7 @@
-/** The top bar: modes, graph dimension, lens, and the accessibility switches. */
+/** The top bar: modes, graph dimension, lens, capture, and accessibility. */
 
+import { useState } from "react";
+import { CaptureDialog } from "../capture/CaptureDialog";
 import { useStore, type AppMode } from "../../state/store";
 
 const MODES: { value: AppMode; label: string; hint: string }[] = [
@@ -22,6 +24,7 @@ export function CommandBar(): JSX.Element {
   } = useStore();
 
   const reduced = settings?.motion === "reduced";
+  const [capturing, setCapturing] = useState(false);
 
   return (
     <header className="commandbar">
@@ -51,6 +54,15 @@ export function CommandBar(): JSX.Element {
       </nav>
 
       <div className="commandbar__controls">
+        <button
+          type="button"
+          className="button button--primary commandbar__capture"
+          title="Capture text or a page into the Inbox"
+          onClick={() => setCapturing(true)}
+        >
+          ⇣ Capture
+        </button>
+
         <div className="segmented" role="group" aria-label="Graph dimension">
           <button
             type="button"
@@ -86,6 +98,8 @@ export function CommandBar(): JSX.Element {
           {reduced ? "Motion: reduced" : "Motion: full"}
         </button>
       </div>
+
+      {capturing && <CaptureDialog onClose={() => setCapturing(false)} />}
     </header>
   );
 }
