@@ -43,7 +43,8 @@ APP_URL = f"{SCHEME}://{HOST}/index.html"
 # and is unaffected by connect-src.
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; "
-    "script-src 'self'; "
+    # blob: is required for Vite ES module workers and nested drei/troika workers.
+    "script-src 'self' blob:; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; "
     "font-src 'self' data:; "

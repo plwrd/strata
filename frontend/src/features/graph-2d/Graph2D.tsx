@@ -7,7 +7,7 @@
  * that quietly drifts out of sync.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GraphSnapshot } from "../../bridge/types";
 import {
   edgeColor,
@@ -27,6 +27,13 @@ interface Graph2DProps {
 }
 
 const PADDING = 40;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 8;
+const ZOOM_STEP = 1.25;
+
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
 
 export function Graph2D({
   graph,
@@ -43,6 +50,13 @@ export function Graph2D({
   // the new ones, and clicks land on the wrong node.
   const [resizeTick, setResizeTick] = useState(0);
 
+  // View transform on top of the fit-to-canvas layout: zoom around the canvas
+  // centre (or the cursor for wheel), pan in screen pixels.
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
+  viewRef.current = { zoom, pan };
+
   // Lasso: a drag with Shift held draws a rectangle; every node inside it is
   // selected on release. The rectangle is an overlay div (state), so it does not
   // fight the canvas's own repaint.
@@ -53,6 +67,14 @@ export function Graph2D({
     y1: number;
   } | null>(null);
   const draggingRef = useRef(false);
+  const panDragRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+  // Survives mouseup so onClick can tell a pan apart from a click.
+  const panMovedRef = useRef(false);
 
   // Map layout space to canvas space once per render; reused by both the painter
   // and the hit test so a click always lands on what the user sees.
@@ -78,15 +100,20 @@ export function Graph2D({
       if (!transform) return [width / 2, height / 2];
       const spanX = Math.max(transform.maxX - transform.minX, 1);
       const spanY = Math.max(transform.maxY - transform.minY, 1);
-      const scale = Math.min(
+      const fitScale = Math.min(
         (width - PADDING * 2) / spanX,
         (height - PADDING * 2) / spanY,
       );
-      const x = (point[0] - transform.minX) * scale + PADDING;
-      const y = (point[1] - transform.minY) * scale + PADDING;
-      return [x, y];
+      const fitX = (point[0] - transform.minX) * fitScale + PADDING;
+      const fitY = (point[1] - transform.minY) * fitScale + PADDING;
+      const cx = width / 2;
+      const cy = height / 2;
+      return [
+        (fitX - cx) * zoom + cx + pan.x,
+        (fitY - cy) * zoom + cy + pan.y,
+      ];
     };
-  }, [transform]);
+  }, [transform, zoom, pan]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -116,10 +143,8 @@ export function Graph2D({
       context.stroke();
     }
 
-    // Canvas shadows are the single most expensive 2D operation, and the 2D
-    // path is exactly where low-GPU machines land. Past this budget, only the
-    // selection keeps its glow — the state signal survives, the decoration pays.
-    const glowBudget = graph.nodes.length <= 1500;
+    // Canvas shadows are expensive; past this budget only selection keeps a glow.
+    const glowBudget = graph.nodes.length <= 400;
 
     for (const node of graph.nodes) {
       const point = positions[node.id];
@@ -132,7 +157,7 @@ export function Graph2D({
       // shifting to ignition-gold when selected.
       if (glowBudget || isSelected) {
         context.shadowColor = glowColor(node, isSelected);
-        context.shadowBlur = isSelected ? 22 : 10;
+        context.shadowBlur = isSelected ? 16 : 6;
       }
       context.fillStyle = nodeColor(node, isSelected);
       context.beginPath();
@@ -162,6 +187,57 @@ export function Graph2D({
     observer.observe(canvas);
     return () => observer.disconnect();
   }, []);
+
+  const zoomAt = useCallback((nextZoom: number, pivotX: number, pivotY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const clamped = clampZoom(nextZoom);
+    const { zoom: currentZoom, pan: currentPan } = viewRef.current;
+    if (clamped === currentZoom) return;
+    const factor = clamped / currentZoom;
+    // Keep the layout point under the pivot fixed. Projection is
+    //   screen = (fit - centre) * zoom + centre + pan
+    // so pan must absorb the scale change around that centre, not the origin.
+    const cx = canvas.clientWidth / 2;
+    const cy = canvas.clientHeight / 2;
+    setPan({
+      x: (1 - factor) * (pivotX - cx) + factor * currentPan.x,
+      y: (1 - factor) * (pivotY - cy) + factor * currentPan.y,
+    });
+    setZoom(clamped);
+  }, []);
+
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const pivotX = canvas.clientWidth / 2;
+      const pivotY = canvas.clientHeight / 2;
+      zoomAt(viewRef.current.zoom * factor, pivotX, pivotY);
+    },
+    [zoomAt],
+  );
+
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  // Wheel zoom must be non-passive so we can prevent the page from scrolling.
+  // Always zoom about the canvas centre — same pivot as the +/- buttons.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault();
+      const pivotX = canvas.clientWidth / 2;
+      const pivotY = canvas.clientHeight / 2;
+      const direction = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+      zoomAt(viewRef.current.zoom * direction, pivotX, pivotY);
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
 
   const hitTest = (
     event: React.MouseEvent<HTMLCanvasElement>,
@@ -215,6 +291,8 @@ export function Graph2D({
     onLasso(inside, add);
   };
 
+  const zoomPercent = Math.round(zoom * 100);
+
   return (
     <div className="graph-2d-host">
       <canvas
@@ -226,22 +304,52 @@ export function Graph2D({
             const [x, y] = localPoint(event);
             setLasso({ x0: x, y0: y, x1: x, y1: y });
             draggingRef.current = true;
+            return;
+          }
+          // Empty-space drag pans the view so zoom-in stays navigable.
+          if (event.button === 0 && !hitTest(event)) {
+            const [x, y] = localPoint(event);
+            panMovedRef.current = false;
+            panDragRef.current = {
+              startX: x,
+              startY: y,
+              originX: pan.x,
+              originY: pan.y,
+            };
           }
         }}
         onMouseMove={(event) => {
           if (draggingRef.current) {
             const [x, y] = localPoint(event);
             setLasso((box) => (box ? { ...box, x1: x, y1: y } : box));
+            return;
+          }
+          const drag = panDragRef.current;
+          if (drag) {
+            const [x, y] = localPoint(event);
+            const dx = x - drag.startX;
+            const dy = y - drag.startY;
+            if (Math.hypot(dx, dy) > 3) panMovedRef.current = true;
+            setPan({ x: drag.originX + dx, y: drag.originY + dy });
           }
         }}
         onMouseUp={(event) => {
-          if (draggingRef.current) finishLasso(event.ctrlKey || event.metaKey);
+          if (draggingRef.current) {
+            finishLasso(event.ctrlKey || event.metaKey);
+            return;
+          }
+          panDragRef.current = null;
         }}
         onMouseLeave={() => {
           if (draggingRef.current) finishLasso(false);
+          panDragRef.current = null;
         }}
         onClick={(event) => {
           if (event.shiftKey) return; // shift is the lasso modifier here
+          if (panMovedRef.current) {
+            panMovedRef.current = false;
+            return;
+          }
           const id = hitTest(event);
           if (id)
             onSelect(id, {
@@ -265,6 +373,45 @@ export function Graph2D({
           }}
         />
       )}
+      <div
+        className="graph-2d-zoom"
+        role="toolbar"
+        aria-label="2D graph zoom"
+      >
+        <button
+          type="button"
+          className="button button--ghost"
+          aria-label="Zoom out"
+          title="Zoom out"
+          disabled={zoom <= MIN_ZOOM}
+          onClick={() => zoomBy(1 / ZOOM_STEP)}
+        >
+          −
+        </button>
+        <span className="graph-2d-zoom__level mono" aria-live="polite">
+          {zoomPercent}%
+        </span>
+        <button
+          type="button"
+          className="button button--ghost"
+          aria-label="Zoom in"
+          title="Zoom in"
+          disabled={zoom >= MAX_ZOOM}
+          onClick={() => zoomBy(ZOOM_STEP)}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className="button button--ghost"
+          aria-label="Reset zoom"
+          title="Fit graph to view"
+          disabled={zoom === 1 && pan.x === 0 && pan.y === 0}
+          onClick={resetView}
+        >
+          Fit
+        </button>
+      </div>
     </div>
   );
 }

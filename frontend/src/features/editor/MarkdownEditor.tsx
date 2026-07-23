@@ -145,6 +145,10 @@ function buildTheme(): Extension {
           backgroundColor: "var(--surface-overlay)",
           border: "1px solid var(--border-subtle)",
           borderRadius: "var(--radius-sm)",
+          color: "var(--text-primary)",
+        },
+        ".cm-tooltip-autocomplete ul li": {
+          color: "var(--text-primary)",
         },
         ".cm-tooltip-autocomplete ul li[aria-selected]": {
           backgroundColor:

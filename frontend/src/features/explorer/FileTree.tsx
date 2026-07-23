@@ -313,7 +313,7 @@ export function FileTree(): JSX.Element {
   };
 
   return (
-    <section className="tree" aria-label="Files">
+    <section className="tree" aria-label="Files" data-tour="files">
       <div className="tree__header">
         <h2 className="sidebar__heading">Files</h2>
       </div>

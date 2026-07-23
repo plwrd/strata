@@ -83,7 +83,9 @@ export function GraphControls(): JSX.Element {
       )}
 
       {state.dimension === "2d" && (
-        <span className="graph-controls__hint mono">shift-drag to lasso</span>
+        <span className="graph-controls__hint mono">
+          scroll to zoom · drag empty space to pan · shift-drag to lasso
+        </span>
       )}
     </div>
   );

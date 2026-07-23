@@ -11,6 +11,10 @@
  */
 
 :root {
+  /* Tell the engine this UI is dark so native controls (select, date, etc.)
+     do not paint black glyphs on our dark fields. */
+  color-scheme: dark;
+
   /* --- surfaces: deep black-blue through graphite ------------------------ */
   --surface-void: #04060d;
   --surface-base: #080b16;
@@ -54,9 +58,8 @@
   --graph-node-decision: #ff5cc8;
   --graph-node-locked: #47506a;
   --graph-node-selected: #ffffff;
-  /* Selection glow: ignition-gold, deliberately absent from the node palette so
-     a selected star reads instantly at any zoom. */
-  --graph-glow-selected: #ffcf6b;
+  /* Selection glow: bright ignition gold. */
+  --graph-glow-selected: #ffe566;
   --graph-edge-default: rgba(111, 127, 168, 0.35);
   --graph-edge-selected: rgba(34, 224, 245, 0.95);
   --graph-edge-ai: rgba(160, 107, 255, 0.8);
@@ -95,6 +98,15 @@
   --radius-md: 6px;
   --radius-lg: 10px;
 
+  /* --- shell layout (stage-first) --------------------------------------- */
+  --shell-nav-width: 240px;
+  --shell-nav-width-narrow: 220px;
+  --shell-inspector-width: 300px;
+  --shell-inspector-width-drawer: min(300px, 84vw);
+  --shell-chrome-pad: var(--space-2) var(--space-3);
+  --shell-section-gap: var(--space-2);
+  --text-chrome: var(--text-xs);
+
   /* --- motion ------------------------------------------------------------ */
   --motion-fast: 120ms;
   --motion-base: 200ms;
@@ -112,6 +124,7 @@
   --z-panel: 10;
   --z-overlay: 100;
   --z-dialog: 1000;
+  --z-tour: 1100;
 }
 
 /* Dimmer variant: same hues, lower luminance for long writing sessions. */

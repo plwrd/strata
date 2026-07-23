@@ -47,7 +47,12 @@ describe("LayerPanel", () => {
   it("says what a locked layer contributes: nothing", () => {
     render(<LayerPanel />);
 
-    expect(screen.getByText(/contributes nothing/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Layers are permission boundaries/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle(/A locked layer contributes nothing/i),
+    ).toBeInTheDocument();
   });
 
   it("unlocks with a password and never keeps it in the store", async () => {

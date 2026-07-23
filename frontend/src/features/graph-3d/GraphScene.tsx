@@ -69,6 +69,7 @@ const TIERS = {
 } as const;
 
 const UP = new THREE.Object3D();
+const NODE_COLOR = new THREE.Color();
 
 function Nodes({
   graph,
@@ -111,7 +112,16 @@ function Nodes({
       UP.scale.setScalar(scale * 0.1);
       UP.updateMatrix();
       mesh.setMatrixAt(index, UP.matrix);
-      mesh.setColorAt(index, new THREE.Color(nodeColor(node, isSelected)));
+      // Selected stars get a lifted warm tint so they read as lit cores, not
+      // chalky white under the shared standard material.
+      NODE_COLOR.set(nodeColor(node, isSelected));
+      if (isSelected) {
+        NODE_COLOR.multiplyScalar(1.15);
+        NODE_COLOR.r = Math.min(NODE_COLOR.r, 1);
+        NODE_COLOR.g = Math.min(NODE_COLOR.g, 1);
+        NODE_COLOR.b = Math.min(NODE_COLOR.b, 1);
+      }
+      mesh.setColorAt(index, NODE_COLOR);
     });
     mesh.count = nodes.length;
     mesh.instanceMatrix.needsUpdate = true;
@@ -168,13 +178,13 @@ function Nodes({
       onPointerMove={handleMove}
       onPointerOut={() => onHover(null)}
       frustumCulled={false}
+      renderOrder={6}
     >
-      <sphereGeometry args={[1, 12, 12]} />
-      <meshStandardMaterial
-        roughness={0.35}
-        metalness={0.15}
-        toneMapped={false}
-      />
+      <sphereGeometry args={[1, 16, 16]} />
+      {/* Unlit + fog off: MeshStandardMaterial washed nodes grey under sparse
+          lights, and MeshBasicMaterial still picks up the galaxy fog unless
+          fog is disabled — that was the remaining dark-grey look. */}
+      <meshBasicMaterial toneMapped={false} fog={false} />
     </instancedMesh>
   );
 }
@@ -189,22 +199,44 @@ function Edges({
   "graph" | "positions" | "selectedIds" | "hoveredId"
 >): JSX.Element | null {
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const lineRef = useRef<THREE.LineSegments>(null);
+  const colorScratch = useMemo(() => new THREE.Color(), []);
 
+  // Positions only — recreating this on hover caused a one-frame flash of the
+  // whole edge batch (dispose + upload) that looked like Explore "glitching".
   const geometry = useMemo(() => {
     const points: number[] = [];
     const colors: number[] = [];
-    const color = new THREE.Color();
     for (const edge of graph.edges) {
       const from = positions[edge.source];
       const to = positions[edge.target];
       if (!from || !to) continue;
-      // An edge lights up when *both* ends are selected: that is the
-      // "constellation" — the shape of the thing the user is about to send.
+      points.push(from[0] * 0.1, from[1] * 0.1, from[2] * 0.1);
+      points.push(to[0] * 0.1, to[1] * 0.1, to[2] * 0.1);
+      colors.push(0.4, 0.45, 0.55, 0.4, 0.45, 0.55);
+    }
+    const buffer = new THREE.BufferGeometry();
+    buffer.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(points, 3),
+    );
+    buffer.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    return buffer;
+  }, [graph.edges, positions]);
+
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  useEffect(() => {
+    const attr = geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
+    if (!attr) return;
+    const colors = attr.array as Float32Array;
+    let cursor = 0;
+    for (const edge of graph.edges) {
+      const from = positions[edge.source];
+      const to = positions[edge.target];
+      if (!from || !to) continue;
       const isLit = selected.has(edge.source) && selected.has(edge.target);
-      color.set(edgeColor(isLit, edge.origin));
-      // Hovering a node ignites its connections; while a selection exists,
-      // edges that touch neither the selection nor the hover recede, so the
-      // neighbourhood the user is working in stays legible.
+      colorScratch.set(edgeColor(isLit, edge.origin));
       const touchesHover =
         hoveredId !== null &&
         (edge.source === hoveredId || edge.target === hoveredId);
@@ -217,32 +249,33 @@ function Edges({
           : touchesSelection
             ? 1.25
             : 0.4;
-      const r = Math.min(color.r * factor, 1);
-      const g = Math.min(color.g * factor, 1);
-      const b = Math.min(color.b * factor, 1);
-      points.push(from[0] * 0.1, from[1] * 0.1, from[2] * 0.1);
-      points.push(to[0] * 0.1, to[1] * 0.1, to[2] * 0.1);
-      colors.push(r, g, b, r, g, b);
+      const r = Math.min(colorScratch.r * factor, 1);
+      const g = Math.min(colorScratch.g * factor, 1);
+      const b = Math.min(colorScratch.b * factor, 1);
+      colors[cursor++] = r;
+      colors[cursor++] = g;
+      colors[cursor++] = b;
+      colors[cursor++] = r;
+      colors[cursor++] = g;
+      colors[cursor++] = b;
     }
-    const buffer = new THREE.BufferGeometry();
-    buffer.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(points, 3),
-    );
-    buffer.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-    return buffer;
-  }, [graph.edges, positions, selected, hoveredId]);
-
-  useEffect(() => () => geometry.dispose(), [geometry]);
+    attr.needsUpdate = true;
+  }, [geometry, graph.edges, positions, selected, hoveredId, colorScratch]);
 
   if (graph.edges.length === 0) return null;
 
   return (
-    <lineSegments geometry={geometry} frustumCulled={false}>
+    <lineSegments
+      ref={lineRef}
+      geometry={geometry}
+      frustumCulled={false}
+      renderOrder={1}
+    >
       <lineBasicMaterial
         vertexColors
         transparent
         opacity={0.85}
+        depthWrite={false}
         toneMapped={false}
       />
     </lineSegments>
@@ -362,8 +395,23 @@ export function GraphScene(props: SceneProps): JSX.Element {
   return (
     <Canvas
       camera={{ fov: 55, near: 0.1, far: 4000, position: [0, 0, 40] }}
-      dpr={[1, 1.75]}
-      gl={{ antialias: true, powerPreference: "high-performance" }}
+      // Fixed DPR (not [min,max]): R3F rescaling the drawing buffer mid-session
+      // flashes black and has contributed to WebGL context loss under Qt.
+      dpr={Math.min(
+        typeof window !== "undefined" ? window.devicePixelRatio : 1,
+        1.5,
+      )}
+      gl={{
+        antialias: quality === "high",
+        // "high-performance" forces the discrete GPU on hybrid laptops; when
+        // another process (capture, browser, etc.) contends for that GPU, Qt
+        // WebEngine often loses the context and the galaxy flickers.
+        powerPreference: "default",
+        alpha: false,
+        stencil: false,
+        depth: true,
+        failIfMajorPerformanceCaveat: false,
+      }}
       // The canvas is decorative for assistive technology: the same graph is
       // exposed as a real tree in GraphList. Hiding it prevents a screen reader
       // from announcing an empty <canvas> as the primary content.
@@ -405,10 +453,12 @@ export function GraphScene(props: SceneProps): JSX.Element {
         dampingFactor={0.08}
         rotateSpeed={0.7}
         zoomSpeed={0.9}
-        // The idle galaxy drifts; the moment something is selected (or motion is
-        // reduced) it holds still and lets the user work.
-        autoRotate={!reducedMotion && selectedIds.length === 0}
-        autoRotateSpeed={0.35}
+        // Idle drift only on the high tier — continuous camera motion + stacked
+        // additive layers was the main idle shimmer on balanced/low-gpu.
+        autoRotate={
+          !reducedMotion && selectedIds.length === 0 && quality === "high"
+        }
+        autoRotateSpeed={0.25}
         makeDefault
       />
     </Canvas>

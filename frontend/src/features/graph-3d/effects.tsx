@@ -28,6 +28,7 @@ import type {
   NebulaData,
   StarfieldData,
 } from "./galaxy";
+import { GRAPH_LABEL_FONT } from "./graphFont";
 
 const GLOW_VERTEX = /* glsl */ `
   attribute float aSize;
@@ -38,12 +39,17 @@ const GLOW_VERTEX = /* glsl */ `
   uniform float uIntensity;
   varying vec3 vColor;
   varying float vAlpha;
+  varying float vSelected;
   void main() {
     vColor = aColor;
+    vSelected = aSelected;
+    // Selected halos bloom larger and brighter so the pick reads as ignition,
+    // not a flat white sphere.
     float pulse = 1.0 + aSelected * uPulse * (0.5 + 0.5 * sin(uTime * 3.0));
+    float selectBoost = 1.0 + aSelected * 0.7;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = aSize * pulse * uIntensity * (320.0 / -mv.z);
-    vAlpha = 0.5 + aSelected * 0.4;
+    gl_PointSize = aSize * pulse * selectBoost * uIntensity * (320.0 / -mv.z);
+    vAlpha = 0.45 + aSelected * 0.55;
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -51,11 +57,16 @@ const GLOW_VERTEX = /* glsl */ `
 const GLOW_FRAGMENT = /* glsl */ `
   varying vec3 vColor;
   varying float vAlpha;
+  varying float vSelected;
   void main() {
     float d = length(gl_PointCoord - vec2(0.5));
     float a = smoothstep(0.5, 0.0, d);
-    a *= a * a; // cubic falloff: a tight core with a long soft tail
-    gl_FragColor = vec4(vColor, a * vAlpha);
+    // Unselected: tight cubic core. Selected: softer quadratic falloff so the
+    // halo feels luminous rather than chalky.
+    float falloff = mix(a * a * a, a * a, vSelected);
+    // Lift the selected core toward white so additive bloom reads bright gold.
+    vec3 rgb = mix(vColor, vec3(1.0, 0.98, 0.88), vSelected * 0.35);
+    gl_FragColor = vec4(rgb, falloff * vAlpha);
   }
 `;
 
@@ -180,7 +191,7 @@ export function NodeGlow({
 
   if (data.count === 0) return null;
   return (
-    <points geometry={geometry} frustumCulled={false}>
+    <points geometry={geometry} frustumCulled={false} renderOrder={5}>
       <shaderMaterial
         ref={materialRef}
         vertexShader={GLOW_VERTEX}
@@ -229,7 +240,7 @@ export function Starfield({
 
   return (
     <group ref={groupRef}>
-      <points geometry={geometry} frustumCulled={false}>
+      <points geometry={geometry} frustumCulled={false} renderOrder={3}>
         <shaderMaterial
           ref={materialRef}
           vertexShader={STAR_VERTEX}
@@ -280,7 +291,7 @@ export function Nebula({
   if (data.count === 0) return null;
   return (
     <group ref={groupRef}>
-      <points geometry={geometry} frustumCulled={false}>
+      <points geometry={geometry} frustumCulled={false} renderOrder={2}>
         <shaderMaterial
           ref={materialRef}
           vertexShader={NEBULA_VERTEX}
@@ -325,7 +336,7 @@ export function EdgeParticles({
 
   if (data.count === 0) return null;
   return (
-    <points geometry={geometry} frustumCulled={false}>
+    <points geometry={geometry} frustumCulled={false} renderOrder={4}>
       <shaderMaterial
         ref={materialRef}
         vertexShader={FLOW_VERTEX}
@@ -364,6 +375,7 @@ export function NodeLabels({
             position={[p[0] * scale, p[1] * scale + 1.6, p[2] * scale]}
           >
             <Text
+              font={GRAPH_LABEL_FONT}
               fontSize={active ? 1.05 : 0.8}
               color={active ? "#f2f7ff" : "#93a1bd"}
               outlineWidth={0.05}
@@ -373,7 +385,7 @@ export function NodeLabels({
               maxWidth={26}
             >
               {node.label.length > 34
-                ? `${node.label.slice(0, 34)}…`
+                ? `${node.label.slice(0, 34)}...`
                 : node.label}
             </Text>
           </Billboard>

@@ -66,6 +66,19 @@ class AppSettings(BaseModel):
     # redirects) and can be switched off entirely here.
     url_import_enabled: bool = True
 
+    # -- Onboarding ----------------------------------------------------------
+    #
+    # False until the first-run tutorial is skipped or finished. Replay from
+    # More → Tutorial does not clear this; Skip/Finish set it true again.
+    onboarding_tour_completed: bool = False
+
+    # -- Screen security -----------------------------------------------------
+    #
+    # Signal-style "Hidden for sharing": when True, the OS excludes the entire
+    # Strata window from screenshots and screen shares (Windows:
+    # WDA_EXCLUDEFROMCAPTURE). The window stays visible on your display.
+    hide_for_sharing: bool = False
+
 
 class SettingsService:
     def __init__(self, path: Path) -> None:

@@ -127,50 +127,54 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
             </label>
           </fieldset>
 
-          {isPrivate && (
-            <>
-              <label className="properties__field">
-                <span className="label">Password</span>
-                <input
-                  className="input"
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </label>
+          <div
+            className={`dialog__private-fields ${isPrivate ? "" : "dialog__private-fields--collapsed"}`}
+            aria-hidden={!isPrivate}
+          >
+            <label className="properties__field">
+              <span className="label">Password</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                tabIndex={isPrivate ? 0 : -1}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
 
-              <label className="properties__field">
-                <span className="label">Confirm password</span>
-                <input
-                  className="input"
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirm}
-                  onChange={(event) => setConfirm(event.target.value)}
-                />
-              </label>
+            <label className="properties__field">
+              <span className="label">Confirm password</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                tabIndex={isPrivate ? 0 : -1}
+                onChange={(event) => setConfirm(event.target.value)}
+              />
+            </label>
 
-              <label className="dialog__choice">
-                <input
-                  type="checkbox"
-                  checked={withRecoveryKey}
-                  onChange={(event) => setWithRecoveryKey(event.target.checked)}
-                />
-                <span>
-                  Generate a recovery key. It is shown once and opens the layer
-                  if you forget the password.
-                </span>
-              </label>
+            <label className="dialog__choice">
+              <input
+                type="checkbox"
+                checked={withRecoveryKey}
+                tabIndex={isPrivate ? 0 : -1}
+                onChange={(event) => setWithRecoveryKey(event.target.checked)}
+              />
+              <span>
+                Generate a recovery key. It is shown once and opens the layer
+                if you forget the password.
+              </span>
+            </label>
 
-              <p className="dialog__warning" role="note">
-                <span className="tag tag--warning">No reset</span> Strata cannot
-                recover this layer for you. There is no copy of the password and
-                no copy of the recovery key. If you lose both, the contents are
-                gone permanently.
-              </p>
-            </>
-          )}
+            <p className="dialog__warning" role="note">
+              <span className="tag tag--warning">No reset</span> Strata cannot
+              recover this layer for you. There is no copy of the password and
+              no copy of the recovery key. If you lose both, the contents are
+              gone permanently.
+            </p>
+          </div>
 
           <fieldset className="dialog__fieldset">
             <legend className="label">Start with</legend>

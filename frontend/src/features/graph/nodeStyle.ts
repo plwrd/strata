@@ -64,11 +64,11 @@ export function nodeColor(node: GraphNode, selected: boolean): string {
 
 /**
  * The halo around a node. Unselected nodes glow in their own hue (the galaxy);
- * a selected node's glow shifts to ignition-gold — a colour deliberately absent
- * from the node palette, so selection reads instantly at any zoom.
+ * a selected node's glow shifts to bright ignition-gold — a colour deliberately
+ * absent from the node palette, so selection reads instantly at any zoom.
  */
 export function glowColor(node: GraphNode, selected: boolean): string {
-  if (selected) return cssToken("--graph-glow-selected", "#ffcf6b");
+  if (selected) return cssToken("--graph-glow-selected", "#ffe566");
   if (node.locked) return cssToken("--graph-node-locked", "#47506a");
   if (node.cluster >= 0)
     return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;
@@ -83,9 +83,10 @@ export function nodeRadius(node: GraphNode): number {
 }
 
 export function edgeColor(selected: boolean, origin: string): string {
-  if (selected)
-    return cssToken("--graph-edge-selected", "rgba(34,224,245,0.95)");
+  // Opaque RGB only — THREE.Color ignores alpha and floods the console when
+  // given rgba(...), which also hid real GPU warnings during Explore.
+  if (selected) return cssToken("--graph-edge-selected-solid", "#22e0f5");
   if (origin === "ai-suggested")
-    return cssToken("--graph-edge-ai", "rgba(160,107,255,0.8)");
-  return cssToken("--graph-edge-default", "rgba(111,127,168,0.35)");
+    return cssToken("--graph-edge-ai-solid", "#a06bff");
+  return cssToken("--graph-edge-default-solid", "#6f7fa8");
 }

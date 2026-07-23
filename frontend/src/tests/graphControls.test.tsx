@@ -38,6 +38,7 @@ describe("GraphControls", () => {
   it("shows the lasso hint only in 2D", () => {
     const { rerender } = render(<GraphControls />);
     expect(screen.getByText(/shift-drag to lasso/)).toBeInTheDocument();
+    expect(screen.getByText(/scroll to zoom/)).toBeInTheDocument();
 
     useStore.setState({ dimension: "3d" });
     rerender(<GraphControls />);
