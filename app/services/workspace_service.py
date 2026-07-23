@@ -24,6 +24,7 @@ from app.domain.layer import (
     LayerStorage,
     LayerVisibility,
 )
+from app.domain.schema import KNOWLEDGE_AREAS
 from app.domain.views import ViewConfig
 from app.domain.workspace import KnowledgeLens, WorkspaceDescriptor
 from app.infrastructure.encryption.layer_header import LayerHeader
@@ -102,8 +103,13 @@ class WorkspaceService:
         self._layer_stores = {}
 
         layer, _recovery = self.create_layer("Knowledge", visibility="public")
+        # The knowledge loop's default areas (docs/target-architecture.md §2).
+        # Folders, not walls — an existing workspace is never forced into them.
+        markdown_store = self.layer_store(layer.id)
+        for area in KNOWLEDGE_AREAS:
+            (markdown_store.root / area).mkdir(parents=True, exist_ok=True)
         if seed_demo:
-            seed_demo_workspace(self.layer_store(layer.id))
+            seed_demo_workspace(markdown_store)
         self._install_default_lenses()
         logger.info("workspace.created", workspace_id=descriptor.id)
         if self._on_open:

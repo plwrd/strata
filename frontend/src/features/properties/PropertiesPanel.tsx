@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import type { PropertyDefinition } from "../../bridge/types";
 import { useStore } from "../../state/store";
+import { VersionHistory } from "../editor/VersionHistory";
 
 export function PropertiesPanel(): JSX.Element {
   const { openNote, schemas, schemaId, issues, saveProperties } = useStore();
@@ -106,6 +107,8 @@ export function PropertiesPanel(): JSX.Element {
           </span>
         </p>
       )}
+
+      <VersionHistory />
     </section>
   );
 }

@@ -69,6 +69,10 @@ class Operation(BaseModel):
     property_value: str = Field(default="", max_length=2000)
     tag: str = Field(default="", max_length=120)
 
+    # Initial frontmatter for create_note / create_task (e.g. a schema `type`,
+    # provenance fields). Strings only — richer values go through set_property.
+    properties: dict[str, str] = Field(default_factory=dict)
+
     # A one-line, human-readable statement of intent, written by the model. Shown in
     # the diff so the user reads *why*, not just *what*.
     rationale: str = Field(default="", max_length=400)

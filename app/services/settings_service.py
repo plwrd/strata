@@ -59,6 +59,13 @@ class AppSettings(BaseModel):
     local_max_output_tokens: int = 2048
     ai_request_timeout: int = 120
 
+    # -- Capture -------------------------------------------------------------
+    #
+    # URL import is the only outbound fetch besides AI providers and the relay.
+    # It ships SSRF-guarded (scheme allowlist, private-range block, no
+    # redirects) and can be switched off entirely here.
+    url_import_enabled: bool = True
+
 
 class SettingsService:
     def __init__(self, path: Path) -> None:
