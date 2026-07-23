@@ -396,6 +396,51 @@ path between the first and last selected nodes).
 The toolbar also toggles **Semantic edges** (AI-inferred similarity edges) and
 **Cluster colours** (colour nodes by semantic cluster).
 
+### Navigating the 2D graph (step by step)
+
+When the command bar is set to **2D** (or Strata has fallen back from 3D), the
+stage shows a flat canvas of the same graph. Use this sequence the first time
+you explore it:
+
+1. **Switch to Explore + 2D.** Click **Explore** in the command bar, then the
+   **2D** segment (next to **3D**). The graph fills the stage; a small zoom
+   toolbar appears at the bottom-right.
+2. **Read the fit view.** At **100%**, the whole layout is fitted into the
+   canvas with a margin. Labels appear on hubs and selected nodes.
+3. **Zoom in.** Either:
+   - click **+** on the zoom toolbar, or
+   - scroll the mouse wheel **up**.
+
+   Zoom always grows from the **centre of the view** (not from the cursor), so
+   the middle of the canvas stays put while the graph enlarges around it.
+4. **Zoom out.** Click **−**, or scroll the wheel **down**. The level readout
+   (e.g. `125%`) updates as you go. Zoom is clamped between about 40% and 800%.
+5. **Pan to look around.** After zooming in, click empty space (not on a node)
+   and drag. The graph slides under the view so you can inspect regions that
+   left the centre.
+6. **Fit everything again.** Click **Fit** on the zoom toolbar to reset to
+   100% and clear any pan — back to the full overview.
+7. **Select while zoomed.** Click a node to select it; **Ctrl+click** to
+   add/remove. Selection still drives the AI composer and exports the same way
+   as in 3D.
+8. **Lasso a region.** Hold **Shift**, drag a rectangle over several nodes,
+   then release. Hold **Ctrl** as well to *add* those nodes to the current
+   selection instead of replacing it.
+9. **Open a note.** Double-click a node to open it in the editor (Focus mode).
+
+**Quick reference (2D only)**
+
+| Action | How |
+| --- | --- |
+| Zoom in | **+** button or scroll wheel up |
+| Zoom out | **−** button or scroll wheel down |
+| Reset view | **Fit** button |
+| Pan | Drag empty canvas |
+| Lasso select | **Shift+drag** (add with **Ctrl**) |
+
+The hint under the graph controls restates the essentials:
+*scroll to zoom · drag empty space to pan · shift-drag to lasso*.
+
 ### The accessible graph
 
 The **Graph list** in the navigator is the same graph as a real tree — for
@@ -414,8 +459,8 @@ stay smooth at ten thousand nodes.
 
 What the visuals *mean*:
 
-- **Node colour and size** encode type and importance; selected nodes ignite
-  gold and pulse.
+- **Node colour and size** encode type and importance; selected nodes warm to
+  a soft gold core with a brighter ignition glow.
 - **Hover** a node and it swells, its name appears, its connections light up,
   and the cursor becomes a hand — you can see a node's neighbourhood without
   committing to a selection.
@@ -709,6 +754,9 @@ Strata's shortcuts are scoped to the panel you are in.
 | Graph & lists | `Ctrl/Cmd+click` | Add/remove from selection |
 | Graph | `Shift+click` | Shortest-path selection |
 | 2D graph | `Shift+drag` | Lasso selection |
+| 2D graph | Scroll wheel | Zoom in / out (about view centre) |
+| 2D graph | Drag empty space | Pan the view |
+| 2D graph | Zoom toolbar `+` / `−` / `Fit` | Zoom in, out, or reset to fit |
 | Dialogs / menus | `Esc` | Close |
 
 ---
@@ -720,7 +768,9 @@ desktop shell. Start Strata with `python -m app.main`.
 
 **The 3D view doesn't appear.** Strata falls back to the 2D graph when WebGL
 is unavailable or graph quality is `low-gpu`. Everything except the galaxy
-rendering works identically in 2D.
+rendering works identically in 2D — including selection, lasso, and the zoom
+toolbar (**+** / **−** / **Fit**, scroll to zoom about the centre, drag empty
+space to pan). See [Navigating the 2D graph](#navigating-the-2d-graph-step-by-step).
 
 **"Ask" is greyed out.** Read the tooltip: either no provider is configured
 (add one in the AI tab, with an API key if required), or the policy gate

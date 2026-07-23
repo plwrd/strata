@@ -22,6 +22,7 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   overflow: hidden; /* the shell owns scrolling; the page itself never scrolls */
+  color-scheme: dark;
 }
 
 h1,
@@ -148,6 +149,34 @@ kbd,
   border-radius: var(--radius-sm);
   font-family: var(--font-body);
   font-size: var(--text-sm);
+  color-scheme: dark;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-tertiary);
+  opacity: 1;
+}
+
+/* Closed <select> can inherit dark styles while the popup still uses the OS
+   light palette; pin option colours so the list stays readable. */
+.select option {
+  color: var(--text-primary);
+  background: var(--surface-overlay);
+}
+
+.input[type="date"],
+.input[type="datetime-local"],
+.input[type="time"] {
+  color-scheme: dark;
+}
+
+.input[type="date"]::-webkit-calendar-picker-indicator,
+.input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+.input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  opacity: 0.85;
+  cursor: pointer;
 }
 
 .textarea {

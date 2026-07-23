@@ -176,7 +176,7 @@ export function buildNodeGlow(
     out.colors[i * 3] = color.r;
     out.colors[i * 3 + 1] = color.g;
     out.colors[i * 3 + 2] = color.b;
-    out.sizes[i] = nodeRadius(node) * (isSelected ? 3.4 : 2.2);
+    out.sizes[i] = nodeRadius(node) * (isSelected ? 5.2 : 2.2);
     out.selected[i] = isSelected ? 1 : 0;
   });
   return out;

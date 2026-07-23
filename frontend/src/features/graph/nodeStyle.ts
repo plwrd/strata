@@ -64,11 +64,11 @@ export function nodeColor(node: GraphNode, selected: boolean): string {
 
 /**
  * The halo around a node. Unselected nodes glow in their own hue (the galaxy);
- * a selected node's glow shifts to ignition-gold — a colour deliberately absent
- * from the node palette, so selection reads instantly at any zoom.
+ * a selected node's glow shifts to bright ignition-gold — a colour deliberately
+ * absent from the node palette, so selection reads instantly at any zoom.
  */
 export function glowColor(node: GraphNode, selected: boolean): string {
-  if (selected) return cssToken("--graph-glow-selected", "#ffcf6b");
+  if (selected) return cssToken("--graph-glow-selected", "#ffe566");
   if (node.locked) return cssToken("--graph-node-locked", "#47506a");
   if (node.cluster >= 0)
     return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;

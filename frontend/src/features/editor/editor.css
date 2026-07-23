@@ -84,6 +84,7 @@
 }
 
 .editor-pane__title {
+  color: var(--text-primary);
   font-size: var(--text-lg);
   white-space: nowrap;
   overflow: hidden;
@@ -153,6 +154,11 @@
   max-width: 82ch;
   margin: 0 auto;
   width: 100%;
+  color: var(--text-primary);
+}
+
+.preview .katex {
+  color: var(--text-primary);
 }
 
 .preview h1,
@@ -219,11 +225,29 @@
   padding: var(--space-2);
   border: 1px solid var(--border-subtle);
   text-align: left;
+  color: var(--text-primary);
 }
 
 .preview th {
   background: var(--surface-raised);
   color: var(--text-secondary);
+}
+
+.mermaid {
+  color: var(--text-primary);
+}
+
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+  color: var(--text-primary);
+}
+
+.mermaid .nodeLabel,
+.mermaid .edgeLabel,
+.mermaid .label {
+  color: var(--text-primary) !important;
+  fill: var(--text-primary) !important;
 }
 
 .preview img {
@@ -830,6 +854,7 @@
   border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: top;
+  color: var(--text-primary);
 }
 
 .views__table th {

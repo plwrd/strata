@@ -33,6 +33,7 @@
 }
 
 .commandbar__name {
+  color: var(--text-primary);
   font-family: var(--font-display);
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -519,6 +520,7 @@
 .layers__name {
   flex: 1;
   min-width: 0;
+  color: var(--text-primary);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -712,7 +714,7 @@
 }
 
 .search__reasons li {
-  color: var(--accent-primary-dim);
+  color: var(--accent-primary);
   font-size: 10px;
 }
 

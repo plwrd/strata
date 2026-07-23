@@ -69,6 +69,7 @@ const TIERS = {
 } as const;
 
 const UP = new THREE.Object3D();
+const NODE_COLOR = new THREE.Color();
 
 function Nodes({
   graph,
@@ -111,7 +112,16 @@ function Nodes({
       UP.scale.setScalar(scale * 0.1);
       UP.updateMatrix();
       mesh.setMatrixAt(index, UP.matrix);
-      mesh.setColorAt(index, new THREE.Color(nodeColor(node, isSelected)));
+      // Selected stars get a lifted warm tint so they read as lit cores, not
+      // chalky white under the shared standard material.
+      NODE_COLOR.set(nodeColor(node, isSelected));
+      if (isSelected) {
+        NODE_COLOR.multiplyScalar(1.15);
+        NODE_COLOR.r = Math.min(NODE_COLOR.r, 1);
+        NODE_COLOR.g = Math.min(NODE_COLOR.g, 1);
+        NODE_COLOR.b = Math.min(NODE_COLOR.b, 1);
+      }
+      mesh.setColorAt(index, NODE_COLOR);
     });
     mesh.count = nodes.length;
     mesh.instanceMatrix.needsUpdate = true;
@@ -169,12 +179,11 @@ function Nodes({
       onPointerOut={() => onHover(null)}
       frustumCulled={false}
     >
-      <sphereGeometry args={[1, 12, 12]} />
-      <meshStandardMaterial
-        roughness={0.35}
-        metalness={0.15}
-        toneMapped={false}
-      />
+      <sphereGeometry args={[1, 16, 16]} />
+      {/* Unlit + fog off: MeshStandardMaterial washed nodes grey under sparse
+          lights, and MeshBasicMaterial still picks up the galaxy fog unless
+          fog is disabled — that was the remaining dark-grey look. */}
+      <meshBasicMaterial toneMapped={false} fog={false} />
     </instancedMesh>
   );
 }
