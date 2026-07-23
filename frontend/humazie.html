@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-appearance="cyberpunk-dark" data-motion="system" data-graph-quality="low-gpu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Strata — Humazie harness</title>
+    <!--
+      Humazie harness: CSP is relaxed enough for Playwright tooling while still
+      blocking third-party network. The fake bridge replaces Qt WebChannel.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; media-src 'self' blob:; base-uri 'none'; form-action 'none'"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Strata requires JavaScript to run.</noscript>
+    <script type="module" src="/src/humazie-entry.tsx"></script>
+  </body>
+</html>

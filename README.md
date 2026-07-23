@@ -11,6 +11,22 @@ telemetry by default.
 
 ---
 
+## Humazie Bot
+
+Autonomous Playwright product review for the React shell lives in [`humazie/`](humazie/).
+It drives the Vite harness (`frontend/humazie.html`) with the fake bridge — no Qt
+window required.
+
+```powershell
+npm --prefix humazie install
+npm run humazie:review
+npm run humazie:dashboard
+```
+
+See [`humazie/docs/SETUP.md`](humazie/docs/SETUP.md).
+
+---
+
 ## What Strata is
 
 - **A workspace on disk.** A workspace is a directory. You can back it up, put it in Git, or copy it

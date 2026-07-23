@@ -12,7 +12,8 @@
     "format": "prettier --write src",
     "format:check": "prettier --check src",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "humazie:serve": "vite --host 127.0.0.1 --port 5173"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

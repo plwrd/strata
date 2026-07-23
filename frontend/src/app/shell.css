@@ -1223,6 +1223,10 @@
 
 /* Narrow: one surface. Sidebars slide over; nothing scrolls horizontally. */
 @media (max-width: 960px) {
+  .shell {
+    overflow-x: hidden;
+  }
+
   .shell__body {
     grid-template-columns: 1fr;
   }
@@ -1239,6 +1243,24 @@
 
   .navigator--closed {
     transform: translateX(-100%);
+  }
+
+  /* Stay above the drawer so users can still collapse it. */
+  .drawer-toggle {
+    z-index: calc(var(--z-overlay) + 1);
+  }
+
+  .commandbar {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+
+  .commandbar__modes {
+    margin-left: 0;
+  }
+
+  .commandbar__lens {
+    display: none;
   }
 
   .composer__grid {

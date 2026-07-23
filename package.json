@@ -1,0 +1,15 @@
+{
+  "name": "strata",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Convenience scripts for Strata + Humazie Bot",
+  "scripts": {
+    "humazie:discover": "npm --prefix humazie run humazie:discover",
+    "humazie:review": "npm --prefix humazie run humazie:review --",
+    "humazie:watch": "npm --prefix humazie run humazie:watch --",
+    "humazie:rerun": "npm --prefix humazie run humazie:rerun --",
+    "humazie:report": "npm --prefix humazie run humazie:report",
+    "humazie:dashboard": "npm --prefix humazie run humazie:dashboard",
+    "humazie:test": "npm --prefix humazie test"
+  }
+}
