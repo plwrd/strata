@@ -810,7 +810,13 @@ export const useStore = create<StrataState>((set, get) => ({
 
   // -- layers ---------------------------------------------------------------
 
-  async createLayer(name, visibility, password, withRecoveryKey, starter) {
+  async createLayer(
+    name,
+    visibility,
+    password,
+    withRecoveryKey,
+    starter,
+  ) {
     const response = await bridge.layers.create(
       name,
       visibility,

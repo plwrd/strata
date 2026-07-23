@@ -276,7 +276,12 @@ export const bridge = {
       call<{ layer: LayerDescriptor; recovery_key: string | null }>(
         "layers",
         "create_layer",
-        { display_name, visibility, password, with_recovery_key },
+        {
+          display_name,
+          visibility,
+          password,
+          with_recovery_key,
+        },
       ),
     rename: (layer_id: string, display_name: string) =>
       call<{ layer: LayerDescriptor }>("layers", "rename_layer", {

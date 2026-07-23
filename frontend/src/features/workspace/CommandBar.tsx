@@ -173,6 +173,21 @@ export function CommandBar(): JSX.Element {
               >
                 {reduced ? "Motion: reduced" : "Motion: full"}
               </button>
+              <button
+                type="button"
+                className="button button--ghost"
+                aria-pressed={Boolean(settings?.hide_for_sharing)}
+                title="Hide the whole Strata window from screenshots and screen shares (Signal-style). You still see it; capture tools do not."
+                onClick={() => {
+                  void applySettings({
+                    hide_for_sharing: !settings?.hide_for_sharing,
+                  });
+                }}
+              >
+                {settings?.hide_for_sharing
+                  ? "Hidden for sharing: on"
+                  : "Hidden for sharing: off"}
+              </button>
             </div>
           )}
         </div>

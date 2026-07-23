@@ -723,10 +723,17 @@ Settings exposed in the UI:
 
 | Setting | Where |
 | --- | --- |
-| Motion (full / reduced) | Command bar toggle |
+| Motion (full / reduced) | Command bar → More |
+| **Hidden for sharing** | Command bar → More |
 | Semantic edges, cluster colours | Graph controls |
 | Semantic search | Search panel checkbox |
 | Sync relay URL | Collaboration panel |
+
+**Hidden for sharing** (Signal-style) asks the OS to exclude the *entire*
+Strata window from screenshots and screen shares. You still see the app
+normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
+do not. On Windows this uses `WDA_EXCLUDEFROMCAPTURE`. Turn it off if you need
+to demo or record Strata itself.
 
 Further settings live in a JSON settings file in the OS config directory and
 are currently **edited by hand**, not in the UI: appearance theme

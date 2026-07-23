@@ -563,6 +563,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           developer_tools: false,
           relay_url: "",
           onboarding_tour_completed: true,
+          hide_for_sharing: false,
         },
       }),
       update_settings: (payload) => ({
@@ -580,6 +581,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           developer_tools: false,
           relay_url: "",
           onboarding_tour_completed: true,
+          hide_for_sharing: false,
           ...(payload["values"] as object),
         },
       }),

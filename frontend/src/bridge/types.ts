@@ -731,6 +731,11 @@ export interface AppSettings {
   relay_url: string;
   /** False until the first-run tutorial is skipped or finished. */
   onboarding_tour_completed: boolean;
+  /**
+   * Signal-style: exclude the whole Strata window from screenshots / screen
+   * shares. Enforced by the native shell, not the web UI.
+   */
+  hide_for_sharing: boolean;
 }
 
 export interface JobRecord {

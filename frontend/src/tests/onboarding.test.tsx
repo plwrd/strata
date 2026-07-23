@@ -29,6 +29,7 @@ function seedSettings(completed: boolean): void {
       developer_tools: false,
       relay_url: "",
       onboarding_tour_completed: completed,
+      hide_for_sharing: false,
     },
     mode: "explore",
     workspace: {

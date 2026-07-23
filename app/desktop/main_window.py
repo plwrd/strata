@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QShowEvent
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMainWindow
 
+from app.desktop.screen_security import set_window_excluded_from_capture
 from app.desktop.webchannel import build_channel
 from app.desktop.webengine import APP_URL, StrataPage, build_profile
 from app.infrastructure.logging.logger import get_logger
@@ -88,6 +89,17 @@ class MainWindow(QMainWindow):
         url = QUrl(dev_server) if dev_server else QUrl(APP_URL)
         logger.info("window.loading", dev=bool(dev_server))
         self._view.load(url)
+
+    def apply_hide_for_sharing(self, enabled: bool) -> None:
+        """Signal-style: exclude the whole Strata window from screen capture."""
+        set_window_excluded_from_capture(self, enabled=enabled)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        # winId is only valid after the native window exists.
+        self.apply_hide_for_sharing(
+            self._services.settings.settings.hide_for_sharing
+        )
 
     def _toggle_devtools(self) -> None:
         """Developer tools exist only in development builds."""
