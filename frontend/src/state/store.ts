@@ -31,6 +31,7 @@ import type {
   NoteSchema,
   PolicyView,
   PrivacyReceipt,
+  UsedSource,
   ProviderView,
   SearchResult,
   TrashEntry,
@@ -154,6 +155,11 @@ interface StrataState {
   aiError: string | null;
   aiRequestId: string | null;
   receipts: PrivacyReceipt[];
+  // "Ask the workspace": with nothing selected, retrieval picks the context.
+  askWorkspace: boolean;
+  conversationId: string | null;
+  aiExecutionId: string | null;
+  aiSources: UsedSource[];
 
   // actions
   initialise: () => Promise<void>;
@@ -280,6 +286,8 @@ interface StrataState {
   sendToModel: (confirmedRemote: boolean) => Promise<void>;
   cancelAIRequest: () => Promise<void>;
   clearAIOutput: () => void;
+  newAIThread: () => void;
+  setAskWorkspace: (on: boolean) => void;
   loadReceipts: () => Promise<void>;
 }
 
@@ -367,6 +375,10 @@ export const useStore = create<StrataState>((set, get) => ({
   aiError: null,
   aiRequestId: null,
   receipts: [],
+  askWorkspace: true,
+  conversationId: null,
+  aiExecutionId: null,
+  aiSources: [],
 
   async initialise() {
     try {
@@ -1270,6 +1282,8 @@ export const useStore = create<StrataState>((set, get) => ({
       model,
       depth,
       contentMode,
+      askWorkspace,
+      conversationId,
     } = get();
     const selectable = selectedIds.filter((id) => isExportable(graph, id));
     if (!prompt.trim()) {
@@ -1277,9 +1291,15 @@ export const useStore = create<StrataState>((set, get) => ({
       return;
     }
 
-    set({ aiOutput: "", aiError: null, aiStreaming: true, aiRequestId: null });
+    set({
+      aiOutput: "",
+      aiError: null,
+      aiStreaming: true,
+      aiRequestId: null,
+      aiSources: [],
+    });
     try {
-      const { request_id } = await bridge.ai.send({
+      const response = await bridge.ai.send({
         provider_id: providerId,
         // The CLI picks its own model; everything else needs one chosen.
         model: model || "default",
@@ -1288,8 +1308,17 @@ export const useStore = create<StrataState>((set, get) => ({
         depth,
         content_mode: contentMode,
         confirmed_remote: confirmedRemote,
+        // With nothing selected, retrieval ranks a small context server-side —
+        // never the whole workspace.
+        retrieve: askWorkspace && selectable.length === 0,
+        conversation_id: conversationId ?? "",
       });
-      set({ aiRequestId: request_id });
+      set({
+        aiRequestId: response.request_id,
+        aiExecutionId: response.execution_id || null,
+        conversationId: response.conversation_id || conversationId,
+        aiSources: response.sources ?? [],
+      });
     } catch (error) {
       // A denial or a missing key surfaces here, before any streaming starts.
       set({
@@ -1301,6 +1330,17 @@ export const useStore = create<StrataState>((set, get) => ({
       });
     }
   },
+
+  newAIThread: () =>
+    set({
+      conversationId: null,
+      aiOutput: "",
+      aiError: null,
+      aiSources: [],
+      aiExecutionId: null,
+    }),
+
+  setAskWorkspace: (on) => set({ askWorkspace: on }),
 
   async cancelAIRequest() {
     const id = get().aiRequestId;

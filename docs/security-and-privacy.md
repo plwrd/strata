@@ -59,6 +59,10 @@ row fails review.
 | `notes.import_url` + the fetch it performs (first new outbound call besides AI/relay) | 2 | SSRF guard: http/https only, embedded credentials refused, every resolved address checked against private/loopback/link-local/reserved ranges before the request, redirects refused, 2 MB / 20 s caps, text-only content types, HTML stripped to text, refusal messages generic. Kill-switch: `settings.url_import_enabled`. Residual risk: DNS rebinding between check and connect (documented; redirect refusal removes the cheap variant) |
 | `notes.list_versions` / `get_version` / `restore_version` (read/write) | 2 | Versions exist only for Markdown layers — `VersionService.supports()` is the single gate; private layers return `supported: false` and never write plaintext trails (verified by `test_versions.py`) |
 | `operations.process_notes` (AI, job) | 2 | Same policy gate as every model call (`AIService.run`, kind `processing`); job detail strings carry counts only; plan output re-validated by the standard review/apply flow |
+| `ai.send_request` retrieval + conversation extensions | 3 | Retrieval selects ids that flow through the unchanged plan → policy → render path (retrieval widens nothing); conversation replay uses only backend-stored, non-redacted turns — a client cannot inject a forged history; the policy gate re-runs per turn against current layer states |
+| `ai.save_output` (write) | 3 | Mutation via the operation engine (reviewed one-op plan: snapshot, audit, undo); provenance stamped; titles uniquified, never overwritten; append targets validated through `get_note` |
+| `ai.list_prompts` / `save_prompt` / `use_prompt` / `delete_prompt` | 3 | Workspace-local files only; prompt text renders into the instruction channel, never the sources block; no content from layers |
+| Conversations file (`.strata/ai/conversations.jsonl`) | 3 | Same redaction rule as executions: private-layer turns persist as shape-only (empty content, `redacted: true`); verified by `test_conversations.py` sentinel grep |
 
 ## 5. Privacy controls roadmap
 

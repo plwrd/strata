@@ -20,6 +20,7 @@ import type {
   Note,
   NoteMetadata,
   PlanReview,
+  SavedPrompt,
 } from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
@@ -42,6 +43,8 @@ export interface FakeBridgeOptions {
   /** Seed the version trail served via `notes.list_versions` (oldest first). */
   versions?: FakeVersion[];
   versionsSupported?: boolean;
+  /** Seed the prompt library served via `ai.list_prompts`. */
+  prompts?: SavedPrompt[];
   failWith?: { code: string; message: string };
   /** Receives the raw request envelope, so a test can assert on the wire format. */
   onRequest?: (objectName: string, method: string, raw: string) => void;
@@ -471,6 +474,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   captured.length = 0;
   const noteVersions: FakeVersion[] = [...(options.versions ?? [])];
   const versionsSupported = options.versionsSupported ?? true;
+  const savedPrompts: SavedPrompt[] = (options.prompts ?? []).map((entry) => ({
+    ...entry,
+  }));
 
   const handlers: Record<string, Record<string, Handler | Signal>> = {
     workspace: {
@@ -1058,9 +1064,69 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         provider_id: "ollama",
         reason: "Ollama runs on this machine.",
       }),
-      send_request: () => ({ request_id: "req_ai_1" }),
+      send_request: (payload) => {
+        captured.push(payload);
+        return {
+          request_id: "req_ai_1",
+          execution_id: "exec_fake_1",
+          conversation_id:
+            (payload["conversation_id"] as string) || "conv_fake_1",
+          sources: payload["retrieve"]
+            ? [
+                {
+                  object_id: "n1",
+                  title: "Encryption Architecture",
+                  is_private: false,
+                },
+              ]
+            : [],
+        };
+      },
       cancel_request: () => ({ cancelled: true }),
       privacy_receipts: () => ({ receipts: [] }),
+      save_output: (payload) => {
+        captured.push(payload);
+        return {
+          note_id: "n_saved",
+          title: payload["title"] as string,
+          plan_id: "plan_saved",
+        };
+      },
+      list_prompts: () => ({ prompts: [...savedPrompts] }),
+      save_prompt: (payload) => {
+        const record = {
+          id:
+            (payload["prompt_id"] as string) ||
+            `prompt_${savedPrompts.length + 1}`,
+          name: payload["name"] as string,
+          description: (payload["description"] as string) ?? "",
+          category: (payload["category"] as string) ?? "other",
+          prompt_text: payload["prompt_text"] as string,
+          model_preference: "",
+          temperature: null,
+          version: 1,
+          usage_count: 0,
+          created_at: "2026-07-14T10:00:00+00:00",
+          updated_at: "2026-07-14T10:00:00+00:00",
+          last_used_at: "",
+        };
+        savedPrompts.push(record);
+        return { prompt: record };
+      },
+      use_prompt: (payload) => {
+        const found = savedPrompts.find(
+          (entry) => entry.id === payload["prompt_id"],
+        )!;
+        found.usage_count += 1;
+        return { prompt: { ...found } };
+      },
+      delete_prompt: (payload) => {
+        const index = savedPrompts.findIndex(
+          (entry) => entry.id === payload["prompt_id"],
+        );
+        if (index >= 0) savedPrompts.splice(index, 1);
+        return { deleted: true };
+      },
       list_history: () => ({ executions: [...executions] }),
       clear_history: () => {
         const cleared = executions.length > 0 ? 2 : 0;

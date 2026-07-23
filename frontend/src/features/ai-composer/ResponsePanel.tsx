@@ -10,8 +10,15 @@
  */
 
 import { useState } from "react";
+import { bridge, BridgeCallError } from "../../bridge/client";
 import { useStore } from "../../state/store";
 import { RemoteConfirmDialog } from "./RemoteConfirmDialog";
+
+type SaveState =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "saved"; title: string }
+  | { kind: "error"; message: string };
 
 export function ResponsePanel(): JSX.Element {
   const {
@@ -22,11 +29,43 @@ export function ResponsePanel(): JSX.Element {
     aiStreaming,
     aiOutput,
     aiError,
+    aiSources,
+    aiExecutionId,
+    conversationId,
+    openNote,
     sendToModel,
     cancelAIRequest,
     clearAIOutput,
+    newAIThread,
+    reloadTree,
   } = useStore();
   const [confirming, setConfirming] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
+
+  const saveOutput = async (
+    target: "note" | "report" | "append",
+  ): Promise<void> => {
+    setSaveState({ kind: "busy" });
+    try {
+      const saved = await bridge.ai.saveOutput({
+        execution_id: aiExecutionId ?? "",
+        content: aiOutput,
+        title: prompt.trim().split("\n")[0]?.slice(0, 80) || "AI answer",
+        target,
+        note_id: target === "append" ? (openNote?.metadata.id ?? "") : "",
+      });
+      setSaveState({ kind: "saved", title: saved.title });
+      await reloadTree();
+    } catch (error) {
+      setSaveState({
+        kind: "error",
+        message:
+          error instanceof BridgeCallError || error instanceof Error
+            ? error.message
+            : "Saving failed.",
+      });
+    }
+  };
 
   const provider = providers.find((p) => p.provider_id === providerId);
   const canSend =
@@ -83,6 +122,20 @@ export function ResponsePanel(): JSX.Element {
         </p>
       )}
 
+      {aiSources.length > 0 && (
+        <p className="response__sources" aria-label="Notes used as context">
+          <span className="label">Used:</span>{" "}
+          {aiSources.map((source) => (
+            <span
+              key={source.object_id}
+              className={`tag ${source.is_private ? "tag--private" : ""}`}
+            >
+              {source.title}
+            </span>
+          ))}
+        </p>
+      )}
+
       {(aiStreaming || aiOutput) && (
         <div
           className="response__output"
@@ -96,6 +149,58 @@ export function ResponsePanel(): JSX.Element {
             </span>
           )}
         </div>
+      )}
+
+      {aiOutput && !aiStreaming && (
+        <div className="response__save" aria-label="Save this answer">
+          <button
+            type="button"
+            className="button"
+            disabled={saveState.kind === "busy"}
+            onClick={() => void saveOutput("note")}
+          >
+            Save as note
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={saveState.kind === "busy"}
+            onClick={() => void saveOutput("report")}
+          >
+            Save as report
+          </button>
+          {openNote && (
+            <button
+              type="button"
+              className="button"
+              disabled={saveState.kind === "busy"}
+              onClick={() => void saveOutput("append")}
+            >
+              Append to “{openNote.metadata.title.slice(0, 24)}”
+            </button>
+          )}
+          {conversationId && (
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={newAIThread}
+            >
+              New thread
+            </button>
+          )}
+        </div>
+      )}
+
+      {saveState.kind === "saved" && (
+        <p className="composer__status composer__status--ok" role="status">
+          Saved as “{saveState.title}” — marked ai-inferred, undoable from the
+          Changes tab.
+        </p>
+      )}
+      {saveState.kind === "error" && (
+        <p className="composer__status composer__status--error" role="alert">
+          {saveState.message}
+        </p>
       )}
 
       {confirming && policy && (

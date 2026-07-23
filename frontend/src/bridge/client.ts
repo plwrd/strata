@@ -35,7 +35,9 @@ import type {
   PlanReview,
   PolicyView,
   AIExecutionRecord,
+  AISendResponse,
   NoteVersion,
+  SavedPrompt,
   VersionListResponse,
   PrivacyReceipt,
   ProviderHealthView,
@@ -497,7 +499,37 @@ export const bridge = {
       content_mode?: ContentMode;
       max_output_tokens?: number;
       confirmed_remote?: boolean;
-    }) => call<{ request_id: string }>("ai", "send_request", request),
+      retrieve?: boolean;
+      retrieve_limit?: number;
+      conversation_id?: string;
+    }) => call<AISendResponse>("ai", "send_request", request),
+    saveOutput: (request: {
+      execution_id?: string;
+      content: string;
+      title: string;
+      target: "note" | "report" | "append";
+      layer_id?: string;
+      note_id?: string;
+    }) =>
+      call<{ note_id: string; title: string; plan_id: string }>(
+        "ai",
+        "save_output",
+        request,
+      ),
+    listPrompts: () => call<{ prompts: SavedPrompt[] }>("ai", "list_prompts"),
+    savePrompt: (request: {
+      prompt_id?: string;
+      name: string;
+      prompt_text: string;
+      description?: string;
+      category?: string;
+      model_preference?: string;
+      temperature?: number | null;
+    }) => call<{ prompt: SavedPrompt }>("ai", "save_prompt", request),
+    usePrompt: (prompt_id: string) =>
+      call<{ prompt: SavedPrompt }>("ai", "use_prompt", { prompt_id }),
+    deletePrompt: (prompt_id: string) =>
+      call<{ deleted: boolean }>("ai", "delete_prompt", { prompt_id }),
     cancel: (request_id: string) =>
       call<{ cancelled: boolean }>("ai", "cancel_request", { request_id }),
     receipts: () =>

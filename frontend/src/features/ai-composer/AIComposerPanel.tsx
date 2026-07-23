@@ -19,6 +19,7 @@ import type {
 import { summariseSelection, useStore } from "../../state/store";
 import { AIHistoryPanel } from "./AIHistoryPanel";
 import { ContextSourceList } from "./ContextSourceList";
+import { PromptLibraryPanel } from "./PromptLibraryPanel";
 import { PrivacyReview } from "./PrivacyReview";
 import { PromptEditor } from "./PromptEditor";
 import { ProviderSelector } from "./ProviderSelector";
@@ -154,9 +155,19 @@ export function AIComposerPanel(): JSX.Element {
       {state.selectedIds.length === 0 ? (
         <div className="composer__body scroll-y">
           <p className="empty-state">
-            Select nodes in the graph, the tree or the search results. Whatever
-            you illuminate is exactly what a model would see — nothing more.
+            Select nodes in the graph, the tree or the search results — whatever
+            you illuminate is exactly what a model would see. Or just ask: with
+            nothing selected, retrieval picks a few relevant notes as context
+            and shows you which ones it used.
           </p>
+          <PromptLibraryPanel />
+          <PromptEditor
+            value={state.prompt}
+            onChange={state.setPrompt}
+            onCommit={() => Promise.resolve()}
+          />
+          <ProviderSelector />
+          <ResponsePanel />
           <AIHistoryPanel />
         </div>
       ) : (
@@ -169,6 +180,7 @@ export function AIComposerPanel(): JSX.Element {
             onClear={state.clearSelection}
           />
 
+          <PromptLibraryPanel />
           <PromptEditor
             value={state.prompt}
             onChange={state.setPrompt}

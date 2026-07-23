@@ -512,6 +512,28 @@ Ask with **Ask locally** / **Ask (remote)**; answers stream in with a **Stop**
 button. Every remote request also writes a privacy receipt on the backend
 (there is no receipts browser in the UI yet).
 
+### Ask the workspace, threads, and saving answers
+
+With **nothing selected**, the AI panel still works: retrieval picks a small
+set of relevant notes (never the whole workspace) as context, and the answer
+shows **exactly which notes were used** as chips above it. Selecting notes
+yourself always overrides retrieval.
+
+Answers are threads: follow-up questions continue the same conversation
+(replayed from Strata's own store — turns that involved a private layer are
+never replayed), and **New thread** starts fresh. Conversations persist across
+restarts and are deleted by **Clear history**.
+
+A finished answer can be kept: **Save as note** (into `Knowledge/`), **Save as
+report** (into `Reports/`), or **Append** to the open note. Every save goes
+through the operation engine — snapshot first, audit-logged, undoable from the
+Changes tab — and the new page carries `ai-inferred` review status, the
+execution id that produced it, and `derived_from::` links to its sources.
+
+Below the prompt sits the **prompt library**: save the current prompt under a
+name and category, and refill the editor from a saved prompt later. Saved
+prompts version on every save and count their uses.
+
 ### AI history
 
 Every model request — asks and plan generations alike — is recorded in the
