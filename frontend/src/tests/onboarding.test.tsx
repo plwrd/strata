@@ -28,6 +28,8 @@ function seedSettings(completed: boolean): void {
       last_workspace_path: "",
       developer_tools: false,
       relay_url: "",
+      default_provider: "ollama",
+      default_model: "deepseek-r1:7b",
       onboarding_tour_completed: completed,
       hide_for_sharing: false,
     },

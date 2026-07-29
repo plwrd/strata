@@ -729,6 +729,9 @@ export interface AppSettings {
   last_workspace_path: string;
   developer_tools: boolean;
   relay_url: string;
+  default_provider: string;
+  /** Ollama id for Distill Qwen 7B (`deepseek-r1:7b`) by default. */
+  default_model: string;
   /** False until the first-run tutorial is skipped or finished. */
   onboarding_tour_completed: boolean;
   /**

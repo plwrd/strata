@@ -24,6 +24,8 @@ if not (FRONTEND_DIST / "index.html").is_file():
 datas = [
     (str(FRONTEND_DIST), "frontend/dist"),
     (str(ROOT / "packaging" / "icons"), "packaging/icons"),
+    # Distill Qwen 7B identity prompt — loaded at runtime via resource_root().
+    (str(ROOT / "SystemPrompt.md"), "."),
 ]
 datas += collect_data_files("certifi")
 

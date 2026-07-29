@@ -402,7 +402,12 @@ export const useStore = create<StrataState>((set, get) => ({
         layers: state.workspace?.layers ?? [],
         providers: providerInfo.providers,
         keychainAvailable: providerInfo.keychain_available,
-        providerId: firstConfigured?.provider_id ?? "ollama",
+        providerId:
+          settings.default_provider ||
+          firstConfigured?.provider_id ||
+          "ollama",
+        // Distill Qwen 7B (`deepseek-r1:7b`) is the product default for Ollama.
+        model: settings.default_model || "deepseek-r1:7b",
         schemas,
         activeLensId: settings.default_lens_id,
       });
@@ -1253,7 +1258,16 @@ export const useStore = create<StrataState>((set, get) => ({
   // -- AI request -----------------------------------------------------------
 
   async setProvider(providerId) {
-    set({ providerId, model: "" });
+    const { settings } = get();
+    set({
+      providerId,
+      // Keep Distill Qwen 7B when switching back to a local provider that
+      // shares the product default; otherwise clear so the user picks again.
+      model:
+        providerId === "ollama" || providerId === "llamacpp" || providerId === "lmstudio"
+          ? settings?.default_model || "deepseek-r1:7b"
+          : "",
+    });
     await get().refreshPolicy();
   },
 
@@ -1299,6 +1313,14 @@ export const useStore = create<StrataState>((set, get) => ({
       return;
     }
 
+    const localProvider =
+      providerId === "ollama" ||
+      providerId === "llamacpp" ||
+      providerId === "lmstudio";
+    const resolvedModel = localProvider
+      ? model || get().settings?.default_model || "deepseek-r1:7b"
+      : model || "default";
+
     set({
       aiOutput: "",
       aiError: null,
@@ -1309,8 +1331,7 @@ export const useStore = create<StrataState>((set, get) => ({
     try {
       const response = await bridge.ai.send({
         provider_id: providerId,
-        // The CLI picks its own model; everything else needs one chosen.
-        model: model || "default",
+        model: resolvedModel,
         object_ids: selectable,
         prompt,
         depth,

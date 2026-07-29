@@ -194,7 +194,8 @@ OLLAMA = ProviderCapabilities(
         Capability.EMBEDDINGS,
     ],
     max_context_tokens=32_768,
-    note="Runs on this machine. Nothing leaves it.",
+    note="Runs on this machine. Default model: DeepSeek-R1 Distill Qwen 7B "
+    "(deepseek-r1:7b). Nothing leaves it.",
 )
 
 LLAMACPP = ProviderCapabilities(

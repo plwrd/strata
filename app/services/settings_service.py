@@ -49,7 +49,9 @@ class AppSettings(BaseModel):
     # Note what is NOT here: no API keys. Those live in the OS keychain, never in a
     # settings file that gets copied into a bug report or synced to a backup.
     default_provider: str = "ollama"
-    default_model: str = ""
+    # DeepSeek-R1-Distill-Qwen-7B via Ollama. Empty was historically allowed; the
+    # AI service resolves blank/"default" to this id as well.
+    default_model: str = "deepseek-r1:7b"
     embedding_model: str = ""
     claude_cli_path: str = ""
     provider_base_urls: dict[str, str] = Field(default_factory=dict)
