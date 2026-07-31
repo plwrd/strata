@@ -716,9 +716,44 @@ export interface ViewResult {
   locked_layers_excluded: number;
 }
 
+export type AppearanceTemplate =
+  | "cyberpunk-dark"
+  | "cyberpunk-dim"
+  | "high-contrast"
+  | "ember"
+  | "forest"
+  | "slate";
+
+export type FontBody = "inter" | "system" | "chakra";
+export type FontDisplay = "chakra" | "inter" | "system";
+export type FontMono = "jetbrains" | "consolas" | "system";
+
+/** Whitelisted theme colour keys (snake_case → CSS --kebab-case). */
+export type ThemeColorKey =
+  | "surface_void"
+  | "surface_base"
+  | "surface_raised"
+  | "surface_overlay"
+  | "text_primary"
+  | "text_secondary"
+  | "text_tertiary"
+  | "accent_primary"
+  | "accent_ai"
+  | "accent_collaboration"
+  | "status_success"
+  | "status_warning"
+  | "status_danger"
+  | "graph_background"
+  | "graph_node_default"
+  | "graph_node_selected"
+  | "graph_glow_selected"
+  | "graph_edge_default"
+  | "graph_edge_selected"
+  | "border_accent";
+
 export interface AppSettings {
   format_version: number;
-  appearance: "cyberpunk-dark" | "cyberpunk-dim" | "high-contrast";
+  appearance: AppearanceTemplate;
   motion: "full" | "reduced" | "system";
   graph_quality: "high" | "balanced" | "low-gpu";
   particles_enabled: boolean;
@@ -728,6 +763,16 @@ export interface AppSettings {
   default_lens_id: string;
   last_workspace_path: string;
   developer_tools: boolean;
+  /** Body UI font stack preset. */
+  font_body: FontBody;
+  /** Display / chrome font stack preset. */
+  font_display: FontDisplay;
+  /** Monospace font stack preset. */
+  font_mono: FontMono;
+  /** Rem cascade multiplier (0.85–1.35). */
+  ui_scale: number;
+  /** Optional #RRGGBB overrides layered on the appearance template. */
+  theme_colors: Partial<Record<ThemeColorKey, string>>;
   relay_url: string;
   default_provider: string;
   /** Ollama id for Distill Qwen 7B (`deepseek-r1:7b`) by default. */

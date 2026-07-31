@@ -1,5 +1,5 @@
 /**
- * Settings dialog: appearance theme and display prefs already in AppSettings.
+ * Settings dialog: templates, typography, colour overrides, chrome prefs.
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -10,7 +10,7 @@ import { CommandBar } from "../features/workspace/CommandBar";
 import { useStore } from "../state/store";
 import { installFakeBridge } from "./fakeBridge";
 
-function seedReady(): void {
+function seedReady(overrides: Record<string, unknown> = {}): void {
   useStore.setState({
     connection: "ready",
     settings: {
@@ -25,11 +25,17 @@ function seedReady(): void {
       default_lens_id: "lens_all",
       last_workspace_path: "",
       developer_tools: false,
+      font_body: "inter",
+      font_display: "chakra",
+      font_mono: "jetbrains",
+      ui_scale: 1,
+      theme_colors: {},
       relay_url: "",
       default_provider: "ollama",
       default_model: "deepseek-r1:7b",
       onboarding_tour_completed: true,
       hide_for_sharing: false,
+      ...overrides,
     },
     mode: "explore",
     workspace: {
@@ -59,18 +65,51 @@ describe("SettingsDialog", () => {
     seedReady();
   });
 
-  it("exposes appearance and applies a theme change", async () => {
+  it("exposes templates and clears colours when switching pack", async () => {
+    seedReady({
+      theme_colors: { accent_primary: "#ff0000" },
+    });
     const applySettings = vi.spyOn(useStore.getState(), "applySettings");
     render(<SettingsDialog onClose={() => undefined} />);
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cyberpunk Dark" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.getByText("Customized")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "High contrast" }));
-    expect(applySettings).toHaveBeenCalledWith({ appearance: "high-contrast" });
+    await userEvent.click(screen.getByRole("button", { name: /Forest/i }));
+    expect(applySettings).toHaveBeenCalledWith({
+      appearance: "forest",
+      theme_colors: {},
+    });
+  });
+
+  it("applies typography and UI scale", async () => {
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Body font" }),
+      "system",
+    );
+    expect(applySettings).toHaveBeenCalledWith({ font_body: "system" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Large" }));
+    expect(applySettings).toHaveBeenCalledWith({ ui_scale: 1.1 });
+  });
+
+  it("commits a colour override via hex field", async () => {
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    const hex = screen.getByRole("textbox", { name: "Connected edge hex" });
+    await userEvent.clear(hex);
+    await userEvent.type(hex, "#aabbcc");
+    await userEvent.tab();
+
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        theme_colors: { graph_edge_selected: "#aabbcc" },
+      }),
+    );
   });
 
   it("opens from Command bar More, without motion/sharing toggles there", async () => {
@@ -84,14 +123,18 @@ describe("SettingsDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Hidden for sharing")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Motion preference" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: "Motion preference" }),
+    ).toBeInTheDocument();
   });
 
   it("toggles hide-for-sharing through applySettings", async () => {
     const applySettings = vi.spyOn(useStore.getState(), "applySettings");
     render(<SettingsDialog onClose={() => undefined} />);
 
-    await userEvent.click(screen.getByRole("checkbox", { name: /Hidden for sharing/ }));
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /Hidden for sharing/ }),
+    );
     await waitFor(() =>
       expect(applySettings).toHaveBeenCalledWith({ hide_for_sharing: true }),
     );

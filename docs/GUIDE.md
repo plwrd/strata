@@ -732,14 +732,18 @@ Settings exposed in the UI via **Command bar → More → Settings**:
 
 | Setting | Notes |
 | --- | --- |
-| **Appearance** | Cyberpunk Dark / Cyberpunk Dim / High contrast |
+| **Templates** | Cyberpunk Dark / Dim, High contrast, Ember, Forest, Slate |
+| **Typography** | Body / display / mono fonts; UI scale (Small–XL) |
+| **Colours** | Whitelisted token pickers (surfaces, text, accents, status, graph) |
 | Motion | Full / Reduced / System |
 | Graph quality | High / Balanced / Low GPU |
 | Particles / Bloom | Graph chrome toggles |
 | **Hidden for sharing** | Screen-capture exclusion (see below) |
 
-Connected graph edges (both endpoints selected) draw **bright red**; all other
-edges stay **dark gray**.
+Choosing a **template** resets custom colours to that pack (fonts and UI scale
+stay). Colour overrides — including **connected** and **idle** graph edges —
+layer on top of the template. A “Customized” badge appears when any colour
+override is set.
 
 Semantic edges and cluster colours live under Graph controls. Semantic search
 is a Search panel checkbox. Sync relay URL is in the Collaboration panel.

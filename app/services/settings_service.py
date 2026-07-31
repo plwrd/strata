@@ -7,19 +7,60 @@ to the OS keychain (Milestone 7), passwords go nowhere.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.paths import replace_atomic
 
 logger = get_logger(__name__)
 
-Appearance = Literal["cyberpunk-dark", "cyberpunk-dim", "high-contrast"]
+Appearance = Literal[
+    "cyberpunk-dark",
+    "cyberpunk-dim",
+    "high-contrast",
+    "ember",
+    "forest",
+    "slate",
+]
 MotionPreference = Literal["full", "reduced", "system"]
 GraphQuality = Literal["high", "balanced", "low-gpu"]
+FontBody = Literal["inter", "system", "chakra"]
+FontDisplay = Literal["chakra", "inter", "system"]
+FontMono = Literal["jetbrains", "consolas", "system"]
+
+# Whitelisted theme colour keys (snake_case → --kebab-case on the frontend).
+THEME_COLOR_KEYS: frozenset[str] = frozenset(
+    {
+        "surface_void",
+        "surface_base",
+        "surface_raised",
+        "surface_overlay",
+        "text_primary",
+        "text_secondary",
+        "text_tertiary",
+        "accent_primary",
+        "accent_ai",
+        "accent_collaboration",
+        "status_success",
+        "status_warning",
+        "status_danger",
+        "graph_background",
+        "graph_node_default",
+        "graph_node_selected",
+        "graph_glow_selected",
+        "graph_edge_default",
+        "graph_edge_selected",
+        "border_accent",
+    }
+)
+
+_HEX6 = re.compile(r"^#[0-9A-Fa-f]{6}$")
+_UI_SCALE_MIN = 0.85
+_UI_SCALE_MAX = 1.35
 
 
 class AppSettings(BaseModel):
@@ -36,6 +77,16 @@ class AppSettings(BaseModel):
     default_lens_id: str = "lens_all"
     last_workspace_path: str = ""
     developer_tools: bool = False
+
+    # -- Theme customization -------------------------------------------------
+    #
+    # Template lives in `appearance`. These fields layer CSS variable overrides
+    # on top: fonts, UI rem scale, and a whitelist of hex colours.
+    font_body: FontBody = "inter"
+    font_display: FontDisplay = "chakra"
+    font_mono: FontMono = "jetbrains"
+    ui_scale: float = 1.0
+    theme_colors: dict[str, str] = Field(default_factory=dict)
 
     # -- Collaboration -------------------------------------------------------
     #
@@ -80,6 +131,35 @@ class AppSettings(BaseModel):
     # Strata window from screenshots and screen shares (Windows:
     # WDA_EXCLUDEFROMCAPTURE). The window stays visible on your display.
     hide_for_sharing: bool = False
+
+    @field_validator("ui_scale", mode="before")
+    @classmethod
+    def _clamp_ui_scale(cls, value: Any) -> float:
+        try:
+            scale = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("ui_scale must be a number") from exc
+        return max(_UI_SCALE_MIN, min(_UI_SCALE_MAX, scale))
+
+    @field_validator("theme_colors", mode="before")
+    @classmethod
+    def _sanitize_theme_colors(cls, value: Any) -> dict[str, str]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("theme_colors must be an object")
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_hex in value.items():
+            key = str(raw_key)
+            if key not in THEME_COLOR_KEYS:
+                continue
+            hex_value = str(raw_hex).strip()
+            if not _HEX6.match(hex_value):
+                raise ValueError(
+                    f"theme_colors.{key} must be a #RRGGBB hex colour"
+                )
+            cleaned[key] = hex_value.lower()
+        return cleaned
 
 
 class SettingsService:

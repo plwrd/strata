@@ -18,9 +18,6 @@ import {
 } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
-import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { GraphSnapshot } from "../../bridge/types";
 import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
@@ -120,15 +117,9 @@ function Nodes({
       UP.scale.setScalar(scale * 0.1);
       UP.updateMatrix();
       mesh.setMatrixAt(index, UP.matrix);
-      // Selected stars get a lifted warm tint so they read as lit cores, not
-      // chalky white under the shared standard material.
+      // Flat unlit colour from the theme token — no lift/multiply so Basic
+      // material shows the exact hex the settings panel edits.
       NODE_COLOR.set(nodeColor(node, isSelected));
-      if (isSelected) {
-        NODE_COLOR.multiplyScalar(1.15);
-        NODE_COLOR.r = Math.min(NODE_COLOR.r, 1);
-        NODE_COLOR.g = Math.min(NODE_COLOR.g, 1);
-        NODE_COLOR.b = Math.min(NODE_COLOR.b, 1);
-      }
       mesh.setColorAt(index, NODE_COLOR);
     });
     mesh.count = nodes.length;
@@ -189,9 +180,6 @@ function Nodes({
       renderOrder={6}
     >
       <sphereGeometry args={[1, 16, 16]} />
-      {/* Unlit + fog off: MeshStandardMaterial washed nodes grey under sparse
-          lights, and MeshBasicMaterial still picks up the galaxy fog unless
-          fog is disabled — that was the remaining dark-grey look. */}
       <meshBasicMaterial toneMapped={false} fog={false} />
     </instancedMesh>
   );
@@ -201,17 +189,15 @@ function Edges({
   graph,
   positions,
   selectedIds,
-  hoveredId,
 }: Pick<
   SceneProps,
   "graph" | "positions" | "selectedIds" | "hoveredId"
 >): JSX.Element | null {
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const colorScratch = useMemo(() => new THREE.Color(), []);
-  const size = useThree((state) => state.size);
-  const dpr = useThree((state) => state.viewport.dpr);
 
-  // Single anti-aliased Bézier stroke — HUD-like, no soft dual-glow halo.
+  // LineBasicMaterial is the line equivalent of MeshBasicMaterial: unlit,
+  // no light response — vertex colours render as the raw theme hex.
   const { geometry, material, lines, segmentCount } = useMemo(() => {
     const points: number[] = [];
     const colors: number[] = [];
@@ -234,27 +220,29 @@ function Edges({
       const added = (points.length - before) / 6;
       segmentCount += added;
       for (let i = 0; i < added; i += 1) {
-        // Dark gray idle — constellation red is applied in the color pass.
         colors.push(0.23, 0.25, 0.29, 0.23, 0.25, 0.29);
       }
     }
-    const geometry = new LineSegmentsGeometry();
+    const geometry = new THREE.BufferGeometry();
     if (points.length > 0) {
-      geometry.setPositions(points);
-      geometry.setColors(colors);
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(points, 3),
+      );
+      geometry.setAttribute(
+        "color",
+        new THREE.Float32BufferAttribute(colors, 3),
+      );
     }
-    const material = new LineMaterial({
+    const material = new THREE.LineBasicMaterial({
       vertexColors: true,
-      transparent: true,
-      opacity: 0.78,
-      depthTest: true,
-      depthWrite: false,
-      linewidth: 2.15,
-      worldUnits: false,
       toneMapped: false,
-      alphaToCoverage: true,
+      fog: false,
+      transparent: false,
+      depthTest: true,
+      depthWrite: true,
     });
-    const lines = new LineSegments2(geometry, material);
+    const lines = new THREE.LineSegments(geometry, material);
     lines.frustumCulled = false;
     lines.renderOrder = 1;
     return { geometry, material, lines, segmentCount };
@@ -269,52 +257,37 @@ function Edges({
   );
 
   useEffect(() => {
-    material.resolution.set(size.width * dpr, size.height * dpr);
-  }, [material, size.width, size.height, dpr]);
-
-  useEffect(() => {
     if (graph.edges.length === 0 || segmentCount === 0) return;
     const colors: number[] = [];
-    let litAny = false;
     for (const edge of graph.edges) {
       const from = positions[edge.source];
       const to = positions[edge.target];
       if (!from || !to) continue;
       const isLit = selected.has(edge.source) && selected.has(edge.target);
-      if (isLit) litAny = true;
       colorScratch.set(edgeColor(isLit, edge.origin));
-      const touchesHover =
-        hoveredId !== null &&
-        (edge.source === hoveredId || edge.target === hoveredId);
-      // Connected constellation = full bright red; idle = dark gray; when a
-      // selection exists, non-connected edges stay dark gray at a low factor.
-      const factor = isLit
-        ? 1
-        : selected.size > 0
-          ? touchesHover
-            ? 0.55
-            : 0.35
-          : touchesHover
-            ? 1.25
-            : 1;
-      const r = Math.min(colorScratch.r * factor, 1);
-      const g = Math.min(colorScratch.g * factor, 1);
-      const b = Math.min(colorScratch.b * factor, 1);
+      const r = colorScratch.r;
+      const g = colorScratch.g;
+      const b = colorScratch.b;
       for (let i = 0; i < EDGE_CURVE_SEGMENTS; i += 1) {
         colors.push(r, g, b, r, g, b);
       }
     }
-    if (colors.length > 0) geometry.setColors(colors);
-    material.linewidth = litAny || hoveredId !== null ? 2.65 : 2.15;
-    material.opacity = selected.size === 0 ? 0.78 : 0.88;
-    material.needsUpdate = true;
+    if (colors.length === 0) return;
+    const attr = geometry.getAttribute("color");
+    if (attr instanceof THREE.BufferAttribute) {
+      attr.array.set(colors);
+      attr.needsUpdate = true;
+    } else {
+      geometry.setAttribute(
+        "color",
+        new THREE.Float32BufferAttribute(colors, 3),
+      );
+    }
   }, [
     geometry,
-    material,
     graph.edges,
     positions,
     selected,
-    hoveredId,
     colorScratch,
     segmentCount,
   ]);

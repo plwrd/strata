@@ -130,6 +130,13 @@
   --z-overlay: 100;
   --z-dialog: 1000;
   --z-tour: 1100;
+
+  /* Rem cascade multiplier; Settings writes this via inline style too. */
+  --ui-scale: 1;
+}
+
+html {
+  font-size: calc(100% * var(--ui-scale, 1));
 }
 
 /* Dimmer variant: same hues, lower luminance for long writing sessions. */
@@ -176,6 +183,123 @@
   --graph-edge-ai-solid: #5a5a5a;
   /* High contrast: selection stays pure white; no decorative hue shift. */
   --graph-glow-selected: #ffffff;
+}
+
+/* Ember: warm dark void, amber interaction accent. */
+:root[data-appearance="ember"] {
+  --surface-void: #0c0806;
+  --surface-base: #140e0a;
+  --surface-raised: #1c1410;
+  --surface-overlay: #261c16;
+  --surface-glass: rgba(38, 28, 22, 0.78);
+  --surface-glass-strong: rgba(20, 14, 10, 0.94);
+  --text-primary: #f3ebe3;
+  --text-secondary: #b8a090;
+  --text-tertiary: #7a6a5c;
+  --text-inverse: #0c0806;
+  --accent-primary: #ff9f43;
+  --accent-primary-dim: #a65f18;
+  --accent-ai: #ff6b4a;
+  --accent-ai-dim: #8f3a28;
+  --accent-collaboration: #e8c36a;
+  --accent-collaboration-dim: #8a6f2e;
+  --status-success: #6bcb8a;
+  --status-warning: #ffb547;
+  --status-danger: #ff5c5c;
+  --graph-background: #0c0806;
+  --graph-node-default: #9a8474;
+  --graph-node-note: #ffb070;
+  --graph-glow-selected: #ffe08a;
+  --graph-edge-default: #3d342e;
+  --graph-edge-default-solid: #3d342e;
+  --graph-edge-selected: #ff5c5c;
+  --graph-edge-selected-solid: #ff5c5c;
+  --graph-edge-ai-solid: #3d342e;
+  --border-subtle: rgba(184, 160, 144, 0.16);
+  --border-strong: rgba(184, 160, 144, 0.32);
+  --border-accent: rgba(255, 159, 67, 0.55);
+  --glow-accent:
+    0 0 0 1px rgba(255, 159, 67, 0.35), 0 0 18px rgba(255, 159, 67, 0.16);
+  --glow-ai:
+    0 0 0 1px rgba(255, 107, 74, 0.4), 0 0 18px rgba(255, 107, 74, 0.18);
+}
+
+/* Forest: deep green-black, soft mint accent. */
+:root[data-appearance="forest"] {
+  --surface-void: #040a08;
+  --surface-base: #07110d;
+  --surface-raised: #0c1a14;
+  --surface-overlay: #12241c;
+  --surface-glass: rgba(18, 36, 28, 0.78);
+  --surface-glass-strong: rgba(7, 17, 13, 0.94);
+  --text-primary: #e4f2ea;
+  --text-secondary: #8fb5a0;
+  --text-tertiary: #5a7a68;
+  --text-inverse: #040a08;
+  --accent-primary: #5ddea0;
+  --accent-primary-dim: #2a7a54;
+  --accent-ai: #7ec8ff;
+  --accent-ai-dim: #3a6a8a;
+  --accent-collaboration: #c6e87a;
+  --accent-collaboration-dim: #6a8038;
+  --status-success: #5ddea0;
+  --status-warning: #e0c060;
+  --status-danger: #e07070;
+  --graph-background: #040a08;
+  --graph-node-default: #6f8f7e;
+  --graph-node-note: #8fe0b8;
+  --graph-glow-selected: #d4ff9a;
+  --graph-edge-default: #2e3f36;
+  --graph-edge-default-solid: #2e3f36;
+  --graph-edge-selected: #ff5c7a;
+  --graph-edge-selected-solid: #ff5c7a;
+  --graph-edge-ai-solid: #2e3f36;
+  --border-subtle: rgba(143, 181, 160, 0.16);
+  --border-strong: rgba(143, 181, 160, 0.32);
+  --border-accent: rgba(93, 222, 160, 0.55);
+  --glow-accent:
+    0 0 0 1px rgba(93, 222, 160, 0.35), 0 0 18px rgba(93, 222, 160, 0.16);
+  --glow-ai:
+    0 0 0 1px rgba(126, 200, 255, 0.4), 0 0 18px rgba(126, 200, 255, 0.18);
+}
+
+/* Slate: neutral graphite, cool blue-gray accent. */
+:root[data-appearance="slate"] {
+  --surface-void: #0a0c10;
+  --surface-base: #10141a;
+  --surface-raised: #171c24;
+  --surface-overlay: #1e2530;
+  --surface-glass: rgba(30, 37, 48, 0.78);
+  --surface-glass-strong: rgba(16, 20, 26, 0.94);
+  --text-primary: #e6ebf2;
+  --text-secondary: #9aa6b8;
+  --text-tertiary: #667388;
+  --text-inverse: #0a0c10;
+  --accent-primary: #7eb0d6;
+  --accent-primary-dim: #3d6280;
+  --accent-ai: #9aa0c8;
+  --accent-ai-dim: #555a7a;
+  --accent-collaboration: #c090a8;
+  --accent-collaboration-dim: #6a4858;
+  --status-success: #6cbc8c;
+  --status-warning: #d4b060;
+  --status-danger: #d07080;
+  --graph-background: #0a0c10;
+  --graph-node-default: #7a8498;
+  --graph-node-note: #a8c8e0;
+  --graph-glow-selected: #e8f0ff;
+  --graph-edge-default: #3a424e;
+  --graph-edge-default-solid: #3a424e;
+  --graph-edge-selected: #ff4d6a;
+  --graph-edge-selected-solid: #ff4d6a;
+  --graph-edge-ai-solid: #3a424e;
+  --border-subtle: rgba(154, 166, 184, 0.16);
+  --border-strong: rgba(154, 166, 184, 0.32);
+  --border-accent: rgba(126, 176, 214, 0.55);
+  --glow-accent:
+    0 0 0 1px rgba(126, 176, 214, 0.35), 0 0 18px rgba(126, 176, 214, 0.14);
+  --glow-ai:
+    0 0 0 1px rgba(154, 160, 200, 0.4), 0 0 18px rgba(154, 160, 200, 0.16);
 }
 
 /*

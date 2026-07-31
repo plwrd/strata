@@ -12,7 +12,7 @@ import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
 import { dropSession } from "../features/collaboration/collabDoc";
 import type { ImportedFile } from "../features/explorer/importDrop";
-import { resetTokenCache } from "../features/graph/nodeStyle";
+import { applyTheme } from "../features/settings/applyTheme";
 import type {
   AIStreamEvent,
   AppSettings,
@@ -1504,12 +1504,5 @@ export function shortestPath(
 }
 
 export function applyDocumentSettings(settings: AppSettings): void {
-  const root = document.documentElement;
-  root.dataset["appearance"] = settings.appearance;
-  root.dataset["motion"] =
-    settings.motion === "system" ? "system" : settings.motion;
-  root.dataset["graphQuality"] = settings.graph_quality;
-  // Appearance swaps CSS vars on <html>; clear the canvas token cache so
-  // 2D/3D edges and nodes re-read the new palette instead of stale hex.
-  resetTokenCache();
+  applyTheme(settings);
 }

@@ -55,7 +55,9 @@ const CLUSTER_PALETTE = [
 ];
 
 export function nodeColor(node: GraphNode, selected: boolean): string {
-  if (selected) return cssToken("--graph-node-selected", "#ffffff");
+  // Selection is always pure white — not theme-overridable — so the pick
+  // reads the same under every template and colour override.
+  if (selected) return "#ffffff";
   if (node.locked) return cssToken("--graph-node-locked", "#47506a");
   if (node.cluster >= 0)
     return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;
