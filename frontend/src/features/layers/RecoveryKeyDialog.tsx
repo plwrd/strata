@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { DialogPortal } from "../../ui/DialogPortal";
 import { stubbornClipboardWarning } from "./clipboardNotice";
 
 interface Props {
@@ -54,6 +55,7 @@ export function RecoveryKeyDialog({
   };
 
   return (
+    <DialogPortal>
     <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog"
@@ -124,5 +126,6 @@ export function RecoveryKeyDialog({
         </div>
       </div>
     </div>
+    </DialogPortal>
   );
 }

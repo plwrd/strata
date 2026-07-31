@@ -12,6 +12,7 @@ import { useState } from "react";
 import { BridgeCallError } from "../../bridge/client";
 import type { LayerDescriptor } from "../../bridge/types";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   layer: LayerDescriptor;
@@ -94,6 +95,7 @@ export function KeyManagementDialog({
   };
 
   return (
+    <DialogPortal>
     <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog dialog--neutral"
@@ -271,5 +273,6 @@ export function KeyManagementDialog({
         </div>
       </div>
     </div>
+    </DialogPortal>
   );
 }

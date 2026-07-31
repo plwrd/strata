@@ -10,7 +10,7 @@
 import * as THREE from "three";
 import type { GraphEdge, GraphNode } from "../../bridge/types";
 import type { Positions } from "../graph/useGraphLayout";
-import { edgeColor, glowColor, nodeRadius } from "../graph/nodeStyle";
+import { edgeColor, edgeIsLit, glowColor, neighborIds, nodeRadius } from "../graph/nodeStyle";
 import { edgeControlPoint, edgeSalt } from "./edgeCurves";
 
 /** Deterministic PRNG (mulberry32): same seed, same galaxy, stable frames. */
@@ -157,8 +157,10 @@ export function buildNodeGlow(
   positions: Positions,
   selectedIds: Set<string>,
   scale: number,
+  edges: GraphEdge[] = [],
 ): GlowData {
   const placed = nodes.filter((node) => positions[node.id] !== undefined);
+  const connected = neighborIds(edges, selectedIds);
   const out: GlowData = {
     positions: new Float32Array(placed.length * 3),
     colors: new Float32Array(placed.length * 3),
@@ -173,11 +175,13 @@ export function buildNodeGlow(
     out.positions[i * 3 + 1] = p[1] * scale;
     out.positions[i * 3 + 2] = p[2] * scale;
     const isSelected = selectedIds.has(node.id);
-    color.set(glowColor(node, isSelected));
+    const isConnected = connected.has(node.id);
+    color.set(glowColor(node, isSelected, isConnected));
     out.colors[i * 3] = color.r;
     out.colors[i * 3 + 1] = color.g;
     out.colors[i * 3 + 2] = color.b;
-    out.sizes[i] = nodeRadius(node) * (isSelected ? 5.2 : 2.2);
+    out.sizes[i] =
+      nodeRadius(node) * (isSelected ? 5.2 : isConnected ? 3.4 : 2.2);
     out.selected[i] = isSelected ? 1 : 0;
   });
   return out;
@@ -251,7 +255,7 @@ export function buildEdgeParticles(
     out.controls[i * 3] = cx;
     out.controls[i * 3 + 1] = cy;
     out.controls[i * 3 + 2] = cz;
-    const lit = selectedIds.has(edge.source) && selectedIds.has(edge.target);
+    const lit = edgeIsLit(edge, selectedIds);
     color.set(edgeColor(lit, edge.origin));
     // Lit constellation edges carry brighter, faster traffic.
     const boost = lit ? 1.6 : 1.0;

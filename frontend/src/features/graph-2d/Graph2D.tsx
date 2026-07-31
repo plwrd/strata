@@ -11,7 +11,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GraphSnapshot } from "../../bridge/types";
 import {
   edgeColor,
+  edgeIsLit,
   glowColor,
+  neighborIds,
   nodeColor,
   nodeRadius,
 } from "../graph/nodeStyle";
@@ -45,6 +47,10 @@ export function Graph2D({
 }: Graph2DProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const connected = useMemo(
+    () => neighborIds(graph.edges, selected),
+    [graph.edges, selected],
+  );
   // Bumped whenever the canvas resizes, to force a repaint at the new size —
   // otherwise the backing store keeps the old dimensions while the hit test uses
   // the new ones, and clicks land on the wrong node.
@@ -132,7 +138,7 @@ export function Graph2D({
       const from = positions[edge.source];
       const to = positions[edge.target];
       if (!from || !to) continue;
-      const lit = selected.has(edge.source) && selected.has(edge.target);
+      const lit = edgeIsLit(edge, selected);
       const [x1, y1] = project(from, clientWidth, clientHeight);
       const [x2, y2] = project(to, clientWidth, clientHeight);
       context.strokeStyle = edgeColor(lit, edge.origin);
@@ -150,16 +156,18 @@ export function Graph2D({
       const point = positions[node.id];
       if (!point) continue;
       const isSelected = selected.has(node.id);
+      const isConnected = connected.has(node.id);
       const [x, y] = project(point, clientWidth, clientHeight);
-      const radius = nodeRadius(node) * (isSelected ? 1.4 : 1) * 1.8;
+      const radius =
+        nodeRadius(node) * (isSelected ? 1.4 : isConnected ? 1.15 : 1) * 1.8;
 
       // The same glow language as the 3D galaxy: a halo in the node's own hue,
-      // shifting to ignition-gold when selected.
-      if (glowBudget || isSelected) {
-        context.shadowColor = glowColor(node, isSelected);
-        context.shadowBlur = isSelected ? 16 : 6;
+      // shifting to ignition-gold when selected / connected-red for neighbours.
+      if (glowBudget || isSelected || isConnected) {
+        context.shadowColor = glowColor(node, isSelected, isConnected);
+        context.shadowBlur = isSelected ? 16 : isConnected ? 10 : 6;
       }
-      context.fillStyle = nodeColor(node, isSelected);
+      context.fillStyle = nodeColor(node, isSelected, isConnected);
       context.beginPath();
       context.arc(x, y, radius, 0, Math.PI * 2);
       context.fill();
@@ -171,13 +179,17 @@ export function Graph2D({
         context.stroke();
       }
 
-      if (node.degree > 2 || isSelected) {
-        context.fillStyle = isSelected ? "#e8edf7" : "#93a1bd";
+      if (node.degree > 2 || isSelected || isConnected) {
+        context.fillStyle = isSelected
+          ? "#e8edf7"
+          : isConnected
+            ? "#ff8aa0"
+            : "#93a1bd";
         context.font = '10px "JetBrains Mono", monospace';
         context.fillText(node.label.slice(0, 28), x + radius + 4, y + 3);
       }
     }
-  }, [graph, positions, selected, project, resizeTick]);
+  }, [graph, positions, selected, connected, project, resizeTick]);
 
   // Repaint on resize so the backing store and the hit test agree on size.
   useEffect(() => {
@@ -339,10 +351,18 @@ export function Graph2D({
             return;
           }
           panDragRef.current = null;
+          // After a real pan the browser often skips `click`. Clear the move
+          // flag on the next task so it cannot block the *next* node click.
+          if (panMovedRef.current) {
+            window.setTimeout(() => {
+              panMovedRef.current = false;
+            }, 0);
+          }
         }}
         onMouseLeave={() => {
           if (draggingRef.current) finishLasso(false);
           panDragRef.current = null;
+          panMovedRef.current = false;
         }}
         onClick={(event) => {
           if (event.shiftKey) return; // shift is the lasso modifier here

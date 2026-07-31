@@ -14,6 +14,7 @@ import { useState } from "react";
 import { BridgeCallError } from "../../bridge/client";
 import type { LayerDescriptor } from "../../bridge/types";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   layer: LayerDescriptor;
@@ -52,84 +53,86 @@ export function UnlockDialog({
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog dialog--neutral"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="unlock-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
-        <h2 id="unlock-title" className="dialog__title">
-          <span aria-hidden="true">🔒</span> Unlock {layer.display_name}
-        </h2>
+    <DialogPortal>
+      <div className="dialog-backdrop" role="presentation">
+        <div
+          className="dialog dialog--neutral"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unlock-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") onClose();
+          }}
+        >
+          <h2 id="unlock-title" className="dialog__title">
+            <span aria-hidden="true">🔒</span> Unlock {layer.display_name}
+          </h2>
 
-        <div className="dialog__body">
-          <label className="properties__field">
-            <span className="label">
-              {mode === "password" ? "Password" : "Recovery key"}
-            </span>
-            <input
-              className="input"
-              type={mode === "password" ? "password" : "text"}
-              autoComplete="off"
-              autoFocus
-              value={secret}
-              aria-label={
-                mode === "password" ? "Layer password" : "Recovery key"
-              }
-              onChange={(event) => setSecret(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
+          <div className="dialog__body">
+            <label className="properties__field">
+              <span className="label">
+                {mode === "password" ? "Password" : "Recovery key"}
+              </span>
+              <input
+                className="input"
+                type={mode === "password" ? "password" : "text"}
+                autoComplete="off"
+                autoFocus
+                value={secret}
+                aria-label={
+                  mode === "password" ? "Layer password" : "Recovery key"
+                }
+                onChange={(event) => setSecret(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void submit();
+                }}
+              />
+            </label>
+
+            {failed && (
+              <p
+                className="composer__status composer__status--error"
+                role="alert"
+              >
+                That did not unlock the layer. Try again.
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={() => {
+                setMode(mode === "password" ? "recovery" : "password");
+                setSecret("");
+                setFailed(false);
               }}
-            />
-          </label>
-
-          {failed && (
-            <p
-              className="composer__status composer__status--error"
-              role="alert"
             >
-              That did not unlock the layer. Try again.
-            </p>
-          )}
+              {mode === "password"
+                ? "Use a recovery key instead"
+                : "Use the password instead"}
+            </button>
+          </div>
 
-          <button
-            type="button"
-            className="button button--ghost"
-            onClick={() => {
-              setMode(mode === "password" ? "recovery" : "password");
-              setSecret("");
-              setFailed(false);
-            }}
-          >
-            {mode === "password"
-              ? "Use a recovery key instead"
-              : "Use the password instead"}
-          </button>
-        </div>
-
-        <div className="dialog__actions">
-          <button
-            type="button"
-            className="button"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={!secret || busy}
-            onClick={() => void submit()}
-          >
-            {busy ? "Unlocking…" : "Unlock"}
-          </button>
+          <div className="dialog__actions">
+            <button
+              type="button"
+              className="button"
+              onClick={onClose}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={!secret || busy}
+              onClick={() => void submit()}
+            >
+              {busy ? "Unlocking…" : "Unlock"}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </DialogPortal>
   );
 }

@@ -19,7 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { GraphSnapshot } from "../../bridge/types";
-import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
+import { edgeColor, edgeIsLit, neighborIds, nodeColor, nodeRadius } from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
 import {
   EdgeParticles,
@@ -88,6 +88,10 @@ function Nodes({
 }: SceneProps): JSX.Element | null {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const connected = useMemo(
+    () => neighborIds(graph.edges, selected),
+    [graph.edges, selected],
+  );
 
   const nodes = useMemo(
     () => graph.nodes.filter((node) => positions[node.id] !== undefined),
@@ -109,23 +113,25 @@ function Nodes({
     nodes.forEach((node, index) => {
       const position = positions[node.id]!;
       const isSelected = selected.has(node.id);
+      const isConnected = connected.has(node.id);
       const isHovered = node.id === hoveredId && !isSelected;
       // Hover swells the node slightly — feedback before commitment.
       const scale =
-        nodeRadius(node) * (isSelected ? 1.35 : isHovered ? 1.18 : 1);
+        nodeRadius(node) *
+        (isSelected ? 1.35 : isConnected ? 1.15 : isHovered ? 1.18 : 1);
       UP.position.set(position[0] * 0.1, position[1] * 0.1, position[2] * 0.1);
       UP.scale.setScalar(scale * 0.1);
       UP.updateMatrix();
       mesh.setMatrixAt(index, UP.matrix);
       // Flat unlit colour from the theme token — no lift/multiply so Basic
       // material shows the exact hex the settings panel edits.
-      NODE_COLOR.set(nodeColor(node, isSelected));
+      NODE_COLOR.set(nodeColor(node, isSelected, isConnected));
       mesh.setColorAt(index, NODE_COLOR);
     });
     mesh.count = nodes.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [nodes, positions, selected, hoveredId]);
+  }, [nodes, positions, selected, connected, hoveredId]);
 
   // The selection pulse. Reduced motion turns it into a static highlight rather
   // than removing the signal: the state must still be legible, just not moving.
@@ -263,7 +269,7 @@ function Edges({
       const from = positions[edge.source];
       const to = positions[edge.target];
       if (!from || !to) continue;
-      const isLit = selected.has(edge.source) && selected.has(edge.target);
+      const isLit = edgeIsLit(edge, selected);
       colorScratch.set(edgeColor(isLit, edge.origin));
       const r = colorScratch.r;
       const g = colorScratch.g;
@@ -299,7 +305,12 @@ function Edges({
 
 function CameraRig({ nodeCount }: { nodeCount: number }): null {
   const { camera } = useThree();
+  const placed = useRef(false);
   useEffect(() => {
+    // Only frame the galaxy once per canvas mount. Re-running on nodeCount
+    // (unlock / lock) yanked the camera to origin and made Explore look broken.
+    if (placed.current) return;
+    placed.current = true;
     const distance = Math.max(24, Math.sqrt(Math.max(nodeCount, 1)) * 6);
     camera.position.set(0, 0, distance);
     camera.updateProjectionMatrix();
@@ -335,10 +346,11 @@ function FocusRig({
   const goalCamera = useRef(new THREE.Vector3());
   const offset = useRef(new THREE.Vector3());
 
-  // Re-arm the flight whenever the focus node (or its laid-out position) changes.
+  // Re-arm the flight only when the focus *node* changes — not when layout
+  // settles after unlock (that would yank the camera every reload).
   useEffect(() => {
     arrivedRef.current = null;
-  }, [focusId, position?.[0], position?.[1], position?.[2]]);
+  }, [focusId]);
 
   useFrame((_, delta) => {
     if (!controls || !focusId || !position) return;
@@ -391,20 +403,6 @@ export function GraphScene(props: SceneProps): JSX.Element {
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const [canvasKey, setCanvasKey] = useState(0);
 
-  // Remount the WebGL surface when lock state changes so unlock/lock never
-  // leaves a dead canvas after Qt context loss under a dialog.
-  const lockSignature = graph.locked_layer_ids.join(",");
-  const previousLock = useRef<string | null>(null);
-  useEffect(() => {
-    if (
-      previousLock.current !== null &&
-      previousLock.current !== lockSignature
-    ) {
-      setCanvasKey((key) => key + 1);
-    }
-    previousLock.current = lockSignature;
-  }, [lockSignature]);
-
   const starfield = useMemo(
     () => (tier.stars > 0 ? buildStarfield(tier.stars, 160, 340) : null),
     [tier.stars],
@@ -423,8 +421,8 @@ export function GraphScene(props: SceneProps): JSX.Element {
   }, [focusId, positions]);
 
   const glow = useMemo(
-    () => buildNodeGlow(graph.nodes, positions, selected, SCALE),
-    [graph.nodes, positions, selected],
+    () => buildNodeGlow(graph.nodes, positions, selected, SCALE, graph.edges),
+    [graph.nodes, graph.edges, positions, selected],
   );
 
   // Flow particles cost a mount, so they honour both the setting and reduced

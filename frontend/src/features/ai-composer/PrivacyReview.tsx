@@ -13,6 +13,7 @@
 
 import { useEffect, useRef } from "react";
 import type { ContextPlan } from "../../bridge/types";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   plan: ContextPlan;
@@ -36,6 +37,7 @@ export function PrivacyReview({
   const privateSources = plan.sources.filter((source) => source.is_private);
 
   return (
+    <DialogPortal>
     <div
       className="dialog-backdrop"
       role="presentation"
@@ -123,5 +125,6 @@ export function PrivacyReview({
         </p>
       </div>
     </div>
+    </DialogPortal>
   );
 }

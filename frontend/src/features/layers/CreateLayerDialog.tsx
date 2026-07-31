@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { BridgeCallError } from "../../bridge/client";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   onClose: () => void;
@@ -71,6 +72,7 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
   };
 
   return (
+    <DialogPortal>
     <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog dialog--neutral"
@@ -236,5 +238,6 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
         </div>
       </div>
     </div>
+    </DialogPortal>
   );
 }

@@ -187,24 +187,16 @@ export function App(): JSX.Element {
     id: string,
     modifiers: { ctrl: boolean; shift: boolean },
   ): void => {
+    const store = useStore.getState();
     if (modifiers.shift) {
-      state.rangeSelect(id);
+      store.rangeSelect(id);
       return;
     }
     if (modifiers.ctrl) {
-      state.toggleSelect(id);
+      store.toggleSelect(id);
       return;
     }
-    state.select(id);
-    // Plain select: show the node in the 3D galaxy (switch view if needed).
-    if (state.mode !== "explore") state.setMode("explore");
-    if (
-      state.dimension !== "3d" &&
-      webgl &&
-      quality !== "low-gpu"
-    ) {
-      state.setDimension("3d");
-    }
+    store.select(id);
   };
 
   if (state.connection === "connecting") {

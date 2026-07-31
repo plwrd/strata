@@ -9,6 +9,7 @@
 
 import { useEffect, useRef } from "react";
 import type { PolicyView } from "../../bridge/types";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   policy: PolicyView;
@@ -27,6 +28,7 @@ export function RemoteConfirmDialog({
   useEffect(() => cancelRef.current?.focus(), []);
 
   return (
+    <DialogPortal>
     <div
       className="dialog-backdrop"
       role="presentation"
@@ -84,5 +86,6 @@ export function RemoteConfirmDialog({
         </div>
       </div>
     </div>
+    </DialogPortal>
   );
 }

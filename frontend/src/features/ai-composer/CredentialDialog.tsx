@@ -10,6 +10,7 @@
 import { useState } from "react";
 import type { ProviderView } from "../../bridge/types";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   provider: ProviderView;
@@ -48,6 +49,7 @@ export function CredentialDialog({ provider, onClose }: Props): JSX.Element {
   };
 
   return (
+    <DialogPortal>
     <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog dialog--neutral"
@@ -114,5 +116,6 @@ export function CredentialDialog({ provider, onClose }: Props): JSX.Element {
         </div>
       </div>
     </div>
+    </DialogPortal>
   );
 }

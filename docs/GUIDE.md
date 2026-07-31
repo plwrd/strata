@@ -485,12 +485,14 @@ What the visuals *mean*:
 - **Hover** a node and it swells, its name appears, its connections light up,
   and the cursor becomes a hand — you can see a node's neighbourhood without
   committing to a selection.
-- **Select** a node (canvas or Graph list) and Strata switches to **3D** when
-  available; the camera flies in and re-centres on that star. The flight eases
+- **Select** a node (canvas or Graph list) and the camera flies in and
+  re-centres on that star when you are already in **3D**. The flight eases
   out and then stops, so it never fights your own navigation.
-  With several nodes selected, edges *between* selected nodes burn brightest —
-  the "constellation" is exactly the shape you are about to send to a model —
-  while unrelated edges recede.
+  Staying in **2D** keeps you in 2D — use the 2D/3D control to switch views.
+  Edges that touch the selection light bright red, and every one-hop neighbour
+  shifts to the same red so the local constellation is obvious at a glance.
+  With several nodes selected, the shared neighbourhood stays lit while
+  unrelated edges stay dark gray.
 - **Labels** name the landmarks: selected and hovered nodes always, then the
   most-connected hubs.
 - The galaxy **auto-rotates while idle** and holds still the moment you select

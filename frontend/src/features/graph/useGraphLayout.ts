@@ -6,18 +6,37 @@ import type {
   LayoutRequest,
   LayoutResult,
 } from "../../workers/graphLayout.worker";
+import { FOLDER_LAYOUT_Z } from "./layoutConstants";
 
 export type Positions = Record<string, [number, number, number]>;
 
-function provisionalPosition(
+function nearCentroid(
+  previous: Positions,
   index: number,
   total: number,
+  elevate = false,
 ): [number, number, number] {
-  // Scatter newcomers near the origin so edges can draw immediately while the
-  // worker settles a full layout (important after unlocking a private layer).
+  const values = Object.values(previous);
+  let cx = 0;
+  let cy = 0;
+  let cz = 0;
+  if (values.length > 0) {
+    for (const point of values) {
+      cx += point[0];
+      cy += point[1];
+      cz += point[2];
+    }
+    cx /= values.length;
+    cy /= values.length;
+    cz /= values.length;
+  }
   const angle = (index / Math.max(total, 1)) * Math.PI * 2;
-  const radius = 8 + (index % 5);
-  return [Math.cos(angle) * radius, Math.sin(angle) * radius, (index % 3) - 1];
+  const radius = 12 + (index % 7);
+  return [
+    cx + Math.cos(angle) * radius,
+    cy + Math.sin(angle) * radius,
+    elevate ? FOLDER_LAYOUT_Z : cz + ((index % 3) - 1) * 2,
+  ];
 }
 
 export function useGraphLayout(
@@ -29,6 +48,11 @@ export function useGraphLayout(
   const [computing, setComputing] = useState(false);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
+  const positionsRef = useRef<Positions>({});
+
+  useEffect(() => {
+    positionsRef.current = positions;
+  }, [positions]);
 
   useEffect(() => {
     const worker = new Worker(
@@ -52,13 +76,26 @@ export function useGraphLayout(
       return;
     }
 
-    // Keep known positions; give brand-new nodes (e.g. just-unlocked layer)
-    // provisional coordinates so 2D/3D can connect them before the worker returns.
-    setPositions((previous) => {
+    const previous = positionsRef.current;
+    // Keep existing nodes where they are; park newcomers near the centre so
+    // unlock does not scatter the whole galaxy before the worker returns.
+    setPositions(() => {
       const next: Positions = {};
       graph.nodes.forEach((node, index) => {
-        next[node.id] =
-          previous[node.id] ?? provisionalPosition(index, graph.nodes.length);
+        const prior = previous[node.id];
+        if (prior) {
+          next[node.id] =
+            node.type === "folder"
+              ? [prior[0], prior[1], FOLDER_LAYOUT_Z]
+              : prior;
+        } else {
+          next[node.id] = nearCentroid(
+            previous,
+            index,
+            graph.nodes.length,
+            node.type === "folder",
+          );
+        }
       });
       return next;
     });
@@ -73,7 +110,11 @@ export function useGraphLayout(
     worker.addEventListener("message", handle);
 
     const request: LayoutRequest = {
-      nodes: graph.nodes.map((node) => ({ id: node.id, degree: node.degree })),
+      nodes: graph.nodes.map((node) => ({
+        id: node.id,
+        degree: node.degree,
+        type: node.type,
+      })),
       edges: graph.edges.map((edge) => ({
         source: edge.source,
         target: edge.target,
@@ -81,6 +122,7 @@ export function useGraphLayout(
       })),
       dimension,
       quality,
+      seed: previous,
     };
     worker.postMessage(request);
 
