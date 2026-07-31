@@ -11,28 +11,58 @@
  * Files dragged in from the operating system are imported: Markdown and plain
  * text become notes, everything else becomes an attachment wrapped in a note —
  * and in a private layer the bytes are encrypted before they touch the disk.
+ *
+ * Density (List / Large), a tree-scoped context menu, and keyboard navigation
+ * live here. The global app menu stands down inside this panel.
  */
 
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { NoteMetadata, TreeFolder } from "../../bridge/types";
 import { useStore } from "../../state/store";
 import { readDroppedFiles } from "./importDrop";
 
-interface Node {
+interface TreeNode {
   folder: TreeFolder | null;
   path: string;
   name: string;
   layerId: string;
-  children: Node[];
+  children: TreeNode[];
   notes: NoteMetadata[];
+}
+
+type MenuTarget =
+  | { kind: "note"; note: NoteMetadata }
+  | { kind: "folder"; folder: TreeFolder; path: string; layerId: string }
+  | { kind: "layer"; layerId: string; displayName: string }
+  | { kind: "trash" };
+
+interface MenuItem {
+  id: string;
+  label: string;
+  hint?: string;
+  danger?: boolean;
+  run: () => void;
+}
+
+interface MenuState {
+  x: number;
+  y: number;
+  target: MenuTarget;
 }
 
 function buildTree(
   folders: TreeFolder[],
   notes: NoteMetadata[],
   layerId: string,
-): Node {
-  const root: Node = {
+): TreeNode {
+  const root: TreeNode = {
     folder: null,
     path: "",
     name: "/",
@@ -40,13 +70,13 @@ function buildTree(
     children: [],
     notes: [],
   };
-  const byPath = new Map<string, Node>([["", root]]);
+  const byPath = new Map<string, TreeNode>([["", root]]);
 
   for (const folder of [...folders].sort((a, b) =>
     a.path.localeCompare(b.path),
   )) {
     if (folder.layer_id !== layerId) continue;
-    const node: Node = {
+    const node: TreeNode = {
       folder,
       path: folder.path,
       name: folder.name,
@@ -69,14 +99,71 @@ function buildTree(
   return root;
 }
 
+function FolderIcon(): JSX.Element {
+  return (
+    <svg
+      className="tree__icon"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M3 6.5A1.5 1.5 0 0 1 4.5 5H10l2 2h7.5A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-11Z"
+      />
+    </svg>
+  );
+}
+
+function NoteIcon(): JSX.Element {
+  return (
+    <svg
+      className="tree__icon"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M6 3.5A1.5 1.5 0 0 1 7.5 2h6.4L19 7.1V20.5A1.5 1.5 0 0 1 17.5 22h-10A1.5 1.5 0 0 1 6 20.5v-17ZM13 3.2V8h4.7L13 3.2Z"
+      />
+    </svg>
+  );
+}
+
+function moveTreeFocus(from: HTMLElement, delta: number): void {
+  const root = from.closest(".tree");
+  const items = Array.from(
+    root?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [],
+  );
+  const index = items.indexOf(from);
+  if (index < 0) return;
+  const next = items[Math.max(0, Math.min(items.length - 1, index + delta))];
+  next?.focus();
+}
+
+function focusTreeItem(root: HTMLElement | null, treeId: string): void {
+  root
+    ?.querySelector<HTMLElement>(`[role="treeitem"][data-tree-id="${treeId}"]`)
+    ?.focus();
+}
+
 export function FileTree(): JSX.Element {
   const state = useStore();
+  const treeRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
 
   const layers = state.layers.filter((layer) => layer.state !== "locked");
+  const density = state.explorerDensity;
 
   const trees = useMemo(
     () =>
@@ -107,8 +194,58 @@ export function FileTree(): JSX.Element {
     else await state.renameFolder(id, name);
   };
 
-  // One drop handler for folders and layer roots: a dragged note is a move, a
-  // drag from the operating system is an import.
+  const toggleCollapsed = useCallback((path: string): void => {
+    setCollapsed((current) => ({ ...current, [path]: !current[path] }));
+  }, []);
+
+  const confirmEmptyTrash = useCallback((): void => {
+    if (
+      !window.confirm(
+        "Permanently delete everything in the trash? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    void state.emptyTrash();
+  }, [state]);
+
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  const openMenu = (event: React.MouseEvent, target: MenuTarget): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ x: event.clientX, y: event.clientY, target });
+  };
+
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") closeMenu();
+    };
+    const onDown = (event: MouseEvent): void => {
+      if (!menuRef.current?.contains(event.target as Node)) closeMenu();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("blur", closeMenu);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("blur", closeMenu);
+    };
+  }, [menu, closeMenu]);
+
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el || !menu) return;
+    const rect = el.getBoundingClientRect();
+    const x = Math.min(menu.x, window.innerWidth - rect.width - 8);
+    const y = Math.min(menu.y, window.innerHeight - rect.height - 8);
+    el.style.left = `${Math.max(8, x)}px`;
+    el.style.top = `${Math.max(8, y)}px`;
+    el.querySelector<HTMLButtonElement>("[role='menuitem']")?.focus();
+  }, [menu]);
+
   const handleDrop = async (
     event: React.DragEvent,
     layerId: string,
@@ -144,7 +281,187 @@ export function FileTree(): JSX.Element {
     onDrop: (event) => void handleDrop(event, layerId, path),
   });
 
-  const renderNode = (node: Node, depth: number): JSX.Element => {
+  const menuItems = (target: MenuTarget): MenuItem[] => {
+    switch (target.kind) {
+      case "note":
+        return [
+          {
+            id: "open",
+            label: "Open",
+            hint: "Enter",
+            run: () => void state.openNoteById(target.note.id),
+          },
+          {
+            id: "rename",
+            label: "Rename",
+            hint: "F2",
+            run: () => startRename(target.note.id, target.note.title),
+          },
+          {
+            id: "duplicate",
+            label: "Duplicate",
+            hint: "Ctrl+D",
+            run: () => void state.duplicateNote(target.note.id),
+          },
+          {
+            id: "trash",
+            label: "Move to trash",
+            hint: "Delete",
+            danger: true,
+            run: () => void state.deleteNote(target.note.id),
+          },
+        ];
+      case "folder": {
+        const isCollapsed = collapsed[target.path] ?? false;
+        return [
+          {
+            id: "new-note",
+            label: "New note",
+            run: () => void state.createNote(target.layerId, target.path),
+          },
+          {
+            id: "new-folder",
+            label: "New subfolder",
+            run: () => void state.createFolder(target.layerId, target.path),
+          },
+          {
+            id: "rename",
+            label: "Rename",
+            hint: "F2",
+            run: () => startRename(target.folder.id, target.folder.name),
+          },
+          {
+            id: "toggle",
+            label: isCollapsed ? "Expand" : "Collapse",
+            hint: isCollapsed ? "→" : "←",
+            run: () => toggleCollapsed(target.path),
+          },
+          {
+            id: "trash",
+            label: "Move to trash",
+            hint: "Delete",
+            danger: true,
+            run: () => void state.deleteFolder(target.folder.id),
+          },
+        ];
+      }
+      case "layer":
+        return [
+          {
+            id: "new-note",
+            label: "New note",
+            run: () => void state.createNote(target.layerId, ""),
+          },
+          {
+            id: "new-folder",
+            label: "New folder",
+            run: () => void state.createFolder(target.layerId, ""),
+          },
+        ];
+      case "trash":
+        return [
+          {
+            id: "empty",
+            label: "Empty trash",
+            danger: true,
+            run: confirmEmptyTrash,
+          },
+        ];
+    }
+  };
+
+  const onFolderKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    folder: TreeFolder,
+    path: string,
+    layerId: string,
+  ): void => {
+    if (renaming) return;
+    const isCollapsed = collapsed[path] ?? false;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveTreeFocus(event.currentTarget, 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveTreeFocus(event.currentTarget, -1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (!isCollapsed) {
+        toggleCollapsed(path);
+      } else {
+        const parentPath = path.includes("/")
+          ? path.slice(0, path.lastIndexOf("/"))
+          : "";
+        if (parentPath) {
+          const parent = (state.tree?.folders ?? []).find(
+            (entry) => entry.layer_id === layerId && entry.path === parentPath,
+          );
+          if (parent) {
+            focusTreeItem(treeRef.current, `folder:${parent.id}`);
+          }
+        }
+      }
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (isCollapsed) {
+        toggleCollapsed(path);
+      } else {
+        moveTreeFocus(event.currentTarget, 1);
+      }
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      toggleCollapsed(path);
+    } else if (event.key === "F2") {
+      event.preventDefault();
+      startRename(folder.id, folder.name);
+    } else if (event.key === "Delete") {
+      event.preventDefault();
+      void state.deleteFolder(folder.id);
+    }
+  };
+
+  const onNoteKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    note: NoteMetadata,
+  ): void => {
+    if (renaming) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveTreeFocus(event.currentTarget, 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveTreeFocus(event.currentTarget, -1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      const parent = (state.tree?.folders ?? []).find(
+        (entry) =>
+          entry.layer_id === note.layer_id && entry.path === note.folder_path,
+      );
+      if (parent) {
+        focusTreeItem(treeRef.current, `folder:${parent.id}`);
+      }
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveTreeFocus(event.currentTarget, 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      void state.openNoteById(note.id);
+    } else if (event.key === "F2") {
+      event.preventDefault();
+      startRename(note.id, note.title);
+    } else if (event.key === "Delete") {
+      event.preventDefault();
+      void state.deleteNote(note.id);
+    } else if (
+      event.key.toLowerCase() === "d" &&
+      (event.ctrlKey || event.metaKey)
+    ) {
+      event.preventDefault();
+      void state.duplicateNote(note.id);
+    }
+  };
+
+  const renderNode = (node: TreeNode, depth: number): JSX.Element => {
     const isCollapsed = collapsed[node.path] ?? false;
     const key = node.folder?.id ?? `root:${node.layerId}`;
 
@@ -157,18 +474,32 @@ export function FileTree(): JSX.Element {
             role="treeitem"
             aria-expanded={!isCollapsed}
             tabIndex={0}
+            data-tree-id={`folder:${node.folder.id}`}
+            data-kind="folder"
+            data-path={node.path}
             {...dropProps(key, node.layerId, node.path)}
+            onContextMenu={(event) =>
+              openMenu(event, {
+                kind: "folder",
+                folder: node.folder!,
+                path: node.path,
+                layerId: node.layerId,
+              })
+            }
+            onKeyDown={(event) =>
+              onFolderKeyDown(event, node.folder!, node.path, node.layerId)
+            }
           >
             <button
               type="button"
               className="tree__twisty"
               aria-label={isCollapsed ? "Expand" : "Collapse"}
-              onClick={() =>
-                setCollapsed((c) => ({ ...c, [node.path]: !isCollapsed }))
-              }
+              tabIndex={-1}
+              onClick={() => toggleCollapsed(node.path)}
             >
               {isCollapsed ? "▸" : "▾"}
             </button>
+            <FolderIcon />
 
             {renaming === node.folder.id ? (
               <input
@@ -242,15 +573,16 @@ export function FileTree(): JSX.Element {
                   role="treeitem"
                   aria-selected={state.activeNoteId === note.id}
                   tabIndex={0}
+                  data-tree-id={`note:${note.id}`}
+                  data-kind="note"
                   draggable
                   onDragStart={(event) =>
                     event.dataTransfer.setData("text/strata-note", note.id)
                   }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void state.openNoteById(note.id);
-                    if (event.key === "F2") startRename(note.id, note.title);
-                    if (event.key === "Delete") void state.deleteNote(note.id);
-                  }}
+                  onContextMenu={(event) =>
+                    openMenu(event, { kind: "note", note })
+                  }
+                  onKeyDown={(event) => onNoteKeyDown(event, note)}
                 >
                   {renaming === note.id ? (
                     <input
@@ -268,6 +600,7 @@ export function FileTree(): JSX.Element {
                     />
                   ) : (
                     <>
+                      <NoteIcon />
                       <button
                         type="button"
                         className="tree__name tree__name--note"
@@ -313,9 +646,35 @@ export function FileTree(): JSX.Element {
   };
 
   return (
-    <section className="tree" aria-label="Files" data-tour="files">
+    <section
+      ref={treeRef}
+      className="tree"
+      aria-label="Files"
+      data-tour="files"
+      data-density={density}
+    >
       <div className="tree__header">
         <h2 className="sidebar__heading">Files</h2>
+        <div className="tree__header-actions" role="group" aria-label="View">
+          <button
+            type="button"
+            className={`tree__density ${density === "list" ? "tree__density--active" : ""}`}
+            aria-pressed={density === "list"}
+            title="List view"
+            onClick={() => state.setExplorerDensity("list")}
+          >
+            List
+          </button>
+          <button
+            type="button"
+            className={`tree__density ${density === "large" ? "tree__density--active" : ""}`}
+            aria-pressed={density === "large"}
+            title="Large icons"
+            onClick={() => state.setExplorerDensity("large")}
+          >
+            Large
+          </button>
+        </div>
       </div>
 
       {trees.map(({ layer, root }) => (
@@ -323,6 +682,13 @@ export function FileTree(): JSX.Element {
           <div
             className={`tree__layer-row ${dropTarget === `layer:${layer.id}` ? "tree__row--drop" : ""}`}
             {...dropProps(`layer:${layer.id}`, layer.id, "")}
+            onContextMenu={(event) =>
+              openMenu(event, {
+                kind: "layer",
+                layerId: layer.id,
+                displayName: layer.display_name,
+              })
+            }
           >
             <span className="tree__layer-name mono">{layer.display_name}</span>
             <span className="tree__actions">
@@ -355,8 +721,23 @@ export function FileTree(): JSX.Element {
       ))}
 
       {state.trash.length > 0 && (
-        <details className="tree__trash">
-          <summary>Trash ({state.trash.length})</summary>
+        <details
+          className="tree__trash"
+          onContextMenu={(event) => openMenu(event, { kind: "trash" })}
+        >
+          <summary>
+            Trash ({state.trash.length})
+            <button
+              type="button"
+              className="button button--ghost tree__empty-trash"
+              onClick={(event) => {
+                event.preventDefault();
+                confirmEmptyTrash();
+              }}
+            >
+              Empty trash
+            </button>
+          </summary>
           <ul>
             {state.trash.map((entry) => (
               <li key={entry.entry} className="tree__trash-item">
@@ -372,6 +753,50 @@ export function FileTree(): JSX.Element {
             ))}
           </ul>
         </details>
+      )}
+
+      {menu && (
+        <div
+          ref={menuRef}
+          className="context-menu"
+          role="menu"
+          aria-label="Files menu"
+          onKeyDown={(event) => {
+            const items = [
+              ...(menuRef.current?.querySelectorAll<HTMLButtonElement>(
+                "[role='menuitem']",
+              ) ?? []),
+            ];
+            const index = items.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              items[(index + 1) % items.length]?.focus();
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              items[(index - 1 + items.length) % items.length]?.focus();
+            }
+          }}
+        >
+          {menuItems(menu.target).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitem"
+              className={`context-menu__item ${item.danger ? "context-menu__item--danger" : ""}`}
+              onClick={() => {
+                item.run();
+                closeMenu();
+              }}
+            >
+              <span>{item.label}</span>
+              {item.hint && (
+                <kbd className="context-menu__hint">{item.hint}</kbd>
+              )}
+            </button>
+          ))}
+        </div>
       )}
     </section>
   );

@@ -18,6 +18,9 @@ import {
 } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { GraphSnapshot } from "../../bridge/types";
 import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
@@ -28,6 +31,11 @@ import {
   NodeLabels,
   Starfield,
 } from "./effects";
+import {
+  appendEdgeCurveSegments,
+  EDGE_CURVE_SEGMENTS,
+  edgeSalt,
+} from "./edgeCurves";
 import {
   buildEdgeParticles,
   buildNebula,
@@ -199,87 +207,121 @@ function Edges({
   "graph" | "positions" | "selectedIds" | "hoveredId"
 >): JSX.Element | null {
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const lineRef = useRef<THREE.LineSegments>(null);
   const colorScratch = useMemo(() => new THREE.Color(), []);
+  const size = useThree((state) => state.size);
+  const dpr = useThree((state) => state.viewport.dpr);
 
-  // Positions only — recreating this on hover caused a one-frame flash of the
-  // whole edge batch (dispose + upload) that looked like Explore "glitching".
-  const geometry = useMemo(() => {
+  // Single anti-aliased Bézier stroke — HUD-like, no soft dual-glow halo.
+  const { geometry, material, lines, segmentCount } = useMemo(() => {
     const points: number[] = [];
     const colors: number[] = [];
+    let segmentCount = 0;
     for (const edge of graph.edges) {
       const from = positions[edge.source];
       const to = positions[edge.target];
       if (!from || !to) continue;
-      points.push(from[0] * 0.1, from[1] * 0.1, from[2] * 0.1);
-      points.push(to[0] * 0.1, to[1] * 0.1, to[2] * 0.1);
-      colors.push(0.4, 0.45, 0.55, 0.4, 0.45, 0.55);
+      const before = points.length;
+      appendEdgeCurveSegments(
+        points,
+        from[0] * SCALE,
+        from[1] * SCALE,
+        from[2] * SCALE,
+        to[0] * SCALE,
+        to[1] * SCALE,
+        to[2] * SCALE,
+        edgeSalt(edge.source, edge.target),
+      );
+      const added = (points.length - before) / 6;
+      segmentCount += added;
+      for (let i = 0; i < added; i += 1) {
+        // Dark gray idle — constellation red is applied in the color pass.
+        colors.push(0.23, 0.25, 0.29, 0.23, 0.25, 0.29);
+      }
     }
-    const buffer = new THREE.BufferGeometry();
-    buffer.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(points, 3),
-    );
-    buffer.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-    return buffer;
+    const geometry = new LineSegmentsGeometry();
+    if (points.length > 0) {
+      geometry.setPositions(points);
+      geometry.setColors(colors);
+    }
+    const material = new LineMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.78,
+      depthTest: true,
+      depthWrite: false,
+      linewidth: 2.15,
+      worldUnits: false,
+      toneMapped: false,
+      alphaToCoverage: true,
+    });
+    const lines = new LineSegments2(geometry, material);
+    lines.frustumCulled = false;
+    lines.renderOrder = 1;
+    return { geometry, material, lines, segmentCount };
   }, [graph.edges, positions]);
 
-  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(
+    () => () => {
+      geometry.dispose();
+      material.dispose();
+    },
+    [geometry, material],
+  );
 
   useEffect(() => {
-    const attr = geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
-    if (!attr) return;
-    const colors = attr.array as Float32Array;
-    let cursor = 0;
+    material.resolution.set(size.width * dpr, size.height * dpr);
+  }, [material, size.width, size.height, dpr]);
+
+  useEffect(() => {
+    if (graph.edges.length === 0 || segmentCount === 0) return;
+    const colors: number[] = [];
+    let litAny = false;
     for (const edge of graph.edges) {
       const from = positions[edge.source];
       const to = positions[edge.target];
       if (!from || !to) continue;
       const isLit = selected.has(edge.source) && selected.has(edge.target);
+      if (isLit) litAny = true;
       colorScratch.set(edgeColor(isLit, edge.origin));
       const touchesHover =
         hoveredId !== null &&
         (edge.source === hoveredId || edge.target === hoveredId);
-      const touchesSelection =
-        selected.has(edge.source) || selected.has(edge.target);
-      const factor = touchesHover
-        ? 1.7
-        : selected.size === 0
-          ? 1
-          : touchesSelection
+      // Connected constellation = full bright red; idle = dark gray; when a
+      // selection exists, non-connected edges stay dark gray at a low factor.
+      const factor = isLit
+        ? 1
+        : selected.size > 0
+          ? touchesHover
+            ? 0.55
+            : 0.35
+          : touchesHover
             ? 1.25
-            : 0.4;
+            : 1;
       const r = Math.min(colorScratch.r * factor, 1);
       const g = Math.min(colorScratch.g * factor, 1);
       const b = Math.min(colorScratch.b * factor, 1);
-      colors[cursor++] = r;
-      colors[cursor++] = g;
-      colors[cursor++] = b;
-      colors[cursor++] = r;
-      colors[cursor++] = g;
-      colors[cursor++] = b;
+      for (let i = 0; i < EDGE_CURVE_SEGMENTS; i += 1) {
+        colors.push(r, g, b, r, g, b);
+      }
     }
-    attr.needsUpdate = true;
-  }, [geometry, graph.edges, positions, selected, hoveredId, colorScratch]);
+    if (colors.length > 0) geometry.setColors(colors);
+    material.linewidth = litAny || hoveredId !== null ? 2.65 : 2.15;
+    material.opacity = selected.size === 0 ? 0.78 : 0.88;
+    material.needsUpdate = true;
+  }, [
+    geometry,
+    material,
+    graph.edges,
+    positions,
+    selected,
+    hoveredId,
+    colorScratch,
+    segmentCount,
+  ]);
 
   if (graph.edges.length === 0) return null;
 
-  return (
-    <lineSegments
-      ref={lineRef}
-      geometry={geometry}
-      frustumCulled={false}
-      renderOrder={1}
-    >
-      <lineBasicMaterial
-        vertexColors
-        transparent
-        opacity={0.85}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </lineSegments>
-  );
+  return <primitive object={lines} />;
 }
 
 function CameraRig({ nodeCount }: { nodeCount: number }): null {
@@ -293,9 +335,10 @@ function CameraRig({ nodeCount }: { nodeCount: number }): null {
 }
 
 /**
- * Fly the orbit target to the most recently selected node — click a star and
- * the galaxy re-centres on it. The flight eases out and then *stops*: once
- * arrived it never fights the user's own panning. Reduced motion jumps instead.
+ * Fly the camera to the most recently selected node — click a star (or pick it
+ * in the Graph list) and the galaxy both re-centres and moves in so the node is
+ * actually in view. The flight eases out and then *stops*: once arrived it
+ * never fights the user's own panning. Reduced motion jumps instead.
  */
 function FocusRig({
   focusId,
@@ -306,6 +349,7 @@ function FocusRig({
   position: [number, number, number] | null;
   reducedMotion: boolean;
 }): null {
+  const camera = useThree((state) => state.camera);
   const controls = useThree(
     (state) =>
       state.controls as unknown as {
@@ -314,19 +358,45 @@ function FocusRig({
       } | null,
   );
   const arrivedRef = useRef<string | null>(null);
-  const goal = useRef(new THREE.Vector3());
+  const goalTarget = useRef(new THREE.Vector3());
+  const goalCamera = useRef(new THREE.Vector3());
+  const offset = useRef(new THREE.Vector3());
+
+  // Re-arm the flight whenever the focus node (or its laid-out position) changes.
+  useEffect(() => {
+    arrivedRef.current = null;
+  }, [focusId, position?.[0], position?.[1], position?.[2]]);
 
   useFrame((_, delta) => {
     if (!controls || !focusId || !position) return;
     if (arrivedRef.current === focusId) return;
-    goal.current.set(position[0], position[1], position[2]);
+
+    goalTarget.current.set(position[0], position[1], position[2]);
+    offset.current.copy(camera.position).sub(controls.target);
+    if (offset.current.lengthSq() < 1e-6) {
+      offset.current.set(6, 10, 22);
+    } else {
+      // Pull in to a readable distance without slamming into the node.
+      offset.current.setLength(
+        Math.min(36, Math.max(12, offset.current.length() * 0.55)),
+      );
+    }
+    goalCamera.current.copy(goalTarget.current).add(offset.current);
+
     if (reducedMotion) {
-      controls.target.copy(goal.current);
+      controls.target.copy(goalTarget.current);
+      camera.position.copy(goalCamera.current);
       arrivedRef.current = focusId;
     } else {
-      controls.target.lerp(goal.current, Math.min(1, delta * 4));
-      if (controls.target.distanceTo(goal.current) < 0.05)
+      const step = Math.min(1, delta * 3.2);
+      controls.target.lerp(goalTarget.current, step);
+      camera.position.lerp(goalCamera.current, step);
+      if (
+        controls.target.distanceTo(goalTarget.current) < 0.08 &&
+        camera.position.distanceTo(goalCamera.current) < 0.2
+      ) {
         arrivedRef.current = focusId;
+      }
     }
     controls.update();
   });

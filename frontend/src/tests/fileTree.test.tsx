@@ -9,7 +9,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NoteMetadata } from "../bridge/types";
 import { FileTree } from "../features/explorer/FileTree";
 import { useStore } from "../state/store";
@@ -209,6 +209,117 @@ describe("FileTree drag and drop", () => {
     await waitFor(() => {
       const move = calls.find((call) => call.method === "move_note");
       expect(move?.payload).toMatchObject({ note_id: "n1", folder_path: "" });
+    });
+  });
+});
+
+describe("FileTree density, keyboard, and trash", () => {
+  beforeEach(() => {
+    installFakeBridge();
+    seed();
+  });
+
+  it("toggles List / Large density on the Files panel", async () => {
+    const user = userEvent.setup();
+    render(<FileTree />);
+
+    const panel = screen.getByLabelText("Files");
+    expect(panel).toHaveAttribute("data-density", "list");
+
+    await user.click(screen.getByTitle("Large icons"));
+    expect(panel).toHaveAttribute("data-density", "large");
+
+    await user.click(screen.getByTitle("List view"));
+    expect(panel).toHaveAttribute("data-density", "list");
+  });
+
+  it("renames a folder with F2 and expands/collapses with Enter", async () => {
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const folder = screen
+      .getByText("Security")
+      .closest("[role=treeitem]") as HTMLElement;
+    folder.focus();
+    fireEvent.keyDown(folder, { key: "Enter" });
+    expect(folder).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.keyDown(folder, { key: "Enter" });
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.keyDown(folder, { key: "F2" });
+    const input = await screen.findByLabelText("Folder name");
+    fireEvent.change(input, { target: { value: "Safety" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      const renamed = calls.find((call) => call.method === "rename_folder");
+      expect(renamed?.payload).toMatchObject({
+        folder_id: "f1",
+        name: "Safety",
+      });
+    });
+  });
+
+  it("duplicates a focused note with Ctrl+D", async () => {
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const note = screen
+      .getByText("Encryption Architecture")
+      .closest("[role=treeitem]") as HTMLElement;
+    note.focus();
+    fireEvent.keyDown(note, { key: "d", ctrlKey: true });
+
+    await waitFor(() => {
+      const duplicated = calls.find((call) => call.method === "duplicate_note");
+      expect(duplicated?.payload).toMatchObject({ note_id: "n1" });
+    });
+  });
+
+  it("empties the trash after confirmation", async () => {
+    const calls = installRecording();
+    useStore.setState({
+      trash: [
+        {
+          entry: "layer_a__gone.md",
+          title: "Gone",
+          layer_id: "layer_a",
+          folder_path: "",
+        },
+      ],
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const user = userEvent.setup();
+    render(<FileTree />);
+
+    await user.click(screen.getByRole("button", { name: "Empty trash" }));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(calls.some((call) => call.method === "empty_trash")).toBe(true);
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("deletes a folder with Delete", async () => {
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const folder = screen
+      .getByText("Security")
+      .closest("[role=treeitem]") as HTMLElement;
+    folder.focus();
+    fireEvent.keyDown(folder, { key: "Delete" });
+
+    await waitFor(() => {
+      const deleted = calls.find((call) => call.method === "delete_folder");
+      expect(deleted?.payload).toMatchObject({ folder_id: "f1" });
     });
   });
 });

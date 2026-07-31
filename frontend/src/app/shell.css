@@ -143,10 +143,41 @@
 /* --- body ---------------------------------------------------------------- */
 
 .shell__body {
+  --shell-nav-col: var(--shell-nav-width-fluid);
+  --shell-inspector-col: var(--shell-inspector-width-fluid);
   position: relative;
   display: grid;
-  grid-template-columns: var(--shell-nav-width) 1fr var(--shell-inspector-width);
+  grid-template-columns:
+    var(--shell-nav-col) minmax(0, 1fr) var(--shell-inspector-col);
   min-height: 0;
+  overflow: hidden;
+}
+
+/* In-flow rails: collapsing frees the stage (drawers below use transform instead). */
+@media (min-width: 961px) {
+  .shell__body--nav-closed {
+    --shell-nav-col: 0px;
+  }
+
+  .navigator--closed {
+    overflow: hidden;
+    border-color: transparent;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+@media (min-width: 1280px) {
+  .shell__body--inspector-closed {
+    --shell-inspector-col: 0px;
+  }
+
+  .inspector--closed {
+    overflow: hidden;
+    border-color: transparent;
+    visibility: hidden;
+    pointer-events: none;
+  }
 }
 
 .navigator,
@@ -157,11 +188,15 @@
   min-width: 0;
   min-height: 0;
   background: var(--surface-base);
-  transition: transform var(--motion-base) var(--ease-out);
+  transition:
+    transform var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out);
 }
 
 .navigator {
   border-right: 1px solid var(--border-subtle);
+  container-type: inline-size;
+  container-name: navigator;
 }
 
 .inspector {
@@ -169,39 +204,98 @@
 }
 
 .navigator__scroll {
+  flex: 1;
+  min-height: 0;
   padding: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: var(--shell-section-gap);
 }
 
+/* Rail toggles live on the stage so collapsed rails never hide the recover control. */
 .drawer-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   position: absolute;
-  top: var(--space-2);
-  z-index: calc(var(--z-panel) + 2);
-  width: 20px;
-  height: 26px;
+  top: 50%;
+  z-index: calc(var(--z-overlay) + 2);
+  width: 18px;
+  height: 48px;
   padding: 0;
-  color: var(--text-tertiary);
-  background: var(--surface-raised);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--accent-primary));
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 10px;
+  line-height: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+  transition:
+    color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    left var(--motion-base) var(--ease-out),
+    right var(--motion-base) var(--ease-out);
 }
 
-/* Sit on the column seam so sidebar labels stay readable. */
+.drawer-toggle__icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  opacity: 0.9;
+}
+
+.drawer-toggle:hover,
+.drawer-toggle:focus-visible {
+  color: var(--text-primary);
+  background: var(--surface-overlay);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-subtle));
+}
+
+.drawer-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-accent);
+}
+
 .drawer-toggle--nav {
-  right: -10px;
-  left: auto;
+  left: 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-left: none;
 }
 
 .drawer-toggle--inspector {
-  left: -10px;
-  right: auto;
+  right: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  border-right: none;
+}
+
+/* Recover state: stronger cue on the stage edge after a rail is collapsed. */
+.drawer-toggle--recover {
+  width: 22px;
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-raised) 80%, var(--accent-primary));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-primary) 20%, transparent),
+    0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.drawer-toggle--recover .drawer-toggle__icon {
+  opacity: 1;
+}
+
+/* Overlay drawers: sit the toggle on the drawer seam, not under the panel. */
+@media (max-width: 1279px) {
+  .shell__body:not(.shell__body--inspector-closed) .drawer-toggle--inspector {
+    right: var(--shell-inspector-width-drawer);
+  }
+}
+
+@media (max-width: 960px) {
+  .shell__body:not(.shell__body--nav-closed) .drawer-toggle--nav {
+    left: min(var(--shell-nav-width), 86vw);
+  }
 }
 
 .nav-section {
@@ -209,6 +303,17 @@
   border-radius: var(--radius-md);
   background: var(--surface-raised);
   overflow: hidden;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* Files (and Graph list) consume leftover navigator height and scroll inside. */
+.nav-section--files.nav-section--open,
+.nav-section--graph.nav-section--open {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 8rem;
 }
 
 .nav-section__toggle {
@@ -245,6 +350,15 @@
 
 .nav-section__body {
   padding: var(--space-2);
+  min-width: 0;
+}
+
+.nav-section--files.nav-section--open > .nav-section__body,
+.nav-section--graph.nav-section--open > .nav-section__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .nav-section__body .sidebar__heading,
@@ -274,8 +388,11 @@
 
 .stage {
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(
       circle at 30% 20%,
@@ -288,6 +405,13 @@
       transparent 45%
     ),
     var(--surface-void);
+}
+
+.stage > .editor-pane,
+.stage > .views {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .stage__graph,
@@ -1391,18 +1515,39 @@
 
 /* --- responsive ---------------------------------------------------------- */
 
-/* 1440 and below: narrow the columns before hiding anything. */
+/* Mid widths: clamp already shrinks rails; nudge the nav ceiling down. */
 @media (max-width: 1500px) {
   .shell__body {
-    grid-template-columns: var(--shell-nav-width-narrow) 1fr
-      var(--shell-inspector-width);
+    --shell-nav-col: clamp(
+      11rem,
+      16vw,
+      var(--shell-nav-width-narrow)
+    );
+  }
+
+  .shell__body--nav-closed {
+    --shell-nav-col: 0px;
   }
 }
 
-/* 1280 / 1366: the inspector becomes a drawer over the stage. */
+/* ≤1279: inspector becomes a drawer over the stage (nav stays in-flow). */
 @media (max-width: 1279px) {
   .shell__body {
-    grid-template-columns: var(--shell-nav-width-narrow) 1fr;
+    --shell-nav-col: clamp(
+      10.5rem,
+      20vw,
+      var(--shell-nav-width-narrow)
+    );
+    --shell-inspector-col: 0px;
+    grid-template-columns: var(--shell-nav-col) minmax(0, 1fr);
+  }
+
+  .shell__body--nav-closed {
+    --shell-nav-col: 0px;
+  }
+
+  .shell__body--inspector-closed {
+    --shell-inspector-col: 0px;
   }
 
   .inspector {
@@ -1411,23 +1556,28 @@
     right: 0;
     bottom: 0;
     width: var(--shell-inspector-width-drawer);
+    max-width: 92vw;
     z-index: var(--z-overlay);
     box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45);
   }
 
   .inspector--closed {
     transform: translateX(100%);
+    visibility: visible;
+    pointer-events: none;
   }
 }
 
-/* Narrow: one surface. Sidebars slide over; nothing scrolls horizontally. */
+/* ≤960: one surface. Both rails slide over the stage. */
 @media (max-width: 960px) {
   .shell {
     overflow-x: hidden;
   }
 
   .shell__body {
-    grid-template-columns: 1fr;
+    --shell-nav-col: 0px;
+    --shell-inspector-col: 0px;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .navigator {
@@ -1436,17 +1586,15 @@
     left: 0;
     bottom: 0;
     width: min(var(--shell-nav-width), 86vw);
+    max-width: 92vw;
     z-index: var(--z-overlay);
     box-shadow: 18px 0 40px rgba(0, 0, 0, 0.45);
   }
 
   .navigator--closed {
     transform: translateX(-100%);
-  }
-
-  /* Stay above the drawer so users can still collapse it. */
-  .drawer-toggle {
-    z-index: calc(var(--z-overlay) + 1);
+    visibility: visible;
+    pointer-events: none;
   }
 
   .commandbar {
@@ -1456,6 +1604,7 @@
 
   .commandbar__modes {
     margin-left: 0;
+    flex-wrap: wrap;
   }
 
   .commandbar__lens {
@@ -1471,6 +1620,12 @@
     gap: var(--space-2);
     border-radius: var(--radius-lg);
   }
+
+  .statusbar {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+    white-space: normal;
+  }
 }
 
 /* Short viewports (1280×720, 150–200% scaling): reclaim vertical space. */
@@ -1478,10 +1633,27 @@
   .commandbar {
     padding-top: var(--space-1);
     padding-bottom: var(--space-1);
+    min-height: 0;
   }
 
   .note-view {
     padding: var(--space-4);
+  }
+
+  .nav-section--files.nav-section--open,
+  .nav-section--graph.nav-section--open {
+    min-height: 5rem;
+  }
+}
+
+/* Very short: keep chrome usable under heavy OS scaling. */
+@media (max-height: 560px) {
+  .commandbar__brand .commandbar__tagline {
+    display: none;
+  }
+
+  .statusbar {
+    font-size: 10px;
   }
 }
 
@@ -2128,6 +2300,73 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* --- Settings dialog ------------------------------------------------------- */
+
+.settings-dialog {
+  width: min(560px, 94vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-color: var(--border-accent);
+}
+
+.settings-dialog .dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.settings-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.settings-dialog__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-dialog__section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings-dialog__heading {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-chrome);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.settings-dialog__hint {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.settings-dialog__segmented {
+  flex-wrap: wrap;
+}
+
+.settings-dialog__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
 }
 
 .operations__meeting {

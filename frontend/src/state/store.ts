@@ -12,6 +12,7 @@ import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
 import { dropSession } from "../features/collaboration/collabDoc";
 import type { ImportedFile } from "../features/explorer/importDrop";
+import { resetTokenCache } from "../features/graph/nodeStyle";
 import type {
   AIStreamEvent,
   AppSettings,
@@ -70,6 +71,9 @@ const saveQueue = new Map<string, string>();
 const savingNotes = new Set<string>();
 // Monotonic token so a slow note-open response cannot overwrite a newer one.
 let openRequestToken = 0;
+// Recently closed tab ids for Ctrl/Cmd+Shift+T (session-only, newest last).
+const closedTabStack: string[] = [];
+const MAX_CLOSED_TABS = 30;
 
 export interface SelectionSummary {
   count: number;
@@ -101,6 +105,9 @@ interface StrataState {
   // graph display options
   semanticEdges: boolean;
   clusterColors: boolean;
+
+  // Files panel density (session-only; not persisted to AppSettings)
+  explorerDensity: "list" | "large";
 
   // collaboration (M9)
   collab: Record<string, CollaborationState>;
@@ -173,6 +180,8 @@ interface StrataState {
   // editor + files
   openNoteById: (noteId: string) => Promise<void>;
   closeTab: (noteId: string) => void;
+  /** Reopen the most recently closed tab (Ctrl/Cmd+Shift+T). */
+  reopenClosedTab: () => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
   setDraft: (noteId: string, content: string) => void;
   saveNote: (noteId: string, content: string) => Promise<void>;
@@ -189,6 +198,8 @@ interface StrataState {
   duplicateNote: (noteId: string) => Promise<void>;
   deleteNote: (noteId: string) => Promise<void>;
   restoreNote: (entry: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
+  setExplorerDensity: (density: "list" | "large") => void;
   createFolder: (layerId: string, folderPath: string) => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
@@ -328,6 +339,7 @@ export const useStore = create<StrataState>((set, get) => ({
   activeLensId: "lens_all",
   semanticEdges: false,
   clusterColors: false,
+  explorerDensity: "list",
 
   collab: {},
   collabConflicts: {},
@@ -458,6 +470,7 @@ export const useStore = create<StrataState>((set, get) => ({
 
   setMode: (mode) => set({ mode }),
   setDimension: (dimension) => set({ dimension }),
+  setExplorerDensity: (density) => set({ explorerDensity: density }),
 
   async applySettings(values) {
     const settings = (await bridge.settings.update(values)).settings;
@@ -528,6 +541,15 @@ export const useStore = create<StrataState>((set, get) => ({
   },
 
   closeTab: (noteId) => {
+    const existing = get().tabs.find((tab) => tab.id === noteId);
+    if (existing) {
+      // Avoid duplicate adjacent entries when the same tab is closed twice.
+      if (closedTabStack[closedTabStack.length - 1] !== noteId) {
+        closedTabStack.push(noteId);
+        if (closedTabStack.length > MAX_CLOSED_TABS) closedTabStack.shift();
+      }
+    }
+
     const tabs = get().tabs.filter((tab) => tab.id !== noteId);
     const wasActive = get().activeNoteId === noteId;
     const dirty = { ...get().dirty };
@@ -546,6 +568,22 @@ export const useStore = create<StrataState>((set, get) => ({
         draft: null,
         links: EMPTY_LINKS,
       });
+    }
+  },
+
+  async reopenClosedTab() {
+    while (closedTabStack.length > 0) {
+      const noteId = closedTabStack.pop();
+      if (!noteId) return;
+      if (get().tabs.some((tab) => tab.id === noteId)) continue;
+      try {
+        await get().openNoteById(noteId);
+        // openNoteById reports failures via connectionMessage; if the note is
+        // gone, activeNoteId will not become noteId — try the next entry.
+        if (get().activeNoteId === noteId) return;
+      } catch {
+        // keep draining the stack
+      }
     }
   },
 
@@ -728,6 +766,16 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
+  async emptyTrash() {
+    try {
+      await bridge.notes.emptyTrash();
+      await get().reloadTree();
+      await get().reloadGraph();
     } catch (error) {
       set({ connectionMessage: describeError(error) });
     }
@@ -1461,4 +1509,7 @@ export function applyDocumentSettings(settings: AppSettings): void {
   root.dataset["motion"] =
     settings.motion === "system" ? "system" : settings.motion;
   root.dataset["graphQuality"] = settings.graph_quality;
+  // Appearance swaps CSS vars on <html>; clear the canvas token cache so
+  // 2D/3D edges and nodes re-read the new palette instead of stale hex.
+  resetTokenCache();
 }

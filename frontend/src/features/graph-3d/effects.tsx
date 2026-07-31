@@ -128,6 +128,7 @@ const NEBULA_FRAGMENT = /* glsl */ `
 
 const FLOW_VERTEX = /* glsl */ `
   attribute vec3 aEnd;
+  attribute vec3 aControl;
   attribute vec3 aColor;
   attribute float aOffset;
   attribute float aSpeed;
@@ -136,7 +137,9 @@ const FLOW_VERTEX = /* glsl */ `
   varying float vAlpha;
   void main() {
     float t = fract(aOffset + uTime * aSpeed);
-    vec3 p = mix(position, aEnd, t);
+    float u = 1.0 - t;
+    // Quadratic Bézier along the same chord the edge line uses.
+    vec3 p = u * u * position + 2.0 * u * t * aControl + t * t * aEnd;
     vColor = aColor;
     // Fade in near departure and out near arrival, so particles feel emitted.
     vAlpha = smoothstep(0.0, 0.12, t) * smoothstep(1.0, 0.88, t);
@@ -322,6 +325,7 @@ export function EdgeParticles({
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(data.starts, 3));
       g.setAttribute("aEnd", new THREE.BufferAttribute(data.ends, 3));
+      g.setAttribute("aControl", new THREE.BufferAttribute(data.controls, 3));
       g.setAttribute("aColor", new THREE.BufferAttribute(data.colors, 3));
       g.setAttribute("aOffset", new THREE.BufferAttribute(data.offsets, 1));
       g.setAttribute("aSpeed", new THREE.BufferAttribute(data.speeds, 1));

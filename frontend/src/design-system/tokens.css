@@ -60,9 +60,12 @@
   --graph-node-selected: #ffffff;
   /* Selection glow: bright ignition gold. */
   --graph-glow-selected: #ffe566;
-  --graph-edge-default: rgba(111, 127, 168, 0.35);
-  --graph-edge-selected: rgba(34, 224, 245, 0.95);
+  --graph-edge-default: #3a3f4a;
+  --graph-edge-default-solid: #3a3f4a;
+  --graph-edge-selected: #ff2d55;
+  --graph-edge-selected-solid: #ff2d55;
   --graph-edge-ai: rgba(160, 107, 255, 0.8);
+  --graph-edge-ai-solid: #3a3f4a;
 
   /* --- borders and lines ------------------------------------------------ */
   --border-subtle: rgba(147, 161, 189, 0.14);
@@ -98,10 +101,12 @@
   --radius-md: 6px;
   --radius-lg: 10px;
 
-  /* --- shell layout (stage-first) --------------------------------------- */
+  /* --- shell layout (stage-first, fluid) -------------------------------- */
   --shell-nav-width: 240px;
   --shell-nav-width-narrow: 220px;
+  --shell-nav-width-fluid: clamp(11rem, 18vw, var(--shell-nav-width));
   --shell-inspector-width: 300px;
+  --shell-inspector-width-fluid: clamp(14rem, 22vw, var(--shell-inspector-width));
   --shell-inspector-width-drawer: min(300px, 84vw);
   --shell-chrome-pad: var(--space-2) var(--space-3);
   --shell-section-gap: var(--space-2);
@@ -164,7 +169,11 @@
   --effect-bloom: 0;
   --effect-particles: 0;
   --effect-glow-opacity: 0;
-  --graph-edge-default: rgba(255, 255, 255, 0.55);
+  --graph-edge-default: #5a5a5a;
+  --graph-edge-default-solid: #5a5a5a;
+  --graph-edge-selected: #ff4d6a;
+  --graph-edge-selected-solid: #ff4d6a;
+  --graph-edge-ai-solid: #5a5a5a;
   /* High contrast: selection stays pure white; no decorative hue shift. */
   --graph-glow-selected: #ffffff;
 }

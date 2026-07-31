@@ -82,11 +82,10 @@ export function nodeRadius(node: GraphNode): number {
   return Math.min(1.6 + Math.sqrt(node.degree) * 0.55, 5.2);
 }
 
-export function edgeColor(selected: boolean, origin: string): string {
+export function edgeColor(selected: boolean, _origin: string): string {
   // Opaque RGB only — THREE.Color ignores alpha and floods the console when
   // given rgba(...), which also hid real GPU warnings during Explore.
-  if (selected) return cssToken("--graph-edge-selected-solid", "#22e0f5");
-  if (origin === "ai-suggested")
-    return cssToken("--graph-edge-ai-solid", "#a06bff");
-  return cssToken("--graph-edge-default-solid", "#6f7fa8");
+  // Connected (both endpoints selected) = bright red; everything else = dark gray.
+  if (selected) return cssToken("--graph-edge-selected-solid", "#ff2d55");
+  return cssToken("--graph-edge-default-solid", "#3a3f4a");
 }

@@ -99,7 +99,8 @@ The **2D / 3D** segmented control chooses the graph dimension. Strata falls
 back to 2D automatically when the machine has no WebGL or when graph quality
 is set to `low-gpu` — a notice explains the fallback when it happens.
 
-The **Motion** button toggles reduced motion: with it on, decorative animation
+The **Motion** preference (Command bar → More → Settings) chooses full,
+reduced, or system motion: with reduced on, decorative animation
 (auto-rotation, twinkling, particles, pulses) stops while every state signal
 stays visible statically.
 
@@ -219,6 +220,11 @@ design; snapshots remain their recovery mechanism.
 The **Files** panel is a real tree over the real folders on disk. In a public
 layer, what you see is literally the directory structure — rename a folder in
 Strata and the directory on disk is renamed.
+
+Use the **List** / **Large** toggle in the Files header to switch between a
+compact tree and taller rows with larger folder and note icons. Right-click a
+layer, folder, note, or the Trash section for a context menu of the same
+actions (plus Empty trash).
 
 Each layer has its own section, headed by the layer's name. Hover the layer
 name for its actions:
@@ -374,9 +380,9 @@ how many layers were excluded.
 - **Similar to this** (shown while a note is open) finds the open note's
   semantic neighbours.
 
-Results are selectable — click to select the note in the graph/composer,
-`Ctrl+click` to add, or **Select all** to select every result. Search is the
-fastest way to build an AI context selection.
+Click a result to open it in the editor. `Ctrl/Cmd+click` adds it to the
+graph/composer selection, or use **Select all** for every result. Search is
+also a fast way to build an AI context selection.
 
 ---
 
@@ -392,7 +398,9 @@ redacted marker — nothing about its contents leaks into the picture.
 Selection is the graph's central verb — it drives the AI composer, exports,
 and bulk operations.
 
-- **Click** — select a node. **Ctrl+click** — add/remove from the selection.
+- **Click** — select a node and show it in the **3D** galaxy (switches from
+  2D when 3D is available; the camera flies to the node). **Ctrl+click** —
+  add/remove from the selection without changing the view.
 - **Shift+click** — select the *shortest path* between the anchor and the
   clicked node.
 - **Double-click** — open the note in the editor.
@@ -463,7 +471,7 @@ announced as such.
 ## 10. The 3D galaxy
 
 In 3D, the graph is rendered as a galaxy: nodes are glowing stars, edges are
-lines of light with particles flowing along them, behind everything a
+soft Bézier arcs of light with particles flowing along them, behind everything a
 starfield drifts and faint nebula clouds breathe. The scene is engineered to
 stay smooth at ten thousand nodes.
 
@@ -474,8 +482,9 @@ What the visuals *mean*:
 - **Hover** a node and it swells, its name appears, its connections light up,
   and the cursor becomes a hand — you can see a node's neighbourhood without
   committing to a selection.
-- **Select** a node and the camera glides over and re-centres on it; the
-  flight eases out and then stops, so it never fights your own navigation.
+- **Select** a node (canvas or Graph list) and Strata switches to **3D** when
+  available; the camera flies in and re-centres on that star. The flight eases
+  out and then stops, so it never fights your own navigation.
   With several nodes selected, edges *between* selected nodes burn brightest —
   the "constellation" is exactly the shape you are about to send to a model —
   while unrelated edges recede.
@@ -707,8 +716,8 @@ panel (*"n conflict(s) — nothing was lost"*) with explicit choices such as
 
 - **Trash, not deletion.** Deleting a note or folder moves it to the
   workspace trash. The **Trash (n)** section at the bottom of the file tree
-  lists entries with a **Restore** button. (Emptying the trash is not yet
-  exposed in the UI — trashed files simply remain recoverable.)
+  lists entries with a **Restore** button. **Empty trash** permanently deletes
+  every entry after a confirmation — that cannot be undone.
 - **Snapshots before AI applies.** Every applied operation plan takes a
   snapshot first; **Undo** restores it.
 - **Transactional applies.** A plan applies fully or not at all.
@@ -719,15 +728,21 @@ panel (*"n conflict(s) — nothing was lost"*) with explicit choices such as
 
 ## 17. Settings
 
-Settings exposed in the UI:
+Settings exposed in the UI via **Command bar → More → Settings**:
 
-| Setting | Where |
+| Setting | Notes |
 | --- | --- |
-| Motion (full / reduced) | Command bar → More |
-| **Hidden for sharing** | Command bar → More |
-| Semantic edges, cluster colours | Graph controls |
-| Semantic search | Search panel checkbox |
-| Sync relay URL | Collaboration panel |
+| **Appearance** | Cyberpunk Dark / Cyberpunk Dim / High contrast |
+| Motion | Full / Reduced / System |
+| Graph quality | High / Balanced / Low GPU |
+| Particles / Bloom | Graph chrome toggles |
+| **Hidden for sharing** | Screen-capture exclusion (see below) |
+
+Connected graph edges (both endpoints selected) draw **bright red**; all other
+edges stay **dark gray**.
+
+Semantic edges and cluster colours live under Graph controls. Semantic search
+is a Search panel checkbox. Sync relay URL is in the Collaboration panel.
 
 **Hidden for sharing** (Signal-style) asks the OS to exclude the *entire*
 Strata window from screenshots and screen shares. You still see the app
@@ -736,11 +751,9 @@ do not. On Windows this uses `WDA_EXCLUDEFROMCAPTURE`. Turn it off if you need
 to demo or record Strata itself.
 
 Further settings live in a JSON settings file in the OS config directory and
-are currently **edited by hand**, not in the UI: appearance theme
-(`cyberpunk-dark` / `cyberpunk-dim` / `high-contrast`), `graph_quality`
-(`high` / `balanced` / `low-gpu`), `particles_enabled`, `bloom_enabled`,
-`battery_saver`, AI defaults (provider, model, base URLs, Claude CLI path,
-token limits), and `telemetry_enabled` (off by default).
+are currently **edited by hand**, not in the UI: `battery_saver`, AI defaults
+(provider, model, base URLs, Claude CLI path, token limits), and
+`telemetry_enabled` (off by default).
 
 Per-layer AI policy (what a model may read, summarise, or edit per layer) is
 enforced by the backend with safe defaults — new layers allow **local-only**
@@ -757,12 +770,20 @@ Strata's shortcuts are scoped to the panel you are in.
 | --- | --- | --- |
 | Anywhere | `Ctrl/Cmd+N` | New note (in the first unlocked layer) |
 | Editor | `Ctrl/Cmd+S` | Save now |
+| Editor | `Ctrl/Cmd+W` | Close the active tab |
+| Editor | `Ctrl/Cmd+Shift+T` | Reopen the last closed tab |
 | Editor | `Ctrl/Cmd+click` on `[[link]]` | Open the linked note |
 | Editor | `Ctrl/Cmd+Z` / `Ctrl/Cmd+Y` | Undo / redo |
 | Editor | `Ctrl/Cmd+F` | Find in note |
+| File tree | `↑` `↓` | Move focus |
+| File tree (folder focused) | `←` / `→` | Collapse / expand (or move to parent / child) |
+| File tree (folder focused) | `Enter` | Expand / collapse |
+| File tree (folder focused) | `F2` | Rename |
+| File tree (folder focused) | `Delete` | Move folder and its notes to trash |
 | File tree (note focused) | `Enter` | Open |
 | File tree (note focused) | `F2` | Rename |
 | File tree (note focused) | `Delete` | Move to trash |
+| File tree (note focused) | `Ctrl/Cmd+D` | Duplicate |
 | Rename fields | `Enter` / `Esc` | Commit / cancel |
 | Graph list | `↑` `↓` | Move focus |
 | Graph list | `Enter` | Open note |

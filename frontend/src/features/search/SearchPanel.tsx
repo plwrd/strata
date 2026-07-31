@@ -6,8 +6,8 @@
  * semantic signal really did contribute to its score — the two cannot drift apart,
  * because one is derived from the other.
  *
- * Results are selectable, so search is a selection method for the AI composer like
- * any other surface.
+ * A plain click opens the note in the editor. Ctrl/Cmd+click selects results for
+ * the AI composer without leaving Search — same modifier pattern as the graph.
  */
 
 import { useState } from "react";
@@ -35,6 +35,7 @@ export function SearchPanel(): JSX.Element {
     selectedIds,
     findSimilar,
     activeNoteId,
+    openNoteById,
   } = useStore();
   const [showSignals, setShowSignals] = useState(false);
 
@@ -110,12 +111,13 @@ export function SearchPanel(): JSX.Element {
                   type="button"
                   className={`search__result ${selectedIds.includes(result.object_id) ? "search__result--selected" : ""}`}
                   aria-pressed={selectedIds.includes(result.object_id)}
-                  onClick={(event) =>
-                    selectMany(
-                      [result.object_id],
-                      event.ctrlKey || event.metaKey ? "add" : "replace",
-                    )
-                  }
+                  onClick={(event) => {
+                    if (event.ctrlKey || event.metaKey) {
+                      selectMany([result.object_id], "add");
+                      return;
+                    }
+                    void openNoteById(result.object_id);
+                  }}
                 >
                   <span className="search__title">{result.title}</span>
                   <span className="search__snippet">{result.snippet}</span>

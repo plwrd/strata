@@ -47,7 +47,13 @@ export function NavigatorAccordion({ sections }: Props): JSX.Element {
         return (
           <div
             key={section.id}
-            className="nav-section"
+            className={[
+              "nav-section",
+              `nav-section--${section.id}`,
+              open ? "nav-section--open" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             <button
               id={buttonId}

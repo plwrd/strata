@@ -11,6 +11,7 @@ import * as THREE from "three";
 import type { GraphEdge, GraphNode } from "../../bridge/types";
 import type { Positions } from "../graph/useGraphLayout";
 import { edgeColor, glowColor, nodeRadius } from "../graph/nodeStyle";
+import { edgeControlPoint, edgeSalt } from "./edgeCurves";
 
 /** Deterministic PRNG (mulberry32): same seed, same galaxy, stable frames. */
 export function mulberry32(seed: number): () => number {
@@ -186,6 +187,7 @@ export interface EdgeParticleData {
   /** Named `position` for THREE; holds each particle's start point. */
   starts: Float32Array;
   ends: Float32Array;
+  controls: Float32Array;
   colors: Float32Array;
   offsets: Float32Array;
   speeds: Float32Array;
@@ -193,9 +195,9 @@ export interface EdgeParticleData {
 }
 
 /**
- * Particles that flow along edges. Start/end/phase are baked into attributes;
- * the vertex shader moves them, so animating 6,000 particles is one uniform
- * write per frame.
+ * Particles that flow along edges. Start/control/end/phase are baked into
+ * attributes; the vertex shader walks a quadratic Bézier, so animating
+ * thousands of particles is one uniform write per frame.
  */
 export function buildEdgeParticles(
   edges: GraphEdge[],
@@ -214,6 +216,7 @@ export function buildEdgeParticles(
   const out: EdgeParticleData = {
     starts: new Float32Array(total * 3),
     ends: new Float32Array(total * 3),
+    controls: new Float32Array(total * 3),
     colors: new Float32Array(total * 3),
     offsets: new Float32Array(total),
     speeds: new Float32Array(total),
@@ -224,12 +227,30 @@ export function buildEdgeParticles(
     const edge = valid[i % valid.length]!;
     const from = positions[edge.source]!;
     const to = positions[edge.target]!;
-    out.starts[i * 3] = from[0] * scale;
-    out.starts[i * 3 + 1] = from[1] * scale;
-    out.starts[i * 3 + 2] = from[2] * scale;
-    out.ends[i * 3] = to[0] * scale;
-    out.ends[i * 3 + 1] = to[1] * scale;
-    out.ends[i * 3 + 2] = to[2] * scale;
+    const ax = from[0] * scale;
+    const ay = from[1] * scale;
+    const az = from[2] * scale;
+    const bx = to[0] * scale;
+    const by = to[1] * scale;
+    const bz = to[2] * scale;
+    const [cx, cy, cz] = edgeControlPoint(
+      ax,
+      ay,
+      az,
+      bx,
+      by,
+      bz,
+      edgeSalt(edge.source, edge.target),
+    );
+    out.starts[i * 3] = ax;
+    out.starts[i * 3 + 1] = ay;
+    out.starts[i * 3 + 2] = az;
+    out.ends[i * 3] = bx;
+    out.ends[i * 3 + 1] = by;
+    out.ends[i * 3 + 2] = bz;
+    out.controls[i * 3] = cx;
+    out.controls[i * 3 + 1] = cy;
+    out.controls[i * 3 + 2] = cz;
     const lit = selectedIds.has(edge.source) && selectedIds.has(edge.target);
     color.set(edgeColor(lit, edge.origin));
     // Lit constellation edges carry brighter, faster traffic.

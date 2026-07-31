@@ -6,7 +6,10 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   min-height: 0;
+  container-type: inline-size;
+  container-name: editor;
 }
 
 .editor-pane--empty {
@@ -77,10 +80,12 @@
 .editor-pane__bar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .editor-pane__title {
@@ -318,11 +323,99 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
 }
 
 .tree__header-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 2px;
+}
+
+.tree {
+  min-width: 0;
+}
+
+.tree__list {
+  min-width: 0;
+}
+
+.tree__density {
+  padding: 1px 6px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 10px;
+  font-family: var(--font-body);
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
+.tree__density:hover {
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+
+.tree__density--active {
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+  background: var(--surface-raised);
+}
+
+.tree__icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+}
+
+.tree__row--folder .tree__icon {
+  color: color-mix(in srgb, var(--accent-primary) 70%, var(--text-tertiary));
+}
+
+.tree[data-density="large"] .tree__row {
+  min-height: 2.4rem;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
+.tree[data-density="large"] .tree__icon {
+  width: 24px;
+  height: 24px;
+}
+
+.tree[data-density="large"] .tree__name,
+.tree[data-density="large"] .tree__name--note {
+  font-size: 0.95rem;
+}
+
+.tree[data-density="large"] .tree__twisty {
+  width: 18px;
+  font-size: 11px;
+}
+
+.tree[data-density="large"] .tree__action {
+  font-size: var(--text-sm);
+  padding: 0 5px;
+}
+
+/* Narrow navigator: keep Large readable without blowing the rail. */
+@container navigator (max-width: 200px) {
+  .tree[data-density="large"] .tree__row {
+    min-height: 2rem;
+    gap: 4px;
+  }
+
+  .tree[data-density="large"] .tree__icon {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 .tree__layer-row {
@@ -451,6 +544,19 @@
   font-size: var(--text-xs);
 }
 
+.tree__trash > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.tree__empty-trash {
+  font-size: var(--text-xs);
+  padding: 0 4px;
+}
+
 .tree__trash ul {
   list-style: none;
   padding: 0;
@@ -469,12 +575,15 @@
 
 .inspector__tabs {
   display: flex;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .inspector__tab {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 4.5rem;
   padding: var(--space-2);
   color: var(--text-tertiary);
   background: transparent;
@@ -485,6 +594,7 @@
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .inspector__tab--active {
@@ -603,13 +713,25 @@
   font-size: var(--text-xs);
 }
 
-@media (max-width: 1100px) {
+/* Collapse Live split by available stage width, not the whole window. */
+@container editor (max-width: 640px) {
   .editor-pane__body--live {
     grid-template-columns: 1fr;
   }
 
   .editor-pane__body--live .preview {
     display: none; /* the split cannot fit; Source and Reading still switch */
+  }
+}
+
+/* Fallback when container queries are unavailable. */
+@media (max-width: 1100px) {
+  .editor-pane__body--live {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-pane__body--live .preview {
+    display: none;
   }
 }
 
@@ -755,10 +877,12 @@
 
 .views__tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 1px;
   padding: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .views__tab {
@@ -814,8 +938,11 @@
 
 .views__body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: var(--space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .views__notice {

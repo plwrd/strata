@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { CaptureDialog } from "../capture/CaptureDialog";
 import { HealthDialog } from "../health/HealthDialog";
+import { SettingsDialog } from "../settings/SettingsDialog";
 import { requestTourReplay } from "../onboarding/useOnboardingTour";
 import { useStore, type AppMode } from "../../state/store";
 
@@ -19,15 +20,13 @@ export function CommandBar(): JSX.Element {
     setMode,
     dimension,
     setDimension,
-    settings,
-    applySettings,
     workspace,
     activeLensId,
   } = useStore();
 
-  const reduced = settings?.motion === "reduced";
   const [capturing, setCapturing] = useState(false);
   const [healthOpen, setHealthOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const moreMenuId = useId();
@@ -137,6 +136,17 @@ export function CommandBar(): JSX.Element {
               <button
                 type="button"
                 className="button button--ghost"
+                title="Appearance, motion, and display preferences"
+                onClick={() => {
+                  setMoreOpen(false);
+                  setSettingsOpen(true);
+                }}
+              >
+                Settings
+              </button>
+              <button
+                type="button"
+                className="button button--ghost"
                 title="Replay the first-run tour of the shell"
                 onClick={() => {
                   setMoreOpen(false);
@@ -162,32 +172,6 @@ export function CommandBar(): JSX.Element {
               >
                 lens: {activeLensId.replace("lens_", "")}
               </span>
-              <button
-                type="button"
-                className="button button--ghost"
-                aria-pressed={reduced}
-                title="Suppress decorative animation"
-                onClick={() => {
-                  void applySettings({ motion: reduced ? "full" : "reduced" });
-                }}
-              >
-                {reduced ? "Motion: reduced" : "Motion: full"}
-              </button>
-              <button
-                type="button"
-                className="button button--ghost"
-                aria-pressed={Boolean(settings?.hide_for_sharing)}
-                title="Hide the whole Strata window from screenshots and screen shares (Signal-style). You still see it; capture tools do not."
-                onClick={() => {
-                  void applySettings({
-                    hide_for_sharing: !settings?.hide_for_sharing,
-                  });
-                }}
-              >
-                {settings?.hide_for_sharing
-                  ? "Hidden for sharing: on"
-                  : "Hidden for sharing: off"}
-              </button>
             </div>
           )}
         </div>
@@ -195,6 +179,9 @@ export function CommandBar(): JSX.Element {
 
       {capturing && <CaptureDialog onClose={() => setCapturing(false)} />}
       {healthOpen && <HealthDialog onClose={() => setHealthOpen(false)} />}
+      {settingsOpen && (
+        <SettingsDialog onClose={() => setSettingsOpen(false)} />
+      )}
     </header>
   );
 }

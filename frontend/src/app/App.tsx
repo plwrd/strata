@@ -2,7 +2,7 @@
  * The application shell: three columns, three modes, one selection.
  *
  * The layout is responsive by *collapsing structure*, not by hiding function:
- * below 1200px the inspector becomes a drawer, below 900px the navigator does
+ * below 1280px the inspector becomes a drawer, below 960px the navigator does
  * too, and every control remains reachable from the keyboard at every size.
  */
 
@@ -44,6 +44,66 @@ const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
   { value: "links", label: "Links" },
 ];
 
+const CHEVRON_LEFT =
+  "M10.2 3.2a.75.75 0 0 1 0 1.06L6.46 8l3.74 3.74a.75.75 0 1 1-1.06 1.06l-4.27-4.27a.75.75 0 0 1 0-1.06l4.27-4.27a.75.75 0 0 1 1.06 0Z";
+const CHEVRON_RIGHT =
+  "M5.8 3.2a.75.75 0 0 1 1.06 0l4.27 4.27a.75.75 0 0 1 0 1.06L6.86 12.8a.75.75 0 1 1-1.06-1.06L9.54 8 5.8 4.26a.75.75 0 0 1 0-1.06Z";
+
+function RailToggle(props: {
+  kind: "nav" | "inspector";
+  open: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  const collapsing = props.open;
+  const label =
+    props.kind === "nav"
+      ? collapsing
+        ? "Collapse navigator"
+        : "Expand navigator"
+      : collapsing
+        ? "Collapse inspector"
+        : "Expand inspector";
+  // Nav open → point left (collapse); nav closed → point right (expand).
+  // Inspector open → point right; inspector closed → point left.
+  const path =
+    props.kind === "nav"
+      ? collapsing
+        ? CHEVRON_LEFT
+        : CHEVRON_RIGHT
+      : collapsing
+        ? CHEVRON_RIGHT
+        : CHEVRON_LEFT;
+
+  return (
+    <button
+      type="button"
+      className={[
+        "drawer-toggle",
+        `drawer-toggle--${props.kind}`,
+        props.open ? "" : "drawer-toggle--recover",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-expanded={props.open}
+      aria-controls={props.kind === "nav" ? "navigator" : "inspector"}
+      aria-label={label}
+      title={label}
+      onClick={props.onToggle}
+    >
+      <svg
+        className="drawer-toggle__icon"
+        viewBox="0 0 16 16"
+        width="12"
+        height="12"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path fill="currentColor" d={path} />
+      </svg>
+    </button>
+  );
+}
+
 export function App(): JSX.Element {
   const state = useStore();
   const reducedMotion = useReducedMotion();
@@ -78,19 +138,35 @@ export function App(): JSX.Element {
     return () => registerShellChrome(null);
   }, []);
 
-  // Ctrl/Cmd+N: new note in the first unlocked layer — the shortcut the empty
-  // editor advertises. Qt WebEngine has no browser chrome, so nothing else
-  // claims the combination.
+  // Global editor shortcuts. Qt WebEngine has no browser chrome, so these do
+  // not fight the host — but we still preventDefault so nothing else claims them.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "n")
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      const store = useStore.getState();
+
+      if (key === "n" && !event.shiftKey) {
+        const target = store.layers.find((layer) => layer.state !== "locked");
+        if (!target) return;
+        event.preventDefault();
+        void store.createNote(target.id, "");
         return;
-      const target = useStore
-        .getState()
-        .layers.find((layer) => layer.state !== "locked");
-      if (!target) return;
-      event.preventDefault();
-      void useStore.getState().createNote(target.id, "");
+      }
+
+      // Ctrl/Cmd+W — close the active editor tab.
+      if (key === "w" && !event.shiftKey) {
+        if (!store.activeNoteId || store.tabs.length === 0) return;
+        event.preventDefault();
+        store.closeTab(store.activeNoteId);
+        return;
+      }
+
+      // Ctrl/Cmd+Shift+T — reopen the most recently closed tab.
+      if (key === "t" && event.shiftKey) {
+        event.preventDefault();
+        void store.reopenClosedTab();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -111,9 +187,24 @@ export function App(): JSX.Element {
     id: string,
     modifiers: { ctrl: boolean; shift: boolean },
   ): void => {
-    if (modifiers.shift) state.rangeSelect(id);
-    else if (modifiers.ctrl) state.toggleSelect(id);
-    else state.select(id);
+    if (modifiers.shift) {
+      state.rangeSelect(id);
+      return;
+    }
+    if (modifiers.ctrl) {
+      state.toggleSelect(id);
+      return;
+    }
+    state.select(id);
+    // Plain select: show the node in the 3D galaxy (switch view if needed).
+    if (state.mode !== "explore") state.setMode("explore");
+    if (
+      state.dimension !== "3d" &&
+      webgl &&
+      quality !== "low-gpu"
+    ) {
+      state.setDimension("3d");
+    }
   };
 
   if (state.connection === "connecting") {
@@ -143,22 +234,21 @@ export function App(): JSX.Element {
     <div className="shell" data-mode={state.mode}>
       <CommandBar />
 
-      <div className="shell__body">
+      <div
+        className={[
+          "shell__body",
+          navOpen ? "" : "shell__body--nav-closed",
+          inspectorOpen ? "" : "shell__body--inspector-closed",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <aside
           id="navigator"
           className={`navigator ${navOpen ? "" : "navigator--closed"}`}
           aria-label="Navigator"
+          aria-hidden={!navOpen}
         >
-          <button
-            type="button"
-            className="drawer-toggle drawer-toggle--nav"
-            aria-expanded={navOpen}
-            aria-controls="navigator"
-            onClick={() => setNavOpen((open) => !open)}
-          >
-            {navOpen ? "◀" : "▶"}
-            <span className="visually-hidden">Toggle the navigator</span>
-          </button>
           <div className="scroll-y navigator__scroll">
             <NavigatorAccordion
               sections={[
@@ -205,6 +295,16 @@ export function App(): JSX.Element {
         </aside>
 
         <main className="stage" aria-label="Workspace">
+          <RailToggle
+            kind="nav"
+            open={navOpen}
+            onToggle={() => setNavOpen((open) => !open)}
+          />
+          <RailToggle
+            kind="inspector"
+            open={inspectorOpen}
+            onToggle={() => setInspectorOpen((open) => !open)}
+          />
           {state.mode === "focus" ? (
             <EditorPane />
           ) : state.mode === "views" ? (
@@ -284,17 +384,8 @@ export function App(): JSX.Element {
           id="inspector"
           className={`inspector ${inspectorOpen ? "" : "inspector--closed"}`}
           aria-label="Inspector"
+          aria-hidden={!inspectorOpen}
         >
-          <button
-            type="button"
-            className="drawer-toggle drawer-toggle--inspector"
-            aria-expanded={inspectorOpen}
-            aria-controls="inspector"
-            onClick={() => setInspectorOpen((open) => !open)}
-          >
-            {inspectorOpen ? "▶" : "◀"}
-            <span className="visually-hidden">Toggle the inspector</span>
-          </button>
           <div
             className="inspector__tabs"
             role="tablist"
