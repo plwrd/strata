@@ -746,6 +746,103 @@
   padding: var(--space-3);
 }
 
+/* --- command stage ------------------------------------------------------- */
+
+.command-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background:
+    radial-gradient(
+      circle at 20% 0%,
+      color-mix(in srgb, var(--accent-ai) 12%, transparent),
+      transparent 42%
+    ),
+    var(--surface-base);
+}
+
+.command-stage__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.command-stage__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.command-stage__lede {
+  margin: var(--space-1) 0 0;
+  max-width: 36rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.command-stage__selection {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  text-align: right;
+}
+
+.command-stage__selection-empty,
+.command-stage__selection-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.command-stage__selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.command-stage__tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.command-stage__tab {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.command-stage__tab--active {
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+}
+
+.command-stage__body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-2);
+}
+
+.command-stage__body .operations,
+.command-stage__body .composer {
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
 .operations__prompt {
   display: flex;
   flex-direction: column;

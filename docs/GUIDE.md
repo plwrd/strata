@@ -93,7 +93,7 @@ The command bar switches the centre stage between four modes:
 | **Focus** | "Read and write" | The Markdown editor with its tab bar. |
 | **Explore** | "Navigate the graph" | The knowledge graph (3D or 2D). |
 | **Views** | "Table, kanban, calendar, timeline" | Database-style views over your notes. |
-| **Command** | "AI and bulk operations" | The graph, with the **Changes** inspector active for AI operation plans. |
+| **Command** | "AI and bulk operations" | The Command workspace: propose changes, review the plan, apply or undo. |
 
 The **2D / 3D** segmented control chooses the graph dimension. Strata falls
 back to 2D automatically when the machine has no WebGL or when graph quality
@@ -109,8 +109,9 @@ stays visible statically.
 - **Navigator** (left): Layers, Files, Search, Collaboration, and the Graph
   list — a fully keyboard-accessible mirror of the graph.
 - **Inspector** (right): four tabs — **AI**, **Changes**, **Properties**,
-  **Links**. The active tab follows the mode (Focus → Properties, Command →
-  Changes, otherwise AI), and you can switch it manually at any time.
+  **Links**. The active tab follows the mode (Focus → Properties, otherwise
+  AI). In **Command** mode the Change and Ask tools live in the centre stage;
+  the matching inspector tabs point you there.
 - Both side panels collapse with the ◀ / ▶ toggles; on narrow windows they
   become drawers automatically.
 
@@ -643,7 +644,7 @@ Strata.
 
 ## 13. AI operations: reorganise and generate notes
 
-The **Changes** inspector tab (front and centre in **Command** mode) lets a
+The **Command** stage (and the **Changes** inspector tab in other modes) lets a
 model *change* the workspace — under a review-first contract: **the model
 proposes; only you apply.**
 

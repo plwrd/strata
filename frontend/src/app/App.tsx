@@ -27,6 +27,7 @@ import { GraphList } from "../features/graph/GraphList";
 import { useGraphLayout } from "../features/graph/useGraphLayout";
 import { isWebGLAvailable } from "../features/graph/webgl";
 import { LayerPanel } from "../features/layers/LayerPanel";
+import { CommandStage } from "../features/operations/CommandStage";
 import { SearchPanel } from "../features/search/SearchPanel";
 import { ViewsStage } from "../features/views/ViewsStage";
 import { CommandBar } from "../features/workspace/CommandBar";
@@ -111,16 +112,10 @@ export function App(): JSX.Element {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("ai");
 
-  // The inspector follows the mode: Focus is about the note (properties), Command
-  // is about bulk AI change (Changes), Explore/Views are about selection (AI).
+  // The inspector follows the mode: Focus → Properties; otherwise AI.
+  // Command hosts Changes in the centre stage, so the inspector stays on AI.
   useEffect(() => {
-    setInspectorTab(
-      state.mode === "focus"
-        ? "properties"
-        : state.mode === "command"
-          ? "operations"
-          : "ai",
-    );
+    setInspectorTab(state.mode === "focus" ? "properties" : "ai");
   }, [state.mode]);
 
   useEffect(() => {
@@ -301,6 +296,8 @@ export function App(): JSX.Element {
             <EditorPane />
           ) : state.mode === "views" ? (
             <ViewsStage />
+          ) : state.mode === "command" ? (
+            <CommandStage />
           ) : (
             <div className="stage__graph" data-tour="graph">
               {state.loadingGraph || computing ? (
@@ -399,8 +396,24 @@ export function App(): JSX.Element {
           </div>
 
           <div className="inspector__body scroll-y">
-            {inspectorTab === "ai" && <AIComposerPanel />}
-            {inspectorTab === "operations" && <OperationsPanel />}
+            {inspectorTab === "ai" &&
+              (state.mode === "command" ? (
+                <p className="empty-state">
+                  Ask / export lives in the Command stage under the{" "}
+                  <strong>Ask / export</strong> tab.
+                </p>
+              ) : (
+                <AIComposerPanel />
+              ))}
+            {inspectorTab === "operations" &&
+              (state.mode === "command" ? (
+                <p className="empty-state">
+                  Change plans live in the Command stage under{" "}
+                  <strong>Changes</strong>.
+                </p>
+              ) : (
+                <OperationsPanel />
+              ))}
             {inspectorTab === "properties" && <PropertiesPanel />}
             {inspectorTab === "links" && <LinksPanel />}
           </div>
