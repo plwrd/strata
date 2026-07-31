@@ -64,7 +64,6 @@ function TourHarness(): JSX.Element {
   return (
     <div>
       <div data-tour="modes">modes</div>
-      <div data-tour="capture">capture</div>
       <div data-tour="layers">layers</div>
       <div data-tour="files">files</div>
       <div data-tour="graph">graph</div>
@@ -131,8 +130,7 @@ describe("Onboarding tour", () => {
       await screen.findByRole("heading", { name: /Four ways to work/i }),
     ).toBeInTheDocument();
 
-    // modes → capture → layers → writing (focus)
-    await userEvent.click(screen.getByRole("button", { name: /^Next$/i }));
+    // modes → layers → writing (focus)
     await userEvent.click(screen.getByRole("button", { name: /^Next$/i }));
     await userEvent.click(screen.getByRole("button", { name: /^Next$/i }));
 

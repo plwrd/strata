@@ -498,6 +498,52 @@ class NoteService:
             parent_id=None,
         )
 
+    def move_folder(self, folder_id: str, parent_folder_path: str) -> FolderNode:
+        """Reparent a folder under another folder (or the layer root). Same layer only."""
+        private = self._private_folder_owner(folder_id)
+        if private is not None:
+            return private.move_folder(folder_id, parent_folder_path)
+
+        store, folder, path = self._locate_folder(folder_id)
+        parent = parent_folder_path.strip().strip("/")
+        if parent == folder.path or parent.startswith(f"{folder.path}/"):
+            raise InvalidRequestError("A folder cannot be moved into itself.")
+        if parent:
+            parent_dir = store.root / parent
+            if not parent_dir.is_dir():
+                raise NotFoundError("Destination folder not found.")
+            destination = parent_dir / safe_filename(folder.name)
+        else:
+            destination = store.root / safe_filename(folder.name)
+        if destination.resolve() == path.resolve():
+            return folder
+        if destination.exists():
+            raise ConflictError("A folder with that name already exists.")
+
+        # Note ids are path-derived on public layers — capture the mapping before
+        # the directory moves so version history can follow.
+        old_ids: dict[str, str] = {}
+        for note_path in path.rglob(f"*{MARKDOWN_SUFFIX}"):
+            note = store.read_note(note_path)
+            old_ids[note_path.relative_to(path).as_posix()] = note.metadata.id
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        path.replace(destination)
+
+        if self._versions is not None:
+            for relative, old_id in old_ids.items():
+                new_note = store.read_note(destination / relative)
+                self._versions.relocate(store.layer_id, old_id, new_note.metadata.id)
+
+        relative = destination.relative_to(store.root).as_posix()
+        return FolderNode(
+            id=note_id_for(store.layer_id, relative + "/"),
+            layer_id=store.layer_id,
+            name=destination.name,
+            path=relative,
+            parent_id=None,
+        )
+
     def delete_folder(self, folder_id: str) -> int:
         """Trash every note in the folder, then remove it. Nothing is destroyed."""
         private = self._private_folder_owner(folder_id)

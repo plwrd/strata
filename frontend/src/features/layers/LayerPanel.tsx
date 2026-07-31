@@ -214,7 +214,19 @@ export function LayerPanel(): JSX.Element {
       )}
 
       {unlocking && (
-        <UnlockDialog layer={unlocking} onClose={() => setUnlocking(null)} />
+        <UnlockDialog
+          layer={unlocking}
+          onClose={() => setUnlocking(null)}
+          onUnlocked={() => {
+            setUnlocking(null);
+            // Wait until the backdrop is gone before rebuilding the graph —
+            // Qt WebEngine often loses the WebGL context if we reload under
+            // (or in the same frame as) a modal, leaving Explore blank.
+            window.setTimeout(() => {
+              void useStore.getState().reloadGraph();
+            }, 120);
+          }}
+        />
       )}
 
       {managing && (

@@ -5,12 +5,14 @@
  * Every destructive action goes to the trash, never to oblivion — `delete` here
  * means "put it in .strata/trash", and the UI says so.
  *
- * Drag-and-drop does two things. A note dragged onto a folder (or onto a layer's
- * name, for the root) is moved there; the move is performed by Python (which
- * re-checks the path), so a dragged item cannot be dropped outside the layer.
- * Files dragged in from the operating system are imported: Markdown and plain
- * text become notes, everything else becomes an attachment wrapped in a note —
- * and in a private layer the bytes are encrypted before they touch the disk.
+ * Drag-and-drop does three things. A note dragged onto a folder (or onto a
+ * layer's name, for the root) is moved there; a folder dragged onto another
+ * folder (or the layer root) is reparented as a subfolder. The move is
+ * performed by Python (which re-checks the path), so a dragged item cannot be
+ * dropped outside its layer. Files dragged in from the operating system are
+ * imported: Markdown and plain text become notes, everything else becomes an
+ * attachment wrapped in a note — and in a private layer the bytes are
+ * encrypted before they touch the disk.
  *
  * Density (List / Large), a tree-scoped context menu, and keyboard navigation
  * live here. The global app menu stands down inside this panel.
@@ -164,6 +166,7 @@ export function FileTree(): JSX.Element {
 
   const layers = state.layers.filter((layer) => layer.state !== "locked");
   const density = state.explorerDensity;
+  const frozen = state.explorerFrozen;
 
   const trees = useMemo(
     () =>
@@ -253,11 +256,52 @@ export function FileTree(): JSX.Element {
   ): Promise<void> => {
     event.preventDefault();
     setDropTarget(null);
+    if (state.explorerFrozen) return;
+
     const noteId = event.dataTransfer.getData("text/strata-note");
     if (noteId) {
+      const note = (state.tree?.notes ?? []).find((entry) => entry.id === noteId);
+      if (note && note.layer_id !== layerId) {
+        useStore.setState({
+          connectionMessage: "Notes stay inside their layer — drop within the same layer.",
+        });
+        return;
+      }
       await state.moveNote(noteId, path);
       return;
     }
+
+    const folderPayload = event.dataTransfer.getData("text/strata-folder");
+    if (folderPayload) {
+      try {
+        const dragged = JSON.parse(folderPayload) as {
+          id: string;
+          layerId: string;
+          path: string;
+        };
+        if (dragged.layerId !== layerId) {
+          useStore.setState({
+            connectionMessage:
+              "Folders stay inside their layer — drop within the same layer.",
+          });
+          return;
+        }
+        if (
+          path === dragged.path ||
+          path.startsWith(`${dragged.path}/`)
+        ) {
+          return;
+        }
+        await state.moveFolder(dragged.id, path);
+        if (path) {
+          setCollapsed((current) => ({ ...current, [path]: false }));
+        }
+      } catch {
+        // Ignore malformed drag payloads from other apps.
+      }
+      return;
+    }
+
     if (event.dataTransfer.files.length > 0) {
       const files = await readDroppedFiles([...event.dataTransfer.files]);
       await state.importFiles(layerId, path, files);
@@ -271,15 +315,18 @@ export function FileTree(): JSX.Element {
   ): Pick<
     React.HTMLAttributes<HTMLDivElement>,
     "onDragOver" | "onDragLeave" | "onDrop"
-  > => ({
-    onDragOver: (event) => {
-      event.preventDefault();
-      setDropTarget(key);
-    },
-    onDragLeave: () =>
-      setDropTarget((current) => (current === key ? null : current)),
-    onDrop: (event) => void handleDrop(event, layerId, path),
-  });
+  > => {
+    if (frozen) return {};
+    return {
+      onDragOver: (event) => {
+        event.preventDefault();
+        setDropTarget(key);
+      },
+      onDragLeave: () =>
+        setDropTarget((current) => (current === key ? null : current)),
+      onDrop: (event) => void handleDrop(event, layerId, path),
+    };
+  };
 
   const menuItems = (target: MenuTarget): MenuItem[] => {
     switch (target.kind) {
@@ -477,6 +524,22 @@ export function FileTree(): JSX.Element {
             data-tree-id={`folder:${node.folder.id}`}
             data-kind="folder"
             data-path={node.path}
+            draggable={!frozen}
+            onDragStart={
+              frozen
+                ? undefined
+                : (event) => {
+                    event.dataTransfer.setData(
+                      "text/strata-folder",
+                      JSON.stringify({
+                        id: node.folder!.id,
+                        layerId: node.layerId,
+                        path: node.path,
+                      }),
+                    );
+                    event.dataTransfer.effectAllowed = "move";
+                  }
+            }
             {...dropProps(key, node.layerId, node.path)}
             onContextMenu={(event) =>
               openMenu(event, {
@@ -575,9 +638,15 @@ export function FileTree(): JSX.Element {
                   tabIndex={0}
                   data-tree-id={`note:${note.id}`}
                   data-kind="note"
-                  draggable
-                  onDragStart={(event) =>
-                    event.dataTransfer.setData("text/strata-note", note.id)
+                  draggable={!frozen}
+                  onDragStart={
+                    frozen
+                      ? undefined
+                      : (event) =>
+                          event.dataTransfer.setData(
+                            "text/strata-note",
+                            note.id,
+                          )
                   }
                   onContextMenu={(event) =>
                     openMenu(event, { kind: "note", note })
@@ -652,10 +721,24 @@ export function FileTree(): JSX.Element {
       aria-label="Files"
       data-tour="files"
       data-density={density}
+      data-frozen={frozen ? "true" : "false"}
     >
       <div className="tree__header">
         <h2 className="sidebar__heading">Files</h2>
         <div className="tree__header-actions" role="group" aria-label="View">
+          <button
+            type="button"
+            className={`tree__density ${frozen ? "tree__density--active" : ""}`}
+            aria-pressed={frozen}
+            title={
+              frozen
+                ? "Unfreeze — allow drag and drop"
+                : "Freeze — disable drag and drop"
+            }
+            onClick={() => state.setExplorerFrozen(!frozen)}
+          >
+            {frozen ? "Frozen" : "Freeze"}
+          </button>
           <button
             type="button"
             className={`tree__density ${density === "list" ? "tree__density--active" : ""}`}

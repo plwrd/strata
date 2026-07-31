@@ -56,7 +56,7 @@ workspace opens on launch.
 ### First-run tutorial
 
 The first time Strata opens with a fresh settings file, a short **interactive
-tour** walks through the shell: modes, Capture, Layers, writing, the graph,
+tour** walks through the shell: modes, Layers, writing, the graph,
 and AI selection privacy. Skip it with Escape or the Skip button; finish it
 with Finish. Either way it will not auto-open again.
 
@@ -190,12 +190,10 @@ version trails) are part of it and travel with it.
 
 ## 3½. Capture and the knowledge loop
 
-The **⇣ Capture** button in the command bar is the fastest way in: paste text
-(or import a page by URL) and it lands in the **Inbox/** folder as a raw
-capture — with the source URL, when you saved it, and *why* you kept it. New
-workspaces start with four conventional folders: **Inbox** (unprocessed
-material), **Knowledge** (processed concepts, people, decisions), **Reports**
-(finished AI-assisted outputs), and **Templates**.
+Raw captures land in the **Inbox/** folder — with the source URL, when you saved
+it, and *why* you kept it. New workspaces start with four conventional folders:
+**Inbox** (unprocessed material), **Knowledge** (processed concepts, people,
+decisions), **Reports** (finished AI-assisted outputs), and **Templates**.
 
 URL import fetches a page's *text* once, over a guarded fetch that refuses
 private and local addresses, redirects, and oversized pages. The page is stored
@@ -222,9 +220,10 @@ layer, what you see is literally the directory structure — rename a folder in
 Strata and the directory on disk is renamed.
 
 Use the **List** / **Large** toggle in the Files header to switch between a
-compact tree and taller rows with larger folder and note icons. Right-click a
-layer, folder, note, or the Trash section for a context menu of the same
-actions (plus Empty trash).
+compact tree and taller rows with larger folder and note icons. **Freeze**
+locks the tree so drag-and-drop moves and OS file drops are disabled until you
+unfreeze. Right-click a layer, folder, note, or the Trash section for a
+context menu of the same actions (plus Empty trash).
 
 Each layer has its own section, headed by the layer's name. Hover the layer
 name for its actions:
@@ -261,6 +260,10 @@ while you hover over it:
 layer's *name* to move it to the layer root. The move is validated by the
 Python backend, which re-checks the destination path — a dragged note cannot
 escape its layer or be dropped somewhere unsafe.
+
+**Moving folders.** Drag a folder onto another folder to nest it as a subfolder,
+or onto a layer's name to move it to the layer root. A folder cannot be dropped
+into itself or into one of its descendants, and it cannot leave its layer.
 
 **Importing files from your computer.** Drag files from your file manager
 (Explorer, Finder, …) onto a folder or a layer name:

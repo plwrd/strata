@@ -106,8 +106,10 @@ interface StrataState {
   semanticEdges: boolean;
   clusterColors: boolean;
 
-  // Files panel density (session-only; not persisted to AppSettings)
+  // Files panel chrome (session-only; not persisted to AppSettings)
   explorerDensity: "list" | "large";
+  /** When true, Files drag-and-drop (moves + OS import) is disabled. */
+  explorerFrozen: boolean;
 
   // collaboration (M9)
   collab: Record<string, CollaborationState>;
@@ -200,8 +202,10 @@ interface StrataState {
   restoreNote: (entry: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
   setExplorerDensity: (density: "list" | "large") => void;
+  setExplorerFrozen: (frozen: boolean) => void;
   createFolder: (layerId: string, folderPath: string) => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
+  moveFolder: (folderId: string, parentFolderPath: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   attachFile: (
     layerId: string,
@@ -340,6 +344,7 @@ export const useStore = create<StrataState>((set, get) => ({
   semanticEdges: false,
   clusterColors: false,
   explorerDensity: "list",
+  explorerFrozen: false,
 
   collab: {},
   collabConflicts: {},
@@ -471,6 +476,7 @@ export const useStore = create<StrataState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   setDimension: (dimension) => set({ dimension }),
   setExplorerDensity: (density) => set({ explorerDensity: density }),
+  setExplorerFrozen: (frozen) => set({ explorerFrozen: frozen }),
 
   async applySettings(values) {
     const settings = (await bridge.settings.update(values)).settings;
@@ -805,6 +811,16 @@ export const useStore = create<StrataState>((set, get) => ({
     }
   },
 
+  async moveFolder(folderId, parentFolderPath) {
+    try {
+      await bridge.notes.moveFolder(folderId, parentFolderPath);
+      await get().reloadTree();
+      await get().reloadGraph();
+    } catch (error) {
+      set({ connectionMessage: describeError(error) });
+    }
+  },
+
   async deleteFolder(folderId) {
     try {
       await bridge.notes.deleteFolder(folderId);
@@ -910,12 +926,17 @@ export const useStore = create<StrataState>((set, get) => ({
 
   async unlockLayer(layerId, password) {
     await bridge.layers.unlock(layerId, password);
-    await get().afterLockStateChanged();
+    // Layers + tree update now; graph reload is deferred until the unlock
+    // dialog closes (same reason as createLayer — WebGL under a modal flickers
+    // / can lose context, so 2D/3D never pick up the decrypted nodes).
+    await get().refreshLayers();
+    await get().reloadTree();
   },
 
   async unlockLayerWithRecoveryKey(layerId, recoveryKey) {
     await bridge.layers.unlockWithRecoveryKey(layerId, recoveryKey);
-    await get().afterLockStateChanged();
+    await get().refreshLayers();
+    await get().reloadTree();
   },
 
   async lockLayer(layerId) {

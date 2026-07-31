@@ -256,6 +256,10 @@ kbd,
 .scroll-y {
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Contain scroll chaining / paint so navigator & inspector scrolling does
+     not thrash the WebGL stage under Qt WebEngine. */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .empty-state {

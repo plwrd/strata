@@ -1,7 +1,6 @@
-/** The top bar: modes, capture, and a compact overflow for secondary controls. */
+/** The top bar: modes and a compact overflow for secondary controls. */
 
 import { useEffect, useId, useRef, useState } from "react";
-import { CaptureDialog } from "../capture/CaptureDialog";
 import { HealthDialog } from "../health/HealthDialog";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { requestTourReplay } from "../onboarding/useOnboardingTour";
@@ -24,7 +23,6 @@ export function CommandBar(): JSX.Element {
     activeLensId,
   } = useStore();
 
-  const [capturing, setCapturing] = useState(false);
   const [healthOpen, setHealthOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -83,16 +81,6 @@ export function CommandBar(): JSX.Element {
       </nav>
 
       <div className="commandbar__controls">
-        <button
-          type="button"
-          className="button button--primary commandbar__capture"
-          data-tour="capture"
-          title="Capture text or a page into the Inbox"
-          onClick={() => setCapturing(true)}
-        >
-          ⇣ Capture
-        </button>
-
         {showDimension && (
           <div className="segmented" role="group" aria-label="Graph dimension">
             <button
@@ -177,7 +165,6 @@ export function CommandBar(): JSX.Element {
         </div>
       </div>
 
-      {capturing && <CaptureDialog onClose={() => setCapturing(false)} />}
       {healthOpen && <HealthDialog onClose={() => setHealthOpen(false)} />}
       {settingsOpen && (
         <SettingsDialog onClose={() => setSettingsOpen(false)} />

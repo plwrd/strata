@@ -211,6 +211,65 @@ describe("FileTree drag and drop", () => {
       expect(move?.payload).toMatchObject({ note_id: "n1", folder_path: "" });
     });
   });
+
+  it("reparents a dragged folder under another folder", async () => {
+    const calls = installRecording();
+    useStore.setState({
+      connection: "ready",
+      layers: [PUBLIC_LAYER],
+      tree: {
+        folders: [
+          {
+            id: "f1",
+            layer_id: "layer_a",
+            name: "Security",
+            path: "Security",
+            parent_id: null,
+          },
+          {
+            id: "f2",
+            layer_id: "layer_a",
+            name: "Archive",
+            path: "Archive",
+            parent_id: null,
+          },
+        ],
+        notes: [],
+        locked_layer_ids: [],
+      },
+      trash: [],
+      tabs: [],
+      dirty: {},
+      selectedIds: [],
+      openNote: null,
+      activeNoteId: null,
+      draft: null,
+    });
+    render(<FileTree />);
+
+    const archiveRow = screen.getByText("Archive").closest("[role=treeitem]")!;
+    fireEvent.drop(archiveRow, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) =>
+          type === "text/strata-folder"
+            ? JSON.stringify({
+                id: "f1",
+                layerId: "layer_a",
+                path: "Security",
+              })
+            : "",
+      },
+    });
+
+    await waitFor(() => {
+      const move = calls.find((call) => call.method === "move_folder");
+      expect(move?.payload).toMatchObject({
+        folder_id: "f1",
+        parent_folder_path: "Archive",
+      });
+    });
+  });
 });
 
 describe("FileTree density, keyboard, and trash", () => {
@@ -231,6 +290,32 @@ describe("FileTree density, keyboard, and trash", () => {
 
     await user.click(screen.getByTitle("List view"));
     expect(panel).toHaveAttribute("data-density", "list");
+  });
+
+  it("freezes drag and drop on the Files panel", async () => {
+    const user = userEvent.setup();
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const panel = screen.getByLabelText("Files");
+    expect(panel).toHaveAttribute("data-frozen", "false");
+
+    await user.click(screen.getByTitle("Freeze — disable drag and drop"));
+    expect(panel).toHaveAttribute("data-frozen", "true");
+
+    fireEvent.drop(screen.getByText("Security").closest("[role=treeitem]")!, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) => (type === "text/strata-note" ? "n1" : ""),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.find((call) => call.method === "move_note")).toBeUndefined();
+
+    await user.click(screen.getByTitle("Unfreeze — allow drag and drop"));
+    expect(panel).toHaveAttribute("data-frozen", "false");
   });
 
   it("renames a folder with F2 and expands/collapses with Enter", async () => {

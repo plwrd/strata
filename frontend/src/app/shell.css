@@ -210,6 +210,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--shell-section-gap);
+  isolation: isolate;
+  transform: translateZ(0);
 }
 
 /* Rail toggles live on the stage so collapsed rails never hide the recover control. */
@@ -436,8 +438,8 @@
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
-  background: var(--surface-glass-strong);
-  backdrop-filter: blur(10px);
+  /* Opaque — backdrop-filter over WebGL flickers the shell under Qt WebEngine. */
+  background: var(--surface-overlay);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
 }
@@ -480,8 +482,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
-  background: var(--surface-glass-strong);
-  backdrop-filter: blur(10px);
+  background: var(--surface-overlay);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   flex-wrap: wrap;
@@ -547,8 +548,7 @@
   gap: var(--space-4);
   padding: var(--space-2) var(--space-4);
   max-width: calc(100% - var(--space-6));
-  background: var(--surface-glass-strong);
-  backdrop-filter: blur(12px);
+  background: var(--surface-overlay);
   border: 1px solid var(--border-accent);
   border-radius: 999px;
   box-shadow: var(--glow-accent);
@@ -1382,20 +1382,31 @@
   z-index: var(--z-dialog);
   display: grid;
   place-items: center;
-  /* Solid dim — no backdrop-filter. Blurring a live WebGL/canvas stage under Qt
-     WebEngine causes the whole window to flicker when dialogs open or close. */
-  background: rgba(4, 6, 13, 0.92);
+  /* Fully opaque — any alpha over live WebGL makes Qt WebEngine re-composite
+     the whole shell on every scroll tick (Settings / Health flicker). */
+  background: var(--surface-void);
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+/* Stop painting the galaxy under modals so dialog scroll cannot thrash it. */
+body:has(.dialog-backdrop) .stage__graph {
+  visibility: hidden;
 }
 
 .dialog {
   width: min(620px, 92vw);
   max-height: 86vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-5);
   background: var(--surface-overlay);
   border: 1px solid var(--status-danger);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  /* Own compositor layer so scroll invalidation stays inside the dialog. */
+  isolation: isolate;
+  transform: translateZ(0);
 }
 
 .dialog__title {
@@ -1907,14 +1918,15 @@
   z-index: 1000;
   min-width: 230px;
   padding: var(--space-1);
-  background: var(--surface-glass-strong);
-  backdrop-filter: blur(14px);
+  background: var(--surface-overlay);
   border: 1px solid var(--border-accent);
   border-radius: var(--radius-sm);
   box-shadow:
     0 0 22px rgba(34, 224, 245, 0.12),
     0 14px 34px rgba(0, 0, 0, 0.55);
   animation: context-menu-in 90ms ease-out;
+  isolation: isolate;
+  transform: translateZ(0);
 }
 
 @keyframes context-menu-in {
@@ -2311,6 +2323,7 @@
   flex-direction: column;
   gap: var(--space-3);
   border-color: var(--border-accent);
+  overflow: hidden;
 }
 
 .settings-dialog .dialog__header {
@@ -2326,6 +2339,9 @@
   gap: var(--space-4);
   overflow-y: auto;
   min-height: 0;
+  overscroll-behavior: contain;
+  /* Keep scroll invalidation off the shell compositor. */
+  transform: translateZ(0);
 }
 
 .settings-dialog__section {

@@ -366,6 +366,11 @@
   background: var(--surface-raised);
 }
 
+.tree[data-frozen="true"] .tree__row--folder,
+.tree[data-frozen="true"] .tree__layer-row {
+  cursor: default;
+}
+
 .tree__icon {
   flex-shrink: 0;
   width: 14px;

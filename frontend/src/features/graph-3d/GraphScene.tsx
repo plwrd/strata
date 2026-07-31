@@ -16,7 +16,7 @@ import {
   useThree,
   type ThreeEvent,
 } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { GraphSnapshot } from "../../bridge/types";
 import { edgeColor, nodeColor, nodeRadius } from "../graph/nodeStyle";
@@ -389,6 +389,21 @@ export function GraphScene(props: SceneProps): JSX.Element {
   } = props;
   const tier = TIERS[quality];
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const [canvasKey, setCanvasKey] = useState(0);
+
+  // Remount the WebGL surface when lock state changes so unlock/lock never
+  // leaves a dead canvas after Qt context loss under a dialog.
+  const lockSignature = graph.locked_layer_ids.join(",");
+  const previousLock = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      previousLock.current !== null &&
+      previousLock.current !== lockSignature
+    ) {
+      setCanvasKey((key) => key + 1);
+    }
+    previousLock.current = lockSignature;
+  }, [lockSignature]);
 
   const starfield = useMemo(
     () => (tier.stars > 0 ? buildStarfield(tier.stars, 160, 340) : null),
@@ -437,6 +452,7 @@ export function GraphScene(props: SceneProps): JSX.Element {
 
   return (
     <Canvas
+      key={canvasKey}
       camera={{ fov: 55, near: 0.1, far: 4000, position: [0, 0, 40] }}
       // Fixed DPR (not [min,max]): R3F rescaling the drawing buffer mid-session
       // flashes black and has contributed to WebGL context loss under Qt.
@@ -454,6 +470,16 @@ export function GraphScene(props: SceneProps): JSX.Element {
         stencil: false,
         depth: true,
         failIfMajorPerformanceCaveat: false,
+      }}
+      onCreated={({ gl }) => {
+        const canvas = gl.domElement;
+        const onLost = (event: Event): void => {
+          // Without preventDefault the context is unrestorable and Explore
+          // stays blank after unlock/dialog teardown.
+          event.preventDefault();
+          window.setTimeout(() => setCanvasKey((key) => key + 1), 50);
+        };
+        canvas.addEventListener("webglcontextlost", onLost, false);
       }}
       // The canvas is decorative for assistive technology: the same graph is
       // exposed as a real tree in GraphList. Hiding it prevents a screen reader

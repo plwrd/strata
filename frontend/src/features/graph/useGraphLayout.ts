@@ -9,6 +9,17 @@ import type {
 
 export type Positions = Record<string, [number, number, number]>;
 
+function provisionalPosition(
+  index: number,
+  total: number,
+): [number, number, number] {
+  // Scatter newcomers near the origin so edges can draw immediately while the
+  // worker settles a full layout (important after unlocking a private layer).
+  const angle = (index / Math.max(total, 1)) * Math.PI * 2;
+  const radius = 8 + (index % 5);
+  return [Math.cos(angle) * radius, Math.sin(angle) * radius, (index % 3) - 1];
+}
+
 export function useGraphLayout(
   graph: GraphSnapshot | null,
   dimension: "2d" | "3d",
@@ -17,6 +28,7 @@ export function useGraphLayout(
   const [positions, setPositions] = useState<Positions>({});
   const [computing, setComputing] = useState(false);
   const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const worker = new Worker(
@@ -36,11 +48,25 @@ export function useGraphLayout(
     const worker = workerRef.current;
     if (!worker || !graph || graph.nodes.length === 0) {
       setPositions({});
+      setComputing(false);
       return;
     }
 
+    // Keep known positions; give brand-new nodes (e.g. just-unlocked layer)
+    // provisional coordinates so 2D/3D can connect them before the worker returns.
+    setPositions((previous) => {
+      const next: Positions = {};
+      graph.nodes.forEach((node, index) => {
+        next[node.id] =
+          previous[node.id] ?? provisionalPosition(index, graph.nodes.length);
+      });
+      return next;
+    });
+
+    const requestId = ++requestIdRef.current;
     setComputing(true);
-    const handle = (event: MessageEvent<LayoutResult>) => {
+    const handle = (event: MessageEvent<LayoutResult>): void => {
+      if (requestIdRef.current !== requestId) return;
       setPositions(event.data.positions);
       setComputing(false);
     };

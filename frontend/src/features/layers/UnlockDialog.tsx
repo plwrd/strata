@@ -18,9 +18,15 @@ import { useStore } from "../../state/store";
 interface Props {
   layer: LayerDescriptor;
   onClose: () => void;
+  /** Fired after a successful unlock so the parent can close and reload the graph. */
+  onUnlocked: () => void;
 }
 
-export function UnlockDialog({ layer, onClose }: Props): JSX.Element {
+export function UnlockDialog({
+  layer,
+  onClose,
+  onUnlocked,
+}: Props): JSX.Element {
   const { unlockLayer, unlockLayerWithRecoveryKey } = useStore();
   const [mode, setMode] = useState<"password" | "recovery">("password");
   const [secret, setSecret] = useState("");
@@ -35,7 +41,7 @@ export function UnlockDialog({ layer, onClose }: Props): JSX.Element {
       if (mode === "password") await unlockLayer(layer.id, secret);
       else await unlockLayerWithRecoveryKey(layer.id, secret);
       setSecret("");
-      onClose();
+      onUnlocked();
     } catch (error) {
       // Every failure looks the same, on purpose.
       setFailed(true);

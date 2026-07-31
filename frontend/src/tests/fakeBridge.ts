@@ -601,7 +601,35 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       }),
     },
     graph: {
-      load_graph: () => ({ graph }),
+      load_graph: () => {
+        // Unlocking must surface private notes on the next graph load — matching
+        // Python GraphService.build after the key is held.
+        if (privateState === "unlocked") {
+          const unlockedNodes = graph.nodes
+            .filter((entry) => !entry.id.startsWith("locked:"))
+            .concat([
+              {
+                ...node("n_private", "Private Secret", "note", 2),
+                layer_id: "layer_p",
+              },
+            ]);
+          const unlockedEdges = [
+            ...graph.edges,
+            edge("e_priv", "n1", "n_private", "references"),
+          ];
+          return {
+            graph: {
+              ...graph,
+              nodes: unlockedNodes,
+              edges: unlockedEdges,
+              total_nodes: unlockedNodes.length,
+              total_edges: unlockedEdges.length,
+              locked_layer_ids: [],
+            },
+          };
+        }
+        return { graph };
+      },
       expand_neighbours: (payload) => ({
         node_ids: graph.edges
           .filter(
@@ -704,6 +732,17 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           layer_id: "layer_a",
           name: "Renamed",
           path: "Renamed",
+          parent_id: null,
+        },
+      }),
+      move_folder: (payload) => ({
+        folder: {
+          id: (payload["folder_id"] as string) || "f1",
+          layer_id: "layer_a",
+          name: "Security",
+          path: payload["parent_folder_path"]
+            ? `${payload["parent_folder_path"] as string}/Security`
+            : "Security",
           parent_id: null,
         },
       }),

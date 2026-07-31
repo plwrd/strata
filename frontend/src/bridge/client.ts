@@ -382,6 +382,11 @@ export const bridge = {
         folder_id,
         name,
       }),
+    moveFolder: (folder_id: string, parent_folder_path: string) =>
+      call<{ folder: TreeFolder }>("notes", "move_folder", {
+        folder_id,
+        parent_folder_path,
+      }),
     deleteFolder: (folder_id: string) =>
       call<{ count: number }>("notes", "delete_folder", { folder_id }),
 

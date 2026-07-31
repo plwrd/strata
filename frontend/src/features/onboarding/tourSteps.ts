@@ -28,12 +28,6 @@ export const SPOTLIGHT_STEPS: SpotlightStep[] = [
     prepare: { openNav: true },
   },
   {
-    id: "capture",
-    title: "Capture first, organise later",
-    body: "Paste text or import a page into Inbox. Raw captures stay yours until you process them into knowledge.",
-    target: "capture",
-  },
-  {
     id: "layers",
     title: "Layers are boundaries",
     body: "Public layers are plain Markdown on disk. Private layers are encrypted — locked ones contribute nothing to search, the graph, or AI.",
