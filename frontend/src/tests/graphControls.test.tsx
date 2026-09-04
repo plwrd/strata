@@ -71,4 +71,12 @@ describe("GraphControls", () => {
     await userEvent.click(screen.getByLabelText("Semantic edges"));
     expect(useStore.getState().semanticEdges).toBe(true);
   });
+
+  it("announces a truncated graph", () => {
+    useStore.setState({
+      graph: { ...SAMPLE_GRAPH, truncated: true, total_nodes: 400 },
+    });
+    render(<GraphControls />);
+    expect(screen.getByText(/Showing 5 of 400 nodes/)).toBeInTheDocument();
+  });
 });

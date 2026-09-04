@@ -28,7 +28,7 @@ from app.infrastructure.storage.markdown_store import (
     parse_frontmatter,
     render_frontmatter,
 )
-from app.infrastructure.storage.paths import safe_filename
+from app.infrastructure.storage.paths import safe_filename, write_text_atomic
 from app.services.private_layer_access import PrivateLayerAccess
 from app.services.version_service import VersionService
 from app.services.workspace_service import WorkspaceService
@@ -115,9 +115,13 @@ class NoteService:
         return None
 
     def get_note(self, note_id: str) -> Note:
-        for note in self.list_notes():
-            if note.metadata.id == note_id:
-                return note
+        for layer_id in self._markdown_layers(None):
+            located = self._workspace.layer_store(layer_id).locate(note_id)
+            if located is not None:
+                return located[0]
+        private = self._private_owner(note_id)
+        if private is not None:
+            return private.get_note(note_id)
         # Same error whether the note does not exist or lives in a locked layer.
         raise NotFoundError("Knowledge object not found.")
 
@@ -130,10 +134,9 @@ class NoteService:
     def _locate(self, note_id: str) -> tuple[MarkdownLayerStore, Note, Path]:
         for layer_id in self._markdown_layers(None):
             store = self._workspace.layer_store(layer_id)
-            for path in store.iter_markdown_files():
-                note = store.read_note(path)
-                if note.metadata.id == note_id:
-                    return store, note, path
+            located = store.locate(note_id)
+            if located is not None:
+                return store, located[0], located[1]
         raise NotFoundError("Knowledge object not found.")
 
     # -- writing -------------------------------------------------------------
@@ -175,11 +178,8 @@ class NoteService:
         store, note, path = self._locate(note_id)
         self._record_version(note, origin=origin, change="update")
         frontmatter, _ = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
-        path.write_text(
-            render_frontmatter(frontmatter) + content,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_atomic(path, render_frontmatter(frontmatter) + content)
+        store.invalidate(path)
         return store.read_note(path)
 
     def update_properties(
@@ -192,11 +192,8 @@ class NoteService:
         store, note, path = self._locate(note_id)
         self._record_version(note, origin=origin, change="properties")
         _old, body = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
-        path.write_text(
-            render_frontmatter(dict(properties)) + body,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_atomic(path, render_frontmatter(dict(properties)) + body)
+        store.invalidate(path)
         return store.read_note(path)
 
     # -- version history -----------------------------------------------------
@@ -229,11 +226,8 @@ class NoteService:
         store, note, path = self._locate(note_id)
         version = self._versions.get_version(note.metadata.layer_id, note_id, index)
         self._record_version(note, origin=origin, change="restore")
-        path.write_text(
-            render_frontmatter(dict(version.properties)) + version.content,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_atomic(path, render_frontmatter(dict(version.properties)) + version.content)
+        store.invalidate(path)
         return store.read_note(path)
 
     def rename_note(self, note_id: str, title: str) -> tuple[Note, int]:
@@ -301,7 +295,8 @@ class NoteService:
                 text = path.read_text(encoding="utf-8", errors="replace")
                 updated, count = pattern.subn(f"[[{new_title}", text)
                 if count:
-                    path.write_text(updated, encoding="utf-8", newline="\n")
+                    write_text_atomic(path, updated)
+                    store.invalidate(path)
                     rewritten += count
 
         for layer_id in self._private_layers(None):

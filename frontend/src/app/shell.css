@@ -147,8 +147,9 @@
   --shell-inspector-col: var(--shell-inspector-width-fluid);
   position: relative;
   display: grid;
-  grid-template-columns:
-    var(--shell-nav-col) minmax(0, 1fr) var(--shell-inspector-col);
+  grid-template-columns: var(--shell-nav-col) minmax(0, 1fr) var(
+      --shell-inspector-col
+    );
   min-height: 0;
   overflow: hidden;
 }
@@ -226,7 +227,11 @@
   height: 48px;
   padding: 0;
   color: var(--text-secondary);
-  background: color-mix(in srgb, var(--surface-raised) 94%, var(--accent-primary));
+  background: color-mix(
+    in srgb,
+    var(--surface-raised) 94%,
+    var(--accent-primary)
+  );
   border: 1px solid var(--border-subtle);
   cursor: pointer;
   line-height: 0;
@@ -252,7 +257,11 @@
 .drawer-toggle:focus-visible {
   color: var(--text-primary);
   background: var(--surface-overlay);
-  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-subtle));
+  border-color: color-mix(
+    in srgb,
+    var(--accent-primary) 45%,
+    var(--border-subtle)
+  );
 }
 
 .drawer-toggle:focus-visible {
@@ -276,8 +285,16 @@
 .drawer-toggle--recover {
   width: 22px;
   color: var(--accent-primary);
-  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-subtle));
-  background: color-mix(in srgb, var(--surface-raised) 80%, var(--accent-primary));
+  border-color: color-mix(
+    in srgb,
+    var(--accent-primary) 55%,
+    var(--border-subtle)
+  );
+  background: color-mix(
+    in srgb,
+    var(--surface-raised) 80%,
+    var(--accent-primary)
+  );
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent-primary) 20%, transparent),
     0 4px 16px rgba(0, 0, 0, 0.4);
@@ -1479,6 +1496,22 @@ body:has(.dialog-backdrop) .stage__graph {
   margin-left: auto;
 }
 
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-raised);
+  border-top: 1px solid var(--status-warning, var(--border-accent));
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.error-banner__text {
+  margin: 0;
+  flex: 1;
+}
+
 /* --- boot ---------------------------------------------------------------- */
 
 .boot {
@@ -1530,11 +1563,7 @@ body:has(.dialog-backdrop) .stage__graph {
 /* Mid widths: clamp already shrinks rails; nudge the nav ceiling down. */
 @media (max-width: 1500px) {
   .shell__body {
-    --shell-nav-col: clamp(
-      11rem,
-      16vw,
-      var(--shell-nav-width-narrow)
-    );
+    --shell-nav-col: clamp(11rem, 16vw, var(--shell-nav-width-narrow));
   }
 
   .shell__body--nav-closed {
@@ -1545,11 +1574,7 @@ body:has(.dialog-backdrop) .stage__graph {
 /* ≤1279: inspector becomes a drawer over the stage (nav stays in-flow). */
 @media (max-width: 1279px) {
   .shell__body {
-    --shell-nav-col: clamp(
-      10.5rem,
-      20vw,
-      var(--shell-nav-width-narrow)
-    );
+    --shell-nav-col: clamp(10.5rem, 20vw, var(--shell-nav-width-narrow));
     --shell-inspector-col: 0px;
     grid-template-columns: var(--shell-nav-col) minmax(0, 1fr);
   }

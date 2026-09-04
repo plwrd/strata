@@ -76,6 +76,16 @@ describe("LayerPanel", () => {
     expect(state).not.toContain("correct horse battery");
   });
 
+  it("offers remember-on-this-device in the unlock dialog", async () => {
+    const user = userEvent.setup();
+    render(<LayerPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Unlock" }));
+    expect(
+      screen.getByRole("checkbox", { name: /Remember on this device/ }),
+    ).toBeInTheDocument();
+  });
+
   it("reloads the graph after unlock so 2D/3D receive private nodes", async () => {
     const user = userEvent.setup();
     useStore.setState({

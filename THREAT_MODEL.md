@@ -1,8 +1,7 @@
 # Strata — Threat Model
 
-Version 0.1.0 (pre-alpha). This document describes the **intended** security design. Encryption lands
-in **M3**; where a mitigation is tagged M3 or later, it does not exist yet. This document is written
-early on purpose, so the design can be attacked before it is built.
+Version 1.3.1. This document describes the security design as implemented, including
+residual risk. Private-layer encryption exists; it has not been independently audited.
 
 **Nothing here has been independently audited.**
 

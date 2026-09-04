@@ -87,15 +87,17 @@ flowchart LR
 
 | | |
 | --- | --- |
-| **Version** | 0.1.0 (pre-alpha) |
-| **Milestone 0 — Foundations** | Complete (repo scaffold, tooling, CI, packaging skeleton). |
-| **Milestone 1 — Shell + bridge** | Complete (Qt shell, `strata://` scheme handler, QWebChannel bridge, request/response envelopes, error enum, JobBridge events). |
-| **Milestone 2 — Editor & notes** | Next (CodeMirror 6, Markdown, public-layer note CRUD). |
-| **Milestone 3 — Encryption** | Designed, not implemented. The format is specified now so it can be reviewed before code exists. |
+| **Version** | 1.3.1 |
+| **Milestone 0 — Foundations** | Complete |
+| **Milestone 1 — Shell + bridge** | Complete |
+| **Milestone 2 — Editor & notes** | Complete |
+| **Milestone 3 — Encryption** | Complete (private layers; not independently audited) |
+| **Milestones 4–10** | Implemented in tree; remaining extras live in [TASKS.md](TASKS.md) |
+| **Milestone 11 — Hardening** | In progress (packaging, audit, 100k-note performance) |
 | Roadmap / milestone tags | [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md) — every FR carries an M0–M11 tag. |
 
-**Nothing in this repository has been security-audited.** Do not store material whose disclosure would
-seriously harm you in Strata until the encryption layer (M3) is implemented, reviewed, and audited.
+**Nothing in this repository has been independently security-audited.** Do not store material whose disclosure would
+seriously harm you in a private layer until the encryption implementation has been reviewed and audited.
 
 ---
 
@@ -195,48 +197,20 @@ $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -m pytest tests/e2e
 strata/
 ├── app/                          # Python application (PySide6)
 │   ├── main.py                   # entry point (`strata` console script)
-│   ├── shell/                    # QMainWindow, QWebEngineView, strata:// scheme handler
+│   ├── desktop/                  # QMainWindow, QWebEngineView, strata:// scheme handler
 │   ├── bridge/                   # QWebChannel bridge objects (one QObject per feature)
-│   │   ├── envelope.py           # request/response envelope + closed error enum
-│   │   ├── workspace_bridge.py
-│   │   ├── layer_bridge.py
-│   │   ├── notes_bridge.py
-│   │   ├── graph_bridge.py
-│   │   ├── search_bridge.py
-│   │   ├── ai_composer_bridge.py
-│   │   ├── export_bridge.py
-│   │   ├── collaboration_bridge.py
-│   │   ├── settings_bridge.py
-│   │   ├── snapshot_bridge.py
-│   │   └── job_bridge.py         # progress/events pushed via Qt Signal (JSON)
-│   ├── core/                     # domain models (pydantic v2), workspace, layers, objects
-│   ├── crypto/                   # M3: Argon2id, XChaCha20-Poly1305, envelopes, zeroization
-│   ├── storage/                  # on-disk layout, atomic writes, trash, snapshots
-│   ├── search/                   # FTS + vector index (ephemeral-first for private layers)
-│   ├── graph/                    # networkx graph construction
-│   ├── ai/                       # providers, context composer, operation plans, receipts
-│   └── jobs/                     # background job runner
+│   ├── domain/                   # pydantic v2 models
+│   ├── services/                 # application services + DI container
+│   └── infrastructure/           # encryption, storage, search, CRDT, AI providers, keychain
 ├── frontend/                     # React 18 + TypeScript (strict) + Vite
 │   ├── src/
 │   └── dist/                     # built bundle, served at strata://app/index.html
 ├── docs/
 │   ├── architecture/
-│   │   ├── system-architecture.md
-│   │   └── storage-layout.md
 │   ├── security/
-│   │   └── encryption-format.md
-│   ├── product/
-│   │   └── glossary.md
-│   └── adr/                      # architecture decision records
+│   └── adr/
 ├── scripts/
-│   └── scan_plaintext.py         # CI guard: no plaintext may appear in a private layer
 ├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── security/
-│   ├── e2e/
-│   ├── performance/
-│   └── fixtures/
 └── pyproject.toml
 ```
 

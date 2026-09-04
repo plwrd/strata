@@ -196,7 +196,10 @@ function ColorRow(props: {
 
   return (
     <div className="settings-color-row">
-      <label className="settings-color-row__label" htmlFor={`theme-${props.colorKey}`}>
+      <label
+        className="settings-color-row__label"
+        htmlFor={`theme-${props.colorKey}`}
+      >
         {props.label}
       </label>
       <input
@@ -539,6 +542,18 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 />
                 <span>Bloom</span>
               </label>
+              <label className="search__toggle">
+                <input
+                  type="checkbox"
+                  checked={settings?.battery_saver ?? false}
+                  onChange={(event) =>
+                    void applySettings({
+                      battery_saver: event.target.checked,
+                    })
+                  }
+                />
+                <span>Battery saver</span>
+              </label>
             </div>
           </section>
 
@@ -562,9 +577,9 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               <span>Hidden for sharing</span>
             </label>
             <p className="settings-dialog__hint">
-              On by default (Signal-style). You still see Strata; screenshots and
-              screen shares do not. Turn off only when you need to demo or record
-              the app itself.
+              On by default (Signal-style). You still see Strata; screenshots
+              and screen shares do not. Turn off only when you need to demo or
+              record the app itself.
             </p>
           </section>
         </div>

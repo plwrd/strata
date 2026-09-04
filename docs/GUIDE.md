@@ -762,9 +762,10 @@ do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
 record Strata itself.
 
 Further settings live in a JSON settings file in the OS config directory and
-are currently **edited by hand**, not in the UI: `battery_saver`, AI defaults
-(provider, model, base URLs, Claude CLI path, token limits), and
-`telemetry_enabled` (off by default).
+are currently **edited by hand**, not in the UI: AI defaults (provider, model,
+base URLs, Claude CLI path, token limits), and `telemetry_enabled` (off by
+default). `battery_saver` is a Settings toggle: it forces the low-GPU graph
+path (2D, fewer layout ticks).
 
 Per-layer AI policy (what a model may read, summarise, or edit per layer) is
 enforced by the backend with safe defaults — new layers allow **local-only**

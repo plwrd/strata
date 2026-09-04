@@ -72,7 +72,9 @@ describe("SettingsDialog", () => {
     const applySettings = vi.spyOn(useStore.getState(), "applySettings");
     render(<SettingsDialog onClose={() => undefined} />);
 
-    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Customized")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Forest/i }));
@@ -116,12 +118,16 @@ describe("SettingsDialog", () => {
     render(<CommandBar />);
 
     await userEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Settings" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Motion:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Hidden for sharing/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Settings" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Hidden for sharing")).toBeInTheDocument();
     expect(
       screen.getByRole("group", { name: "Motion preference" }),
@@ -135,9 +141,20 @@ describe("SettingsDialog", () => {
     await userEvent.click(
       screen.getByRole("checkbox", { name: /Hidden for sharing/ }),
     );
-    // Seeded on (default); one click turns protection off.
     await waitFor(() =>
       expect(applySettings).toHaveBeenCalledWith({ hide_for_sharing: false }),
+    );
+  });
+
+  it("toggles battery saver through applySettings", async () => {
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /Battery saver/ }),
+    );
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({ battery_saver: true }),
     );
   });
 });

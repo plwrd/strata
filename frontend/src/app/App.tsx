@@ -35,6 +35,7 @@ import { StatusBar } from "../features/workspace/StatusBar";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useStore } from "../state/store";
 import { AppContextMenu } from "./ContextMenu";
+import { ErrorBanner } from "./ErrorBanner";
 import { NavigatorAccordion } from "./NavigatorAccordion";
 import { SelectionRing } from "./SelectionRing";
 
@@ -167,7 +168,9 @@ export function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const quality = state.settings?.graph_quality ?? "balanced";
+  const qualitySetting = state.settings?.graph_quality ?? "balanced";
+  const quality =
+    state.settings?.battery_saver === true ? "low-gpu" : qualitySetting;
   // Low-GPU mode is a user choice; missing WebGL is a fact. Either one means the
   // 3D canvas is never mounted, rather than mounted and then crashing.
   const webgl = isWebGLAvailable();
@@ -312,6 +315,14 @@ export function App(): JSX.Element {
 
               {state.graph && state.graph.nodes.length > 0 && (
                 <>
+                  {state.graph.truncated && (
+                    <p className="stage__fallback mono" role="status">
+                      Showing {state.graph.nodes.length} of{" "}
+                      {state.graph.total_nodes} nodes. The rest are omitted
+                      until the graph is filtered.
+                    </p>
+                  )}
+
                   {state.dimension === "3d" && !webgl && (
                     <p className="stage__fallback mono" role="status">
                       This display has no WebGL, so the 2D graph is shown.
@@ -420,6 +431,7 @@ export function App(): JSX.Element {
         </aside>
       </div>
 
+      <ErrorBanner />
       <StatusBar />
       <AppContextMenu />
       <OnboardingTour />

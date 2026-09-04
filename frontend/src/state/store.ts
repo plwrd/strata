@@ -87,6 +87,7 @@ interface StrataState {
   // connection
   connection: ConnectionState;
   connectionMessage: string;
+  lastError: string | null;
   health: HealthResponse | null;
 
   // workspace
@@ -172,6 +173,7 @@ interface StrataState {
 
   // actions
   initialise: () => Promise<void>;
+  clearLastError: () => void;
   setMode: (mode: AppMode) => void;
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
@@ -235,7 +237,12 @@ interface StrataState {
     withRecoveryKey: boolean,
     starter?: LayerStarter,
   ) => Promise<string | null>;
-  unlockLayer: (layerId: string, password: string) => Promise<void>;
+  unlockLayer: (
+    layerId: string,
+    password: string,
+    rememberOnThisDevice?: boolean,
+  ) => Promise<void>;
+  forgetSavedPassword: (layerId: string) => Promise<void>;
   unlockLayerWithRecoveryKey: (
     layerId: string,
     recoveryKey: string,
@@ -329,6 +336,7 @@ function uniqueTitle(existing: string[], base = "Untitled"): string {
 export const useStore = create<StrataState>((set, get) => ({
   connection: "connecting",
   connectionMessage: "",
+  lastError: null,
   health: null,
 
   workspace: null,
@@ -420,9 +428,7 @@ export const useStore = create<StrataState>((set, get) => ({
         providers: providerInfo.providers,
         keychainAvailable: providerInfo.keychain_available,
         providerId:
-          settings.default_provider ||
-          firstConfigured?.provider_id ||
-          "ollama",
+          settings.default_provider || firstConfigured?.provider_id || "ollama",
         // Distill Qwen 7B (`deepseek-r1:7b`) is the product default for Ollama.
         model: settings.default_model || "deepseek-r1:7b",
         schemas,
@@ -473,6 +479,7 @@ export const useStore = create<StrataState>((set, get) => ({
     }
   },
 
+  clearLastError: () => set({ lastError: null }),
   setMode: (mode) => set({ mode }),
   setDimension: (dimension) => set({ dimension }),
   setExplorerDensity: (density) => set({ explorerDensity: density }),
@@ -496,7 +503,7 @@ export const useStore = create<StrataState>((set, get) => ({
       ]);
       set({ graph, tree, loadingGraph: false });
     } catch (error) {
-      set({ loadingGraph: false, connectionMessage: describeError(error) });
+      set({ loadingGraph: false, lastError: describeError(error) });
     }
   },
 
@@ -509,7 +516,7 @@ export const useStore = create<StrataState>((set, get) => ({
       ]);
       set({ tree, linkHealth, trash: trash.entries });
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -541,8 +548,7 @@ export const useStore = create<StrataState>((set, get) => ({
       if (token !== openRequestToken) return;
       set({ links });
     } catch (error) {
-      if (token === openRequestToken)
-        set({ connectionMessage: describeError(error) });
+      if (token === openRequestToken) set({ lastError: describeError(error) });
     }
   },
 
@@ -584,7 +590,7 @@ export const useStore = create<StrataState>((set, get) => ({
       if (get().tabs.some((tab) => tab.id === noteId)) continue;
       try {
         await get().openNoteById(noteId);
-        // openNoteById reports failures via connectionMessage; if the note is
+        // openNoteById reports failures via lastError; if the note is
         // gone, activeNoteId will not become noteId — try the next entry.
         if (get().activeNoteId === noteId) return;
       } catch {
@@ -638,7 +644,7 @@ export const useStore = create<StrataState>((set, get) => ({
         set({ links });
       }
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     } finally {
       savingNotes.delete(noteId);
       set({ saving: savingNotes.size > 0 });
@@ -656,7 +662,7 @@ export const useStore = create<StrataState>((set, get) => ({
       void get().reloadTree();
       void get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -704,7 +710,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -723,7 +729,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       if (get().activeNoteId === noteId) await get().openNoteById(newId);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -740,7 +746,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       if (get().activeNoteId === noteId) await get().openNoteById(newId);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -751,7 +757,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -762,7 +768,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -773,7 +779,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -783,7 +789,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -797,7 +803,7 @@ export const useStore = create<StrataState>((set, get) => ({
       );
       await get().reloadTree();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -807,7 +813,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -817,7 +823,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -827,7 +833,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -870,7 +876,7 @@ export const useStore = create<StrataState>((set, get) => ({
         imported += 1;
       }
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
     await get().reloadTree();
     await get().reloadGraph();
@@ -879,13 +885,7 @@ export const useStore = create<StrataState>((set, get) => ({
 
   // -- layers ---------------------------------------------------------------
 
-  async createLayer(
-    name,
-    visibility,
-    password,
-    withRecoveryKey,
-    starter,
-  ) {
+  async createLayer(name, visibility, password, withRecoveryKey, starter) {
     const response = await bridge.layers.create(
       name,
       visibility,
@@ -913,7 +913,7 @@ export const useStore = create<StrataState>((set, get) => ({
           );
         }
       } catch (error) {
-        set({ connectionMessage: describeError(error) });
+        set({ lastError: describeError(error) });
       }
       await get().reloadTree();
     }
@@ -924,13 +924,18 @@ export const useStore = create<StrataState>((set, get) => ({
     return response.recovery_key;
   },
 
-  async unlockLayer(layerId, password) {
-    await bridge.layers.unlock(layerId, password);
+  async unlockLayer(layerId, password, rememberOnThisDevice = false) {
+    await bridge.layers.unlock(layerId, password, rememberOnThisDevice);
     // Layers + tree update now; graph reload is deferred until the unlock
     // dialog closes (same reason as createLayer — WebGL under a modal flickers
     // / can lose context, so 2D/3D never pick up the decrypted nodes).
     await get().refreshLayers();
     await get().reloadTree();
+  },
+
+  async forgetSavedPassword(layerId) {
+    await bridge.layers.forgetSavedPassword(layerId);
+    await get().refreshLayers();
   },
 
   async unlockLayerWithRecoveryKey(layerId, recoveryKey) {
@@ -1232,7 +1237,7 @@ export const useStore = create<StrataState>((set, get) => ({
       set({
         searching: false,
         searchResults: [],
-        connectionMessage: describeError(error),
+        lastError: describeError(error),
       });
     }
   },
@@ -1253,7 +1258,7 @@ export const useStore = create<StrataState>((set, get) => ({
         searchQuery: "",
       });
     } catch (error) {
-      set({ searching: false, connectionMessage: describeError(error) });
+      set({ searching: false, lastError: describeError(error) });
     }
   },
 
@@ -1333,7 +1338,9 @@ export const useStore = create<StrataState>((set, get) => ({
       // Keep Distill Qwen 7B when switching back to a local provider that
       // shares the product default; otherwise clear so the user picks again.
       model:
-        providerId === "ollama" || providerId === "llamacpp" || providerId === "lmstudio"
+        providerId === "ollama" ||
+        providerId === "llamacpp" ||
+        providerId === "lmstudio"
           ? settings?.default_model || "deepseek-r1:7b"
           : "",
     });
@@ -1467,7 +1474,9 @@ function isExportable(graph: GraphSnapshot | null, id: string): boolean {
   return !node.locked && node.type !== "tag" && node.type !== "folder";
 }
 
-export function summariseSelection(state: StrataState): SelectionSummary {
+export function summariseSelection(
+  state: Pick<StrataState, "graph" | "selectedIds" | "layers">,
+): SelectionSummary {
   const nodes = (state.graph?.nodes ?? []).filter((node) =>
     state.selectedIds.includes(node.id),
   );

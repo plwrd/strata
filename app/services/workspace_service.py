@@ -28,6 +28,8 @@ from app.domain.schema import KNOWLEDGE_AREAS
 from app.domain.views import ViewConfig
 from app.domain.workspace import KnowledgeLens, WorkspaceDescriptor
 from app.infrastructure.encryption.layer_header import LayerHeader
+from app.infrastructure.encryption.primitives import DecryptionError
+from app.infrastructure.keychain.credentials import CredentialStore
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.markdown_store import MarkdownLayerStore, now_iso
 from app.infrastructure.storage.workspace_store import WorkspaceStore
@@ -45,6 +47,7 @@ class WorkspaceService:
         on_open: Callable[[Path], None] | None = None,
         on_close: Callable[[], None] | None = None,
         encryption: EncryptionService | None = None,
+        layer_passwords: CredentialStore | None = None,
     ) -> None:
         self._store: WorkspaceStore | None = None
         self._descriptor: WorkspaceDescriptor | None = None
@@ -55,6 +58,7 @@ class WorkspaceService:
         self._on_open = on_open
         self._on_close = on_close
         self._encryption = encryption
+        self._layer_passwords = layer_passwords
 
     # -- state ---------------------------------------------------------------
 
@@ -135,6 +139,7 @@ class WorkspaceService:
         logger.info("workspace.opened", workspace_id=descriptor.id, layers=len(descriptor.layers))
         if self._on_open:
             self._on_open(root)
+        self._unlock_remembered_layers()
         return descriptor
 
     def open_or_create(self, root: Path, name: str) -> WorkspaceDescriptor:
@@ -308,11 +313,14 @@ class WorkspaceService:
             raise UnsupportedError("Encryption is not available in this build.")
         return self._encryption
 
-    def unlock_layer(self, layer_id: str, password: str) -> LayerDescriptor:
+    def unlock_layer(
+        self, layer_id: str, password: str, *, remember: bool = False
+    ) -> LayerDescriptor:
         layer = self._require_private(layer_id)
         self._require_encryption().unlock(
             layer_id, self._require_store().layer_root(layer_id), password
         )
+        self._remember_password(layer_id, password, remember=remember)
         return self._mark_unlocked(layer)
 
     def unlock_layer_with_recovery_key(self, layer_id: str, recovery_key: str) -> LayerDescriptor:
@@ -351,6 +359,57 @@ class WorkspaceService:
         self._require_encryption().change_password(
             layer_id, self._require_store().layer_root(layer_id), old_password, new_password
         )
+        if self._layer_passwords is not None and self._layer_passwords.has(layer_id):
+            self._layer_passwords.set(layer_id, new_password)
+
+    def forget_layer_password(self, layer_id: str) -> None:
+        self._require_private(layer_id)
+        if self._layer_passwords is not None:
+            self._layer_passwords.delete(layer_id)
+
+    def _remember_password(self, layer_id: str, password: str, *, remember: bool) -> None:
+        if self._layer_passwords is None:
+            return
+        if remember:
+            stored = self._layer_passwords.set(layer_id, password)
+            if not stored:
+                logger.warning("layer.password_remember_failed", layer_id=layer_id)
+            return
+        self._layer_passwords.delete(layer_id)
+
+    def _unlock_remembered_layers(self) -> None:
+        if self._layer_passwords is None or self._encryption is None:
+            return
+        for layer in list(self.descriptor.layers):
+            if layer.visibility != "private" or layer.state == "unlocked":
+                continue
+            password = self._layer_passwords.get(layer.id)
+            if not password:
+                continue
+            try:
+                self.unlock_layer(layer.id, password, remember=True)
+            except (DecryptionError, InvalidRequestError, NotFoundError):
+                self._layer_passwords.delete(layer.id)
+                logger.warning("layer.remembered_password_rejected", layer_id=layer.id)
+
+    def layers_for_client(self) -> list[LayerDescriptor]:
+        """Layer descriptors with live keychain flags, safe to send to the UI."""
+        layers: list[LayerDescriptor] = []
+        remembered = self._layer_passwords
+        for layer in self.descriptor.ordered_layers():
+            flag = bool(
+                layer.visibility == "private"
+                and remembered is not None
+                and remembered.has(layer.id)
+            )
+            layers.append(layer.model_copy(update={"password_remembered": flag}))
+        return layers
+
+    def layer_for_client(self, layer_id: str) -> LayerDescriptor:
+        for layer in self.layers_for_client():
+            if layer.id == layer_id:
+                return layer
+        return self.require_layer(layer_id)
 
     def reissue_recovery_key(self, layer_id: str, password: str) -> str:
         self._require_private(layer_id)

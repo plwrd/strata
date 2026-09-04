@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -317,18 +318,27 @@ class EncryptedLayerStore:
 
     # -- rotation ------------------------------------------------------------
 
-    def rotate(self, old_key: bytes, new_key: bytes, manifest_id: str) -> int:
+    def rotate(
+        self,
+        old_key: bytes,
+        new_key: bytes,
+        manifest_id: str,
+        *,
+        done: set[str] | None = None,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> int:
         """Re-encrypt every object under a new key.
 
         This is what actually revokes someone who kept the old key. It is expensive
         (every object is rewritten), and it is the only honest way to do it.
 
         Object ids are preserved so the manifest stays valid, and each object is
-        written atomically, so an interrupted rotation leaves a layer whose objects
-        are a mix of generations — which is why the caller only commits the new
-        header once this returns.
+        written atomically. ``done`` / ``on_progress`` let a rotation journal
+        resume after a crash: already-rewritten objects are read with the new
+        key, the rest with the old key.
         """
-        manifest = self.read_manifest(old_key, manifest_id)
+        completed = set(done or ())
+        manifest = self.read_manifest(new_key if manifest_id in completed else old_key, manifest_id)
         rewritten = 0
 
         for entry in manifest.entries.values():
@@ -338,9 +348,34 @@ class EncryptedLayerStore:
             }.get(entry.kind)
             if object_type is None:
                 continue  # folders exist only in the manifest
-            plaintext = self._read_object(old_key, entry.object_id, object_type)
-            self._write_object(new_key, entry.object_id, object_type, plaintext)
+            plaintext = self._read_for_rotation(
+                old_key, new_key, entry.object_id, object_type, completed
+            )
+            if entry.object_id not in completed:
+                self._write_object(new_key, entry.object_id, object_type, plaintext)
+                completed.add(entry.object_id)
+                if on_progress is not None:
+                    on_progress(entry.object_id)
             rewritten += 1
 
-        self._write_object(new_key, manifest_id, TYPE_MANIFEST, manifest.to_bytes())
+        if manifest_id not in completed:
+            self._write_object(new_key, manifest_id, TYPE_MANIFEST, manifest.to_bytes())
+            completed.add(manifest_id)
+            if on_progress is not None:
+                on_progress(manifest_id)
         return rewritten + 1
+
+    def _read_for_rotation(
+        self,
+        old_key: bytes,
+        new_key: bytes,
+        object_id: str,
+        object_type: int,
+        completed: set[str],
+    ) -> bytes:
+        if object_id in completed:
+            return self._read_object(new_key, object_id, object_type)
+        try:
+            return self._read_object(old_key, object_id, object_type)
+        except DecryptionError:
+            return self._read_object(new_key, object_id, object_type)

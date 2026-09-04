@@ -1,20 +1,20 @@
 # Security Policy
 
-Strata is **pre-alpha (0.1.0)** and has **not been security-audited**. The encryption layer is
-specified but not yet implemented (it lands in Milestone 3). Please read
-[THREAT_MODEL.md](THREAT_MODEL.md) before trusting this software with anything that matters.
+Strata **1.3.1** has **not been independently security-audited**. Private-layer
+encryption (Argon2id + XChaCha20-Poly1305) is implemented; treat it as unaudited
+code, not as a finished guarantee. Please read [THREAT_MODEL.md](THREAT_MODEL.md)
+before trusting this software with anything that matters.
 
 ---
 
 ## Reporting a vulnerability
 
-> **TODO — placeholder contact.** `security@strata.example` is **not a real address**. A monitored
-> contact address and a PGP key must be published before the first public build (this is a release
-> blocker, tracked alongside [A-013](ASSUMPTIONS.md)).
+Email the maintainer. Do not open a public issue for a security bug, and do not
+post a PoC publicly before a fix ships.
 
 | | |
 | --- | --- |
-| **Contact** | `security@strata.example` *(TODO: replace with a real, monitored address + PGP key)* |
+| **Contact** | `valcano103@gmail.com` (maintainer address from `pyproject.toml`) |
 | **Do not** | Open a public issue for a security bug. Do not post a PoC publicly before a fix ships. |
 | **Please include** | Affected version/commit, platform, a reproduction, the impact you believe it has, and whether you have disclosed it elsewhere. |
 | **Acknowledgement** | Within **3 business days**. |
@@ -22,7 +22,7 @@ specified but not yet implemented (it lands in Milestone 3). Please read
 | **Fix target** | Critical: 14 days. High: 30 days. Medium/Low: next scheduled release. |
 | **Disclosure** | Coordinated. We will agree a date with you; **90 days** is our default cap, and we would rather ship a fix than argue about the calendar. |
 | **Credit** | Offered by default; tell us if you would rather not be named. |
-| **Bounty** | None. We are pre-alpha and have no funding for one. We will not pretend otherwise. |
+| **Bounty** | None. We have no funding for one. We will not pretend otherwise. |
 
 **In scope:** the Strata application, the bridge, the encryption format, the storage layout, the build
 and release pipeline.
@@ -38,7 +38,7 @@ execution as the user.
 
 | Version | Supported |
 | --- | --- |
-| `0.1.x` (pre-alpha) | Security fixes only, on the `main` branch. **Not supported for production use.** |
+| `1.3.x` | Security fixes on the `main` branch. **Not independently audited; not recommended for highly sensitive material.** |
 | Anything older | No. |
 
 Because there is no auto-update yet ([A-009](ASSUMPTIONS.md)), a security fix means a new build that
@@ -222,6 +222,25 @@ Apple ID and app-specific password; it is not yet wired.
 If the **signing key** is ever compromised, signatures and update verification both fail as controls
 ([T-28](THREAT_MODEL.md)). Key custody is therefore a release-engineering requirement, not an app
 feature.
+
+---
+
+## PySide6 / Qt licensing
+
+PySide6 is LGPL. A PyInstaller freeze must not prevent users from relinking against a
+different Qt. Before the first public installer: confirm the frozen layout still
+allows replacing the Qt DLLs/so's, ship LGPL notices and Qt source offer text with
+the installer, or switch the host. This is a named release blocker in
+[TASKS.md](TASKS.md) M11.
+
+---
+
+## Supply-chain audit
+
+CI runs `pip-audit` on direct Python dependencies and `npm audit --audit-level=high`
+on the frontend. High/critical findings fail the gate. Known exceptions are listed
+inline in `.github/workflows/ci.yml` with a CVE id (today: `GHSA-4xh5-x5gv-qwph` if
+still required). Transitive noise is not ignored silently — bump or document.
 
 ---
 

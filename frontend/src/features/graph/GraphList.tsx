@@ -79,6 +79,9 @@ export function GraphList({
         {graph.locked_layer_ids.length > 0
           ? ` ${graph.locked_layer_ids.length} locked layer(s) are hidden.`
           : ""}
+        {graph.truncated
+          ? ` Showing ${graph.nodes.length} of ${graph.total_nodes} nodes.`
+          : ""}
       </p>
       <ul
         ref={listRef}

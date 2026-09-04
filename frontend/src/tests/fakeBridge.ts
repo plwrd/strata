@@ -370,6 +370,7 @@ export const PUBLIC_LAYER: LayerDescriptor = {
   updated_at: "",
   color: "layer-public",
   ai_policy: {} as LayerDescriptor["ai_policy"],
+  password_remembered: false,
 };
 
 export const PRIVATE_LAYER: LayerDescriptor = {
@@ -384,6 +385,7 @@ export const PRIVATE_LAYER: LayerDescriptor = {
   updated_at: "",
   color: "layer-private",
   ai_policy: {} as LayerDescriptor["ai_policy"],
+  password_remembered: false,
 };
 
 export const FAKE_RECOVERY_KEY = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG";
@@ -518,6 +520,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
               updated_at: "",
               color: "layer-public",
               ai_policy: {},
+              password_remembered: false,
             },
           ],
           lenses: [],
@@ -1109,6 +1112,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       change_password: () => ({ layer: privateLayer() }),
       reissue_recovery_key: () => ({ recovery_key: FAKE_RECOVERY_KEY }),
       rotate_key: () => ({ objects_reencrypted: 12, layer: privateLayer() }),
+      forget_saved_password: () => ({
+        layer: { ...privateLayer(), password_remembered: false },
+      }),
     },
     ai: {
       list_providers: () => ({

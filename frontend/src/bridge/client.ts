@@ -289,10 +289,15 @@ export const bridge = {
         display_name,
       }),
 
-    unlock: (layer_id: string, password: string) =>
+    unlock: (
+      layer_id: string,
+      password: string,
+      remember_on_this_device = false,
+    ) =>
       call<{ layer: LayerDescriptor }>("layers", "unlock_layer", {
         layer_id,
         password,
+        remember_on_this_device,
       }),
     unlockWithRecoveryKey: (layer_id: string, recovery_key: string) =>
       call<{ layer: LayerDescriptor }>("layers", "unlock_with_recovery_key", {
@@ -324,6 +329,10 @@ export const bridge = {
         "rotate_key",
         { layer_id, password },
       ),
+    forgetSavedPassword: (layer_id: string) =>
+      call<{ layer: LayerDescriptor }>("layers", "forget_saved_password", {
+        layer_id,
+      }),
     setAIPolicy: (layer_id: string, policy: LayerAIPolicy) =>
       call<{ layer: LayerDescriptor }>("layers", "set_ai_policy", {
         layer_id,

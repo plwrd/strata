@@ -12,6 +12,7 @@ from app.bootstrap import APP_NAME, build_services, dev_server, frontend_root, r
 from app.desktop.main_window import MainWindow
 from app.desktop.webengine import CONTENT_SECURITY_POLICY, register_scheme
 from app.infrastructure.logging.logger import get_logger
+from app.services.container import APP_VERSION
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,7 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
 
     QApplication.setApplicationName(APP_NAME)
     QApplication.setOrganizationName(APP_NAME)
-    QApplication.setApplicationVersion("0.1.0")
+    QApplication.setApplicationVersion(APP_VERSION)
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(argv if argv is not None else sys.argv)

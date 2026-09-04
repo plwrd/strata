@@ -1,7 +1,7 @@
 {
   "name": "strata",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.3.1",
   "description": "Convenience scripts for Strata + Humazie Bot",
   "scripts": {
     "humazie:discover": "npm --prefix humazie run humazie:discover",

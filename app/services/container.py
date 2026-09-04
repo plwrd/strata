@@ -12,6 +12,7 @@ from pathlib import Path
 
 from app.domain.collaboration import TreeNode
 from app.infrastructure.crdt.relay import DirectoryRelay, HttpRelay, Relay
+from app.infrastructure.keychain.credentials import LAYER_UNLOCK_SERVICE, CredentialStore
 from app.services.ai_generation_service import AIGenerationService
 from app.services.ai_history_service import AIHistoryService
 from app.services.ai_service import AIService
@@ -69,6 +70,7 @@ class Services:
             on_open=self.watcher.start,
             on_close=self.watcher.stop,
             encryption=self.encryption,
+            layer_passwords=CredentialStore(LAYER_UNLOCK_SERVICE),
         )
         self.versions = VersionService(self.workspace)
         self.notes = NoteService(self.workspace, versions=self.versions)

@@ -31,6 +31,7 @@ export function UnlockDialog({
   const { unlockLayer, unlockLayerWithRecoveryKey } = useStore();
   const [mode, setMode] = useState<"password" | "recovery">("password");
   const [secret, setSecret] = useState("");
+  const [remember, setRemember] = useState(layer.password_remembered);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -39,7 +40,7 @@ export function UnlockDialog({
     setBusy(true);
     setFailed(false);
     try {
-      if (mode === "password") await unlockLayer(layer.id, secret);
+      if (mode === "password") await unlockLayer(layer.id, secret, remember);
       else await unlockLayerWithRecoveryKey(layer.id, secret);
       setSecret("");
       onUnlocked();
@@ -88,6 +89,17 @@ export function UnlockDialog({
                 }}
               />
             </label>
+
+            {mode === "password" && (
+              <label className="search__toggle">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                />
+                <span>Remember on this device</span>
+              </label>
+            )}
 
             {failed && (
               <p

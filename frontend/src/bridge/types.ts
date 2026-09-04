@@ -72,6 +72,8 @@ export interface LayerDescriptor {
   updated_at: string;
   color: string;
   ai_policy: LayerAIPolicy;
+  /** True when this device has a keychain-saved password for the layer. */
+  password_remembered?: boolean;
 }
 
 export interface KnowledgeLens {

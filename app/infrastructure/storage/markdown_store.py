@@ -26,7 +26,7 @@ from app.domain.note import (
     extract_tags,
     word_count,
 )
-from app.infrastructure.storage.paths import resolve_within, safe_filename
+from app.infrastructure.storage.paths import resolve_within, safe_filename, write_text_atomic
 
 FRONTMATTER_FENCE = "---"
 MARKDOWN_SUFFIX = ".md"
@@ -89,6 +89,8 @@ class MarkdownLayerStore:
     def __init__(self, layer_id: str, root: Path) -> None:
         self.layer_id = layer_id
         self.root = root
+        # (size, mtime_ns, note) — skip re-parsing unchanged files on list/search.
+        self._note_cache: dict[Path, tuple[int, int, Note]] = {}
 
     def ensure(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -106,10 +108,13 @@ class MarkdownLayerStore:
         )
 
     def read_note(self, path: Path) -> Note:
+        stat = path.stat()
+        cached = self._note_cache.get(path)
+        if cached is not None and cached[0] == stat.st_size and cached[1] == stat.st_mtime_ns:
+            return cached[2]
         text = path.read_text(encoding="utf-8", errors="replace")
         frontmatter, body = parse_frontmatter(text)
         relative = self._relative(path)
-        stat = path.stat()
 
         raw_tags = frontmatter.get("tags", [])
         if isinstance(raw_tags, str):
@@ -147,10 +152,27 @@ class MarkdownLayerStore:
             size_bytes=stat.st_size,
             word_count=word_count(body),
         )
-        return Note(metadata=metadata, content=body)
+        note = Note(metadata=metadata, content=body)
+        self._note_cache[path] = (stat.st_size, stat.st_mtime_ns, note)
+        return note
 
     def list_notes(self) -> list[Note]:
-        return [self.read_note(path) for path in self.iter_markdown_files()]
+        files = self.iter_markdown_files()
+        live = set(files)
+        for stale in [path for path in self._note_cache if path not in live]:
+            del self._note_cache[stale]
+        return [self.read_note(path) for path in files]
+
+    def locate(self, note_id: str) -> tuple[Note, Path] | None:
+        """Find one note by id without parsing every body.
+
+        Ids are derived from path, so a directory walk is enough to pick the
+        file; the body is read (and cached) only for the match.
+        """
+        for path in self.iter_markdown_files():
+            if note_id_for(self.layer_id, self._relative(path)) == note_id:
+                return self.read_note(path), path
+        return None
 
     def list_folders(self) -> list[FolderNode]:
         if not self.root.exists():
@@ -190,5 +212,13 @@ class MarkdownLayerStore:
         path = self.path_for(folder_path, title)
         path.parent.mkdir(parents=True, exist_ok=True)
         document = render_frontmatter(properties or {}) + content
-        path.write_text(document, encoding="utf-8", newline="\n")
+        write_text_atomic(path, document)
+        self.invalidate(path)
         return self.read_note(path)
+
+    def invalidate(self, path: Path | None = None) -> None:
+        """Drop cached parses. Call after any write so the next read is fresh."""
+        if path is None:
+            self._note_cache.clear()
+            return
+        self._note_cache.pop(path, None)

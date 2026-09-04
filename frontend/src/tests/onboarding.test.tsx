@@ -167,7 +167,7 @@ describe("Onboarding tour", () => {
   it("requestTourReplay opens the welcome dialog", async () => {
     seedSettings(true);
     render(<TourHarness />);
-    await act(async () => {
+    act(() => {
       requestTourReplay();
     });
 

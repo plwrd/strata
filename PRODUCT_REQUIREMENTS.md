@@ -1,6 +1,6 @@
 # Strata — Product Requirements
 
-Status: living document. Version 0.1.0 (pre-alpha).
+Status: living document. Version 1.3.1.
 Terminology is defined in [docs/product/glossary.md](docs/product/glossary.md); this document assumes it.
 
 Every functional requirement has an ID (`FR-###`), an area, and a **milestone tag**. A milestone tag

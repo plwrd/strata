@@ -15,7 +15,7 @@ import { useStore } from "../../state/store";
 
 const SIGNAL_LABELS: Record<string, string> = {
   lexical: "text",
-  semantic: "meaning",
+  semantic: "hashed meaning",
   tag: "tag",
   property: "property",
   graph: "linked",
@@ -53,13 +53,16 @@ export function SearchPanel(): JSX.Element {
       />
 
       <div className="search__options">
-        <label className="search__toggle">
+        <label
+          className="search__toggle"
+          title="Local hashed bag-of-words, not a language model. Nothing is sent anywhere."
+        >
           <input
             type="checkbox"
             checked={semanticSearch}
             onChange={(event) => void setSemanticSearch(event.target.checked)}
           />
-          <span>Semantic</span>
+          <span>Hashed meaning</span>
         </label>
 
         <label className="search__toggle">

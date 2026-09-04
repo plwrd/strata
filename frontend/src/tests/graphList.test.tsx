@@ -112,4 +112,17 @@ describe("GraphList", () => {
       SAMPLE_GRAPH.nodes.map((node) => node.id),
     );
   });
+
+  it("says when the graph is truncated", () => {
+    render(
+      <GraphList
+        graph={{ ...SAMPLE_GRAPH, truncated: true, total_nodes: 400 }}
+        selectedIds={[]}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onSelectAll={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Showing 5 of 400 nodes/)).toBeInTheDocument();
+  });
 });

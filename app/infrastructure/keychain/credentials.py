@@ -21,6 +21,7 @@ from app.infrastructure.logging.logger import get_logger
 logger = get_logger(__name__)
 
 SERVICE = "strata.ai-provider"
+LAYER_UNLOCK_SERVICE = "strata.layer-unlock"
 
 
 class CredentialStore:

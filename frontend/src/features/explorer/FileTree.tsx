@@ -260,10 +260,13 @@ export function FileTree(): JSX.Element {
 
     const noteId = event.dataTransfer.getData("text/strata-note");
     if (noteId) {
-      const note = (state.tree?.notes ?? []).find((entry) => entry.id === noteId);
+      const note = (state.tree?.notes ?? []).find(
+        (entry) => entry.id === noteId,
+      );
       if (note && note.layer_id !== layerId) {
         useStore.setState({
-          connectionMessage: "Notes stay inside their layer — drop within the same layer.",
+          lastError:
+            "Notes stay inside their layer — drop within the same layer.",
         });
         return;
       }
@@ -281,15 +284,12 @@ export function FileTree(): JSX.Element {
         };
         if (dragged.layerId !== layerId) {
           useStore.setState({
-            connectionMessage:
+            lastError:
               "Folders stay inside their layer — drop within the same layer.",
           });
           return;
         }
-        if (
-          path === dragged.path ||
-          path.startsWith(`${dragged.path}/`)
-        ) {
+        if (path === dragged.path || path.startsWith(`${dragged.path}/`)) {
           return;
         }
         await state.moveFolder(dragged.id, path);

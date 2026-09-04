@@ -85,6 +85,24 @@ def resolve_within(root: Path, *parts: str) -> Path:
     return resolved
 
 
+def write_text_atomic(
+    path: Path, text: str, *, encoding: str = "utf-8", newline: str = "\n"
+) -> None:
+    """Write ``text`` to ``path`` via a sibling temp file + :func:`replace_atomic`.
+
+    Public Markdown notes are the user's files. A crash mid-``write_text`` can
+    leave a truncated document; everything else in Strata already avoids that.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        temporary.write_text(text, encoding=encoding, newline=newline)
+        replace_atomic(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def replace_atomic(source: Path, target: Path, *, attempts: int = 8) -> None:
     """``source.replace(target)`` with a bounded retry for Windows races.
 
