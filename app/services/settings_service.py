@@ -127,10 +127,11 @@ class AppSettings(BaseModel):
 
     # -- Screen security -----------------------------------------------------
     #
-    # Signal-style "Hidden for sharing": when True, the OS excludes the entire
-    # Strata window from screenshots and screen shares (Windows:
-    # WDA_EXCLUDEFROMCAPTURE). The window stays visible on your display.
-    hide_for_sharing: bool = False
+    # Signal-style "Hidden for sharing" (on by default): when True, the OS
+    # excludes the entire Strata window from screenshots and screen shares
+    # (Windows: WDA_EXCLUDEFROMCAPTURE, with WDA_MONITOR fallback). The window
+    # stays visible on your display.
+    hide_for_sharing: bool = True
 
     @field_validator("ui_scale", mode="before")
     @classmethod

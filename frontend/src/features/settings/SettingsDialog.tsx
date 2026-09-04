@@ -254,7 +254,7 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
   const quality = settings?.graph_quality ?? "balanced";
   const particles = settings?.particles_enabled ?? true;
   const bloom = settings?.bloom_enabled ?? true;
-  const hidden = settings?.hide_for_sharing ?? false;
+  const hidden = settings?.hide_for_sharing ?? true;
   const fontBody = settings?.font_body ?? "inter";
   const fontDisplay = settings?.font_display ?? "chakra";
   const fontMono = settings?.font_mono ?? "jetbrains";
@@ -562,8 +562,9 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               <span>Hidden for sharing</span>
             </label>
             <p className="settings-dialog__hint">
-              Exclude the whole Strata window from screenshots and screen shares.
-              You still see it; capture tools do not.
+              On by default (Signal-style). You still see Strata; screenshots and
+              screen shares do not. Turn off only when you need to demo or record
+              the app itself.
             </p>
           </section>
         </div>

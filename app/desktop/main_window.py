@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QEvent, Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QShowEvent
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -32,6 +32,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self._services = services
+        # Last value passed to the OS; settings toggle and window events share it.
+        self._hide_for_sharing = services.settings.settings.hide_for_sharing
 
         # The window title must never contain a note title: a locked layer's
         # content must not leak through the task bar. It is static by design.
@@ -92,14 +94,31 @@ class MainWindow(QMainWindow):
 
     def apply_hide_for_sharing(self, enabled: bool) -> None:
         """Signal-style: exclude the whole Strata window from screen capture."""
+        self._hide_for_sharing = enabled
+        # winId() materialises the native HWND if needed; affinity needs it.
+        if self.windowHandle() is None and not self.isVisible():
+            return
         set_window_excluded_from_capture(self, enabled=enabled)
+
+    def _reapply_hide_for_sharing(self) -> None:
+        """Re-assert affinity after HWND / state changes (minimize, restore, …)."""
+        if self.windowHandle() is None and not self.isVisible():
+            return
+        set_window_excluded_from_capture(self, enabled=self._hide_for_sharing)
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        # winId is only valid after the native window exists.
-        self.apply_hide_for_sharing(
-            self._services.settings.settings.hide_for_sharing
-        )
+        # Sync from persisted settings and assert affinity now that HWND exists.
+        self._hide_for_sharing = self._services.settings.settings.hide_for_sharing
+        self._reapply_hide_for_sharing()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() in (
+            QEvent.Type.WindowStateChange,
+            QEvent.Type.ActivationChange,
+        ):
+            self._reapply_hide_for_sharing()
 
     def _toggle_devtools(self) -> None:
         """Developer tools exist only in development builds."""

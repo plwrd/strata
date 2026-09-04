@@ -1,8 +1,11 @@
 """Exclude the main window from screenshots and screen shares (Signal-style).
 
-On Windows this uses ``SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`` so the
-window stays visible on the physical display but is omitted from capture
-pipelines (Zoom, Teams, OBS, Snipping Tool, Windows Recall, etc.).
+On Windows this uses ``SetWindowDisplayAffinity``. Prefer
+``WDA_EXCLUDEFROMCAPTURE`` so the window stays visible on the physical display
+but is omitted from capture pipelines (Zoom, Teams, OBS, Snipping Tool,
+Windows Recall, etc.). If that fails (older builds), fall back to
+``WDA_MONITOR`` which blacks the window out in captures — still
+privacy-preserving.
 
 Other platforms: best-effort or no-op. Capture exclusion is OS-enforced; the UI
 only toggles the request.
@@ -17,10 +20,11 @@ from app.infrastructure.logging.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Win32 — Windows 10 2004+ (build 19041). Older builds treat this as WDA_MONITOR
-# (black box in captures) which is still privacy-preserving.
+# Win32 — Windows 10 2004+ (build 19041) for WDA_EXCLUDEFROMCAPTURE.
 WDA_NONE = 0x00000000
+WDA_MONITOR = 0x00000001
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
+GA_ROOT = 2
 
 
 class _HasWinId(Protocol):
@@ -54,17 +58,54 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> bool:
     user32 = ctypes.windll.user32
     user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
     user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
 
-    hwnd = int(window.winId())
-    affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
-    ok = bool(user32.SetWindowDisplayAffinity(hwnd, affinity))
+    raw = int(window.winId())
+    hwnd = int(user32.GetAncestor(raw, GA_ROOT) or 0) or raw
+
+    if not enabled:
+        ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_NONE))
+        if not ok:
+            err = ctypes.GetLastError()
+            logger.warning(
+                "screen_security.windows_affinity_failed",
+                enabled=False,
+                affinity=WDA_NONE,
+                win_error=err,
+            )
+            return False
+        logger.info("screen_security.windows_affinity", enabled=False, affinity=WDA_NONE)
+        return True
+
+    ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE))
+    if ok:
+        logger.info(
+            "screen_security.windows_affinity",
+            enabled=True,
+            affinity=WDA_EXCLUDEFROMCAPTURE,
+        )
+        return True
+
+    exclude_err = ctypes.GetLastError()
+    logger.warning(
+        "screen_security.windows_exclude_failed_trying_monitor",
+        win_error=exclude_err,
+    )
+    ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR))
     if not ok:
         err = ctypes.GetLastError()
         logger.warning(
             "screen_security.windows_affinity_failed",
-            enabled=enabled,
+            enabled=True,
+            affinity=WDA_MONITOR,
             win_error=err,
         )
         return False
-    logger.info("screen_security.windows_affinity", enabled=enabled)
+    logger.info(
+        "screen_security.windows_affinity",
+        enabled=True,
+        affinity=WDA_MONITOR,
+        fallback=True,
+    )
     return True

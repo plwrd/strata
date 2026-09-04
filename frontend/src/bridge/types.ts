@@ -780,8 +780,8 @@ export interface AppSettings {
   /** False until the first-run tutorial is skipped or finished. */
   onboarding_tour_completed: boolean;
   /**
-   * Signal-style: exclude the whole Strata window from screenshots / screen
-   * shares. Enforced by the native shell, not the web UI.
+   * Signal-style (on by default): exclude the whole Strata window from
+   * screenshots / screen shares. Enforced by the native shell, not the web UI.
    */
   hide_for_sharing: boolean;
 }

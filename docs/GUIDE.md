@@ -754,11 +754,12 @@ override is set.
 Semantic edges and cluster colours live under Graph controls. Semantic search
 is a Search panel checkbox. Sync relay URL is in the Collaboration panel.
 
-**Hidden for sharing** (Signal-style) asks the OS to exclude the *entire*
-Strata window from screenshots and screen shares. You still see the app
-normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
-do not. On Windows this uses `WDA_EXCLUDEFROMCAPTURE`. Turn it off if you need
-to demo or record Strata itself.
+**Hidden for sharing** (Signal-style, **on by default**) asks the OS to exclude
+the *entire* Strata window from screenshots and screen shares. You still see the
+app normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
+do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
+`WDA_MONITOR` on older builds. Turn it off in Settings if you need to demo or
+record Strata itself.
 
 Further settings live in a JSON settings file in the OS config directory and
 are currently **edited by hand**, not in the UI: `battery_saver`, AI defaults

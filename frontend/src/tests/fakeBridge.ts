@@ -570,7 +570,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_provider: "ollama",
           default_model: "deepseek-r1:7b",
           onboarding_tour_completed: true,
-          hide_for_sharing: false,
+          hide_for_sharing: true,
         },
       }),
       update_settings: (payload) => ({
@@ -595,7 +595,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_provider: "ollama",
           default_model: "deepseek-r1:7b",
           onboarding_tour_completed: true,
-          hide_for_sharing: false,
+          hide_for_sharing: true,
           ...(payload["values"] as object),
         },
       }),

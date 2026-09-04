@@ -36,7 +36,7 @@ function seedSettings(completed: boolean): void {
       default_provider: "ollama",
       default_model: "deepseek-r1:7b",
       onboarding_tour_completed: completed,
-      hide_for_sharing: false,
+      hide_for_sharing: true,
     },
     mode: "explore",
     workspace: {

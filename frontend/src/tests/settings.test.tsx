@@ -34,7 +34,7 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       default_provider: "ollama",
       default_model: "deepseek-r1:7b",
       onboarding_tour_completed: true,
-      hide_for_sharing: false,
+      hide_for_sharing: true,
       ...overrides,
     },
     mode: "explore",
@@ -135,8 +135,9 @@ describe("SettingsDialog", () => {
     await userEvent.click(
       screen.getByRole("checkbox", { name: /Hidden for sharing/ }),
     );
+    // Seeded on (default); one click turns protection off.
     await waitFor(() =>
-      expect(applySettings).toHaveBeenCalledWith({ hide_for_sharing: true }),
+      expect(applySettings).toHaveBeenCalledWith({ hide_for_sharing: false }),
     );
   });
 });
