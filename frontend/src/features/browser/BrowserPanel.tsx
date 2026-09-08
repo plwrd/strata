@@ -103,6 +103,14 @@ export function BrowserPanel(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The pane can also be toggled from the keyboard, where this panel is not
+  // the one doing it — re-read rather than show a status we know is stale.
+  useEffect(() => {
+    if (state.browserRevision === 0) return;
+    void refreshStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.browserRevision]);
+
   // Default the scope to every usable layer the first time they load. After
   // that it is the user's, and it is never silently widened.
   useEffect(() => {

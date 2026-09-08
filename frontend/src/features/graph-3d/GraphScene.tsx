@@ -19,7 +19,13 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { GraphSnapshot } from "../../bridge/types";
-import { edgeColor, edgeIsLit, neighborIds, nodeColor, nodeRadius } from "../graph/nodeStyle";
+import {
+  edgeColor,
+  edgeIsLit,
+  neighborIds,
+  nodeColor,
+  nodeRadius,
+} from "../graph/nodeStyle";
 import type { Positions } from "../graph/useGraphLayout";
 import {
   EdgeParticles,
@@ -289,14 +295,7 @@ function Edges({
         new THREE.Float32BufferAttribute(colors, 3),
       );
     }
-  }, [
-    geometry,
-    graph.edges,
-    positions,
-    selected,
-    colorScratch,
-    segmentCount,
-  ]);
+  }, [geometry, graph.edges, positions, selected, colorScratch, segmentCount]);
 
   if (graph.edges.length === 0) return null;
 

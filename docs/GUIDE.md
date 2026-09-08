@@ -868,6 +868,9 @@ Strata's shortcuts are scoped to the panel you are in.
 | Context | Keys | Action |
 | --- | --- | --- |
 | Anywhere | `Ctrl/Cmd+N` | New note (in the first unlocked layer) |
+| Anywhere | `Ctrl/Cmd+,` | Open / close Settings |
+| Anywhere | `Ctrl/Cmd+Shift+H` | Toggle **Hidden for sharing** (§17) — the one setting you need *before* you start sharing a screen, not after |
+| Anywhere | `Ctrl/Cmd+Shift+B` | Open / close the research browser pane (§3¾) |
 | Editor | `Ctrl/Cmd+S` | Save now |
 | Editor | `Ctrl/Cmd+W` | Close the active tab |
 | Editor | `Ctrl/Cmd+Shift+T` | Reopen the last closed tab |

@@ -119,7 +119,7 @@ def _research_service(workspace: Services, ai: Any) -> ResearchService:
         ai,
         workspace.notes,
         workspace.exports,
-        workspace.retrieval,
+        workspace.search,
         workspace.workspace,
     )
 

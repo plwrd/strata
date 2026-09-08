@@ -10,7 +10,13 @@
 import * as THREE from "three";
 import type { GraphEdge, GraphNode } from "../../bridge/types";
 import type { Positions } from "../graph/useGraphLayout";
-import { edgeColor, edgeIsLit, glowColor, neighborIds, nodeRadius } from "../graph/nodeStyle";
+import {
+  edgeColor,
+  edgeIsLit,
+  glowColor,
+  neighborIds,
+  nodeRadius,
+} from "../graph/nodeStyle";
 import { edgeControlPoint, edgeSalt } from "./edgeCurves";
 
 /** Deterministic PRNG (mulberry32): same seed, same galaxy, stable frames. */

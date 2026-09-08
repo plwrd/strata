@@ -88,7 +88,7 @@ export interface SelectionSummary {
   privateCount: number;
 }
 
-interface StrataState {
+export interface StrataState {
   // connection
   connection: ConnectionState;
   connectionMessage: string;
@@ -182,6 +182,13 @@ interface StrataState {
   // A plan job started somewhere other than the Changes panel — research
   // filing, today. The panel that owns plan review adopts it and takes over the
   // waiting, so a second copy of the review UI never has to exist.
+  /** Settings dialog visibility. In the store, not CommandBar's local state,
+   * because a global shortcut has to be able to open it. */
+  settingsOpen: boolean;
+  /** Bumped whenever the browser pane is toggled from outside the Research
+   * panel, so the panel knows to re-read a status it did not change itself. */
+  browserRevision: number;
+
   handedOffPlanRequestId: string | null;
   /** The layers that plan is allowed to touch — the ones the user ticked. */
   handedOffPlanLayerIds: string[];
@@ -189,6 +196,9 @@ interface StrataState {
   // actions
   initialise: () => Promise<void>;
   clearLastError: () => void;
+  setSettingsOpen: (open: boolean) => void;
+  /** Open or close the research browser pane (Ctrl/Cmd+Shift+B). */
+  toggleBrowserPane: () => Promise<void>;
   /** Hand a running plan job to the Changes panel and switch to it. */
   handOffPlanRequest: (requestId: string, layerIds: string[]) => void;
   /** Take the handed-off job, once. Null when there is none. */
@@ -427,6 +437,8 @@ export const useStore = create<StrataState>((set, get) => ({
   conversationId: null,
   aiExecutionId: null,
   aiSources: [],
+  settingsOpen: false,
+  browserRevision: 0,
   handedOffPlanRequestId: null,
   handedOffPlanLayerIds: [],
 
@@ -506,6 +518,25 @@ export const useStore = create<StrataState>((set, get) => ({
   },
 
   clearLastError: () => set({ lastError: null }),
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
+  toggleBrowserPane: async () => {
+    try {
+      const { status } = await bridge.browser.getStatus();
+      if (!status.enabled) {
+        // Not an error the user caused — tell them where the switch is.
+        set({
+          lastError:
+            "Browser research is off. Turn it on in Settings (Ctrl/Cmd+,).",
+        });
+        return;
+      }
+      if (status.running) await bridge.browser.closeBrowser();
+      else await bridge.browser.launch();
+      set((state) => ({ browserRevision: state.browserRevision + 1 }));
+    } catch (error) {
+      set({ lastError: describeError(error) });
+    }
+  },
   handOffPlanRequest: (requestId, layerIds) =>
     set({
       handedOffPlanRequestId: requestId,

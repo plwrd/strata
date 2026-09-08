@@ -114,10 +114,7 @@ export function Graph2D({
       const fitY = (point[1] - transform.minY) * fitScale + PADDING;
       const cx = width / 2;
       const cy = height / 2;
-      return [
-        (fitX - cx) * zoom + cx + pan.x,
-        (fitY - cy) * zoom + cy + pan.y,
-      ];
+      return [(fitX - cx) * zoom + cx + pan.x, (fitY - cy) * zoom + cy + pan.y];
     };
   }, [transform, zoom, pan]);
 
@@ -200,24 +197,27 @@ export function Graph2D({
     return () => observer.disconnect();
   }, []);
 
-  const zoomAt = useCallback((nextZoom: number, pivotX: number, pivotY: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const clamped = clampZoom(nextZoom);
-    const { zoom: currentZoom, pan: currentPan } = viewRef.current;
-    if (clamped === currentZoom) return;
-    const factor = clamped / currentZoom;
-    // Keep the layout point under the pivot fixed. Projection is
-    //   screen = (fit - centre) * zoom + centre + pan
-    // so pan must absorb the scale change around that centre, not the origin.
-    const cx = canvas.clientWidth / 2;
-    const cy = canvas.clientHeight / 2;
-    setPan({
-      x: (1 - factor) * (pivotX - cx) + factor * currentPan.x,
-      y: (1 - factor) * (pivotY - cy) + factor * currentPan.y,
-    });
-    setZoom(clamped);
-  }, []);
+  const zoomAt = useCallback(
+    (nextZoom: number, pivotX: number, pivotY: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const clamped = clampZoom(nextZoom);
+      const { zoom: currentZoom, pan: currentPan } = viewRef.current;
+      if (clamped === currentZoom) return;
+      const factor = clamped / currentZoom;
+      // Keep the layout point under the pivot fixed. Projection is
+      //   screen = (fit - centre) * zoom + centre + pan
+      // so pan must absorb the scale change around that centre, not the origin.
+      const cx = canvas.clientWidth / 2;
+      const cy = canvas.clientHeight / 2;
+      setPan({
+        x: (1 - factor) * (pivotX - cx) + factor * currentPan.x,
+        y: (1 - factor) * (pivotY - cy) + factor * currentPan.y,
+      });
+      setZoom(clamped);
+    },
+    [],
+  );
 
   const zoomBy = useCallback(
     (factor: number) => {
@@ -393,11 +393,7 @@ export function Graph2D({
           }}
         />
       )}
-      <div
-        className="graph-2d-zoom"
-        role="toolbar"
-        aria-label="2D graph zoom"
-      >
+      <div className="graph-2d-zoom" role="toolbar" aria-label="2D graph zoom">
         <button
           type="button"
           className="button button--ghost"

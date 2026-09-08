@@ -8,7 +8,9 @@
 .tour-welcome .dialog,
 .tour-done .dialog {
   border-color: var(--border-accent);
-  box-shadow: var(--glow-accent), 0 24px 70px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    var(--glow-accent),
+    0 24px 70px rgba(0, 0, 0, 0.6);
 }
 
 .tour-welcome__brand {
@@ -75,7 +77,9 @@
   background: var(--surface-overlay);
   border: 1px solid var(--border-accent);
   border-radius: var(--radius-md);
-  box-shadow: var(--glow-accent), 0 18px 40px rgba(0, 0, 0, 0.55);
+  box-shadow:
+    var(--glow-accent),
+    0 18px 40px rgba(0, 0, 0, 0.55);
   color: var(--text-primary);
   pointer-events: auto;
 }

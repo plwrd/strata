@@ -39,7 +39,7 @@ def _service(workspace: Services, reply: str) -> tuple[ResearchService, StubAI]:
         stub,  # type: ignore[arg-type]
         workspace.notes,
         workspace.exports,
-        workspace.retrieval,
+        workspace.search,
         workspace.workspace,
     )
     return service, stub
@@ -186,7 +186,12 @@ def test_nodes_that_were_never_offered_are_dropped(workspace: Services) -> None:
     assert [op for op in ops if op.type == "add_relationship"] == []
     # The unparented subnodes still land, in the target layer's Knowledge folder.
     creates = [op for op in ops if op.type == "create_note"]
-    assert {op.title for op in creates} == {"HNSW", "Orphan idea"}
+    # The page's own node, plus the two subnodes that had no offered parent.
+    assert {op.title for op in creates} == {
+        "Vector index tradeoffs",
+        "HNSW",
+        "Orphan idea",
+    }
     assert all(op.layer_id == layer_id and op.folder_path == "Knowledge" for op in creates)
     assert any("not offered" in warning for warning in proposal.warnings)
 
@@ -229,7 +234,12 @@ def test_a_target_layer_outside_the_selection_is_refused(workspace: Services) ->
         )
 
 
-def test_garbage_proposes_nothing(workspace: Services) -> None:
+def test_a_page_is_always_filed_as_a_node_even_when_the_model_says_nothing(
+    workspace: Services,
+) -> None:
+    """The bug this replaced: a weak answer produced an empty plan, so clicking
+    Analyse appeared to do nothing at all. Keeping less is the right failure;
+    keeping nothing is not."""
     capture = _capture(workspace)
     layer_id = _public_layer(workspace)
     service, _stub = _service(workspace, "no json here at all")
@@ -241,4 +251,57 @@ def test_garbage_proposes_nothing(workspace: Services) -> None:
         model="m",
     )
 
-    assert proposal.plan.operations == []
+    node = next(op for op in proposal.plan.operations if op.type == "create_note")
+    assert node.layer_id == layer_id
+    assert node.folder_path != "Inbox"
+    assert node.properties["type"] == "research-source"
+    assert node.properties["review_status"] == "ai-inferred"
+    # The page's own text stands in for the summary it did not get.
+    assert "Vector indexes trade recall" in node.content
+    assert "https://example.com/vector-indexes" in node.content
+    assert any("did not return an analysis" in warning for warning in proposal.warnings)
+
+
+def test_the_node_carries_the_analysis_when_there_is_one(workspace: Services) -> None:
+    capture = _capture(workspace)
+    layer_id = _public_layer(workspace)
+    reply = json.dumps(
+        {
+            "summary": "How vector indexes trade recall against latency.",
+            "key_points": ["HNSW is a navigable small-world graph."],
+            "claims_to_verify": ["HNSW always beats IVF"],
+            "open_questions": ["What about updates?"],
+        }
+    )
+    service, _stub = _service(workspace, reply)
+
+    proposal = service.analyse_sync(
+        note_ids=[capture.metadata.id],
+        layer_ids=[layer_id],
+        provider_id="ollama",
+        model="m",
+    )
+
+    node = next(op for op in proposal.plan.operations if op.type == "create_note")
+    assert "How vector indexes trade recall against latency." in node.content
+    assert "HNSW is a navigable small-world graph." in node.content
+    assert "## Needs checking" in node.content
+    assert "## Open questions" in node.content
+    assert not any("page's own text" in warning for warning in proposal.warnings)
+
+
+def test_a_raw_capture_is_never_offered_as_a_parent(workspace: Services) -> None:
+    """Inbox material is the most textually similar thing to a new page and the
+    least useful place to file it."""
+    first = workspace.capture.capture(
+        content="Vector indexes trade recall for latency, HNSW and IVF both.",
+        title="An earlier page about vector indexes",
+    )
+    capture = _capture(workspace)
+    layer_id = _public_layer(workspace)
+    service, _stub = _service(workspace, "{}")
+
+    candidates = service._candidates([capture], [layer_id])
+
+    assert first.metadata.id not in {candidate.note_id for candidate in candidates}
+    assert all(candidate.folder_path != "Inbox" for candidate in candidates)

@@ -586,6 +586,7 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 }
               />
               <span>Hidden for sharing</span>
+              <kbd className="settings-dialog__key">Ctrl/Cmd+Shift+H</kbd>
             </label>
             <p className="settings-dialog__hint">
               On by default (Signal-style). You still see Strata; screenshots
@@ -612,6 +613,7 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 }
               />
               <span>Let Strata drive a browser</span>
+              <kbd className="settings-dialog__key">Ctrl/Cmd+Shift+B</kbd>
             </label>
             <p className="settings-dialog__hint">
               Off by default. When on, Strata opens a browser beside your

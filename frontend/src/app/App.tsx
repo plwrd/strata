@@ -39,6 +39,7 @@ import { AppContextMenu } from "./ContextMenu";
 import { ErrorBanner } from "./ErrorBanner";
 import { NavigatorAccordion } from "./NavigatorAccordion";
 import { SelectionRing } from "./SelectionRing";
+import { handleGlobalShortcut } from "./shortcuts";
 
 const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
   { value: "ai", label: "AI" },
@@ -135,35 +136,11 @@ export function App(): JSX.Element {
     return () => registerShellChrome(null);
   }, []);
 
-  // Global editor shortcuts. Qt WebEngine has no browser chrome, so these do
-  // not fight the host — but we still preventDefault so nothing else claims them.
+  // Global shortcuts. The mapping lives in `shortcuts.ts`; this only wires it
+  // to the window for the life of the shell.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.ctrlKey || event.metaKey)) return;
-      const key = event.key.toLowerCase();
-      const store = useStore.getState();
-
-      if (key === "n" && !event.shiftKey) {
-        const target = store.layers.find((layer) => layer.state !== "locked");
-        if (!target) return;
-        event.preventDefault();
-        void store.createNote(target.id, "");
-        return;
-      }
-
-      // Ctrl/Cmd+W — close the active editor tab.
-      if (key === "w" && !event.shiftKey) {
-        if (!store.activeNoteId || store.tabs.length === 0) return;
-        event.preventDefault();
-        store.closeTab(store.activeNoteId);
-        return;
-      }
-
-      // Ctrl/Cmd+Shift+T — reopen the most recently closed tab.
-      if (key === "t" && event.shiftKey) {
-        event.preventDefault();
-        void store.reopenClosedTab();
-      }
+      handleGlobalShortcut(event, useStore.getState());
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

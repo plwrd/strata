@@ -24,15 +24,16 @@ export function CommandStage(): JSX.Element {
         <div className="command-stage__intro">
           <h1 className="command-stage__title">Command</h1>
           <p className="command-stage__lede">
-            Propose AI changes, review the plan, and apply them as a transaction.
+            Propose AI changes, review the plan, and apply them as a
+            transaction.
           </p>
         </div>
 
         <div className="command-stage__selection" aria-live="polite">
           {summary.count === 0 ? (
             <p className="command-stage__selection-empty">
-              No selection — pick notes in Explore or the Graph list, then return
-              here.
+              No selection — pick notes in Explore or the Graph list, then
+              return here.
             </p>
           ) : (
             <p className="command-stage__selection-summary mono">
@@ -67,7 +68,11 @@ export function CommandStage(): JSX.Element {
         </div>
       </header>
 
-      <div className="command-stage__tabs" role="tablist" aria-label="Command tools">
+      <div
+        className="command-stage__tabs"
+        role="tablist"
+        aria-label="Command tools"
+      >
         <button
           type="button"
           role="tab"

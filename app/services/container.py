@@ -95,7 +95,7 @@ class Services:
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
         self.retrieval = RetrievalService(self.search)
         self.research = ResearchService(
-            self.ai, self.notes, self.exports, self.retrieval, self.workspace
+            self.ai, self.notes, self.exports, self.search, self.workspace
         )
         self.prompts = PromptLibraryService(self.workspace)
         self.conversations = ConversationService(self.workspace)

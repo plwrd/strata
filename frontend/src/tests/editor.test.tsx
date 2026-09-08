@@ -130,9 +130,9 @@ describe("EditorPane", () => {
 
     await waitFor(() => {
       expect(useStore.getState().activeNoteId).toBe("n1");
-      expect(
-        useStore.getState().tabs.some((tab) => tab.id === "n2"),
-      ).toBe(false);
+      expect(useStore.getState().tabs.some((tab) => tab.id === "n2")).toBe(
+        false,
+      );
     });
 
     await act(async () => {
@@ -141,9 +141,9 @@ describe("EditorPane", () => {
 
     await waitFor(() => {
       expect(useStore.getState().activeNoteId).toBe("n2");
-      expect(
-        useStore.getState().tabs.some((tab) => tab.id === "n2"),
-      ).toBe(true);
+      expect(useStore.getState().tabs.some((tab) => tab.id === "n2")).toBe(
+        true,
+      );
     });
   });
 

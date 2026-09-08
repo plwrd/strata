@@ -21,10 +21,11 @@ export function CommandBar(): JSX.Element {
     setDimension,
     workspace,
     activeLensId,
+    settingsOpen,
+    setSettingsOpen,
   } = useStore();
 
   const [healthOpen, setHealthOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const moreMenuId = useId();

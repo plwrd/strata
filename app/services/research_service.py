@@ -39,12 +39,12 @@ from app.domain.research import (
     ResearchAnalysis,
     ResearchProposal,
 )
-from app.domain.schema import KNOWLEDGE_FOLDER
+from app.domain.schema import INBOX_FOLDER, KNOWLEDGE_FOLDER
 from app.infrastructure.logging.logger import get_logger
 from app.services.ai_service import AIService
 from app.services.context_export_service import ContextExportService
 from app.services.note_service import NoteService
-from app.services.retrieval_service import RetrievalService
+from app.services.search_service import SearchService
 from app.services.workspace_service import WorkspaceService
 
 logger = get_logger(__name__)
@@ -60,6 +60,14 @@ MAX_TAGS = 6
 # The slice of a capture used to retrieve candidates. The whole page goes to the
 # model; the *query* only needs enough to rank.
 QUERY_CHARS = 600
+# How much of the page to keep in the node when the model gives us no summary
+# to keep instead. Enough to be worth reading; the whole text stays in the
+# capture the node links back to.
+FALLBACK_EXCERPT_CHARS = 1200
+# Above this search score, the top candidate is related enough to parent a node
+# on its own. Matches ConnectionService.SIMILAR_THRESHOLD — the same signal, and
+# it should mean the same thing in both places.
+FALLBACK_PARENT_SCORE = 0.45
 
 RESEARCH_INSTRUCTIONS = """You are filing new research material into a knowledge graph
 that already exists.
@@ -111,13 +119,13 @@ class ResearchService:
         ai: AIService,
         notes: NoteService,
         exports: ContextExportService,
-        retrieval: RetrievalService,
+        search: SearchService,
         workspace: WorkspaceService,
     ) -> None:
         self._ai = ai
         self._notes = notes
         self._exports = exports
-        self._retrieval = retrieval
+        self._search = search
         self._workspace = workspace
 
     # -- the action ----------------------------------------------------------
@@ -177,9 +185,10 @@ class ResearchService:
             elif event.kind == "error":
                 raise ProviderError(event.error or "The model failed to analyse the material.")
 
-        analysis = self._parse(full)
+        analysis, parse_problem = self._parse(full)
         return self._propose(
             analysis=analysis,
+            parse_problem=parse_problem,
             sources=sources,
             candidates=candidates,
             target_layer_id=target_layer,
@@ -225,19 +234,21 @@ class ResearchService:
 
         Ranked by the same hybrid search the rest of the app uses, so the
         shortlist is explainable and permission-filtered by construction. The
-        captures themselves are excluded — material does not attach to itself."""
+        captures themselves are excluded — material does not attach to itself.
+
+        The search's own score is kept, not a reciprocal-rank stand-in: the
+        fallback parent below is a *threshold* decision, and a rank cannot tell
+        you whether the top hit is actually related or merely least unrelated."""
         source_ids = {note.metadata.id for note in sources}
         ranked: dict[str, float] = {}
         for note in sources:
             query = f"{note.metadata.title} {note.content[:QUERY_CHARS]}"
-            for position, note_id in enumerate(
-                self._retrieval.retrieve(query, limit=MAX_CANDIDATES, layer_ids=scope)
-            ):
-                if note_id in source_ids:
+            for result in self._search.search(query, layer_ids=scope, limit=MAX_CANDIDATES):
+                if result.object_id in source_ids:
                     continue
-                # Rank by best position across sources, not by sum: a node that
-                # is the top hit for one page beats one that is middling for all.
-                ranked[note_id] = max(ranked.get(note_id, 0.0), 1.0 / (position + 1))
+                # Best score across sources, not the sum: a node that is a
+                # strong hit for one page beats one that is middling for all.
+                ranked[result.object_id] = max(ranked.get(result.object_id, 0.0), result.score)
 
         shortlist = sorted(ranked.items(), key=lambda item: item[1], reverse=True)[:MAX_CANDIDATES]
         notes = {
@@ -247,6 +258,11 @@ class ResearchService:
         for note_id, score in shortlist:
             found = notes.get(note_id)
             if found is None or found.metadata.layer_id not in scope:
+                continue
+            if self._is_raw_material(found):
+                # Unprocessed captures are the *most* textually similar thing to
+                # a new page and the least useful place to file it. Material
+                # attaches to knowledge, not to the rest of the inbox.
                 continue
             candidates.append(
                 CandidateNode(
@@ -260,6 +276,15 @@ class ResearchService:
                 )
             )
         return candidates
+
+    @staticmethod
+    def _is_raw_material(note: Note) -> bool:
+        properties = note.metadata.properties
+        return (
+            note.metadata.folder_path == INBOX_FOLDER
+            or str(properties.get("type", "")) == "capture"
+            or str(properties.get("processing_status", "")) == "raw"
+        )
 
     @staticmethod
     def _render_candidates(candidates: list[CandidateNode]) -> str:
@@ -277,19 +302,24 @@ class ResearchService:
 
     # -- parsing -------------------------------------------------------------
 
-    def _parse(self, text: str) -> ResearchAnalysis:
-        """Validated or empty. A garbage answer files nothing."""
+    def _parse(self, text: str) -> tuple[ResearchAnalysis, str]:
+        """The analysis, and why it is thin when it is.
+
+        The reason is returned rather than parked in ``summary``: the summary
+        becomes the node's body, and an apology is not content. An unparseable
+        answer must leave the summary *empty* so the page's own text stands in.
+        """
         match = _JSON_BLOCK.search(text)
         if not match:
-            return ResearchAnalysis(summary="The model did not return an analysis.")
+            return ResearchAnalysis(), "The model did not return an analysis."
         try:
             payload = json.loads(match.group(0))
         except json.JSONDecodeError:
-            return ResearchAnalysis(summary="The model's analysis was not valid JSON.")
+            return ResearchAnalysis(), "The model's analysis was not valid JSON."
         if not isinstance(payload, dict):
-            return ResearchAnalysis(summary="The model's analysis was not an object.")
+            return ResearchAnalysis(), "The model's analysis was not an object."
         try:
-            return ResearchAnalysis.model_validate(payload)
+            return ResearchAnalysis.model_validate(payload), ""
         except ValidationError:
             # Salvage field by field rather than discarding a mostly-good answer.
             salvaged = ResearchAnalysis()
@@ -301,9 +331,7 @@ class ResearchService:
                 except ValidationError:
                     continue
                 setattr(salvaged, field, getattr(partial, field))
-            if not salvaged.summary:
-                salvaged.summary = "Parts of the analysis did not fit the schema."
-            return salvaged
+            return salvaged, "Parts of the analysis did not fit the schema."
 
     # -- proposal building ---------------------------------------------------
 
@@ -311,6 +339,7 @@ class ResearchService:
         self,
         *,
         analysis: ResearchAnalysis,
+        parse_problem: str,
         sources: list[Note],
         candidates: list[CandidateNode],
         target_layer_id: str,
@@ -339,7 +368,50 @@ class ResearchService:
                 warnings.append(f"A {kind} named a node that was not offered — dropped.")
             return candidate
 
-        # 1. Relationships from each capture to the nodes it belongs to.
+        # 1. The node this material becomes. Always — a page you asked Strata to
+        #    file must end up somewhere you can find it, and a model that
+        #    returned nothing useful is a reason to keep less, not to keep
+        #    nothing. Its parent is the model's best match when it named one,
+        #    and otherwise the closest existing node search can actually vouch
+        #    for; failing both, it stands on its own in the target layer.
+        parent = self._pick_parent(analysis, candidates, by_id)
+        # The node lands in the layer the user chose — not the parent's —
+        # because "file this in that layer" is an instruction, not a hint. It
+        # only inherits the parent's folder when the parent lives there too.
+        folder = (
+            parent.folder_path
+            if parent is not None
+            and parent.layer_id == target_layer_id
+            and parent.folder_path != INBOX_FOLDER
+            else KNOWLEDGE_FOLDER
+        )
+        source_title = self._node_title(sources, target_layer_id, folder)
+        operations.append(
+            self._source_node(
+                analysis=analysis,
+                sources=sources,
+                title=source_title,
+                parent=parent,
+                target_layer_id=target_layer_id,
+                folder=folder,
+                provenance=provenance,
+                derived=derived,
+                source_urls=source_urls,
+            )
+        )
+        if parent is not None:
+            operations.append(
+                Operation(
+                    type="add_relationship",
+                    layer_id=parent.layer_id,
+                    note_id=parent.note_id,
+                    target_title=source_title,
+                    relationship="has_subnode",
+                    rationale=f"Link “{parent.title}” down to the new node",
+                )
+            )
+
+        # 2. Relationships from each capture to the nodes it belongs to.
         matches = [
             candidate
             for candidate in (
@@ -360,18 +432,24 @@ class ResearchService:
                     )
                 )
 
-        # 2. Subnodes. A parent that was offered decides the layer and folder;
+        # 3. Subnodes. A parent that was offered decides the layer and folder;
         #    an orphan lands in the target layer's knowledge folder rather than
         #    being thrown away.
         for subnode in analysis.subnodes[:MAX_SUBNODES]:
-            parent = by_id.get(subnode.parent_note_id) if subnode.parent_note_id else None
-            if subnode.parent_note_id and parent is None:
+            if subnode.title.strip().lower() == source_title.strip().lower():
+                continue  # the node above already is this
+            sub_parent = by_id.get(subnode.parent_note_id) if subnode.parent_note_id else None
+            if subnode.parent_note_id and sub_parent is None:
                 warnings.append(
                     f"“{subnode.title}” named a parent that was not offered — filed unparented."
                 )
-            layer_id = parent.layer_id if parent else target_layer_id
-            folder = parent.folder_path if parent else KNOWLEDGE_FOLDER
-            parent_link = f"parent:: [[{parent.title}]]\n" if parent else ""
+            layer_id = sub_parent.layer_id if sub_parent else target_layer_id
+            folder = (
+                sub_parent.folder_path
+                if sub_parent and sub_parent.folder_path != INBOX_FOLDER
+                else KNOWLEDGE_FOLDER
+            )
+            parent_link = f"parent:: [[{sub_parent.title}]]\n" if sub_parent else ""
             operations.append(
                 Operation(
                     type="create_note",
@@ -385,25 +463,25 @@ class ResearchService:
                     ),
                     properties={"type": subnode.kind, **provenance},
                     rationale=(
-                        f"New subnode under “{parent.title}”"
-                        if parent
+                        f"New subnode under “{sub_parent.title}”"
+                        if sub_parent
                         else "New node — no existing node fitted"
                     ),
                 )
             )
-            if parent:
+            if sub_parent:
                 operations.append(
                     Operation(
                         type="add_relationship",
-                        layer_id=parent.layer_id,
-                        note_id=parent.note_id,
+                        layer_id=sub_parent.layer_id,
+                        note_id=sub_parent.note_id,
                         target_title=subnode.title[:200],
                         relationship="has_subnode",
-                        rationale=f"Link “{parent.title}” down to its new subnode",
+                        rationale=f"Link “{sub_parent.title}” down to its new subnode",
                     )
                 )
 
-        # 3. Context appended to nodes that were already about this. This is the
+        # 4. Context appended to nodes that were already about this. This is the
         #    only place research touches something the user wrote, so the block
         #    says so in the note itself, not only in the audit log.
         for addition in analysis.context_additions[:MAX_CONTEXT_ADDITIONS]:
@@ -420,7 +498,7 @@ class ResearchService:
                 )
             )
 
-        # 4. Tags and the processed stamp on the captures themselves.
+        # 5. Tags and the processed stamp on the captures themselves.
         clean_tags = [
             tag.strip().lstrip("#").lower()[:120]
             for tag in analysis.tags
@@ -439,19 +517,27 @@ class ResearchService:
                         )
                     )
 
-        if operations:
-            for note in sources:
-                operations.append(
-                    Operation(
-                        type="set_property",
-                        layer_id=note.metadata.layer_id,
-                        note_id=note.metadata.id,
-                        property_key="processing_status",
-                        property_value="processed",
-                        rationale="Mark the research capture as filed",
-                    )
+        # The plan always contains the node above, so the sources really have
+        # been filed and the stamp is honest.
+        for note in sources:
+            operations.append(
+                Operation(
+                    type="set_property",
+                    layer_id=note.metadata.layer_id,
+                    note_id=note.metadata.id,
+                    property_key="processing_status",
+                    property_value="processed",
+                    rationale="Mark the research capture as filed",
                 )
+            )
 
+        if parse_problem:
+            warnings.append(f"{parse_problem} The node holds the page's own text instead.")
+        elif not analysis.summary.strip():
+            warnings.append(
+                "The model returned no usable analysis, so the node holds the page's "
+                "opening text instead of a summary."
+            )
         if not candidates:
             warnings.append(
                 "No existing node in the selected layers was related, so this material "
@@ -484,6 +570,121 @@ class ResearchService:
             candidates=candidates,
             plan=plan,
             warnings=warnings,
+        )
+
+    # -- the node the material becomes ---------------------------------------
+
+    def _pick_parent(
+        self,
+        analysis: ResearchAnalysis,
+        candidates: list[CandidateNode],
+        by_id: dict[str, CandidateNode],
+    ) -> CandidateNode | None:
+        """The model's best offered match, or the closest node search vouches for.
+
+        Two sources, in that order, because they fail differently: the model
+        understands the material but can hallucinate an id, and search cannot
+        hallucinate but does not understand. The model's answer is filtered
+        through the offer list, and search's is filtered through a score
+        threshold — neither gets to nominate a parent unchecked."""
+        matches = sorted(
+            (match for match in analysis.node_matches if match.note_id in by_id),
+            key=lambda match: match.relevance,
+            reverse=True,
+        )
+        if matches:
+            return by_id[matches[0].note_id]
+        if candidates and candidates[0].score >= FALLBACK_PARENT_SCORE:
+            return candidates[0]
+        return None
+
+    def _node_title(self, sources: list[Note], layer_id: str, folder: str) -> str:
+        """The page's title, kept unique where the note will actually live.
+
+        Scoped to one folder in one layer because that is exactly what
+        ``create_note`` rejects. Checking the whole workspace instead would
+        rename every node after its own capture — same title, different folder,
+        no conflict."""
+        base = (sources[0].metadata.title.strip() or "Research note")[:200]
+        existing = {
+            note.metadata.title.strip().lower()
+            for note in self._notes.list_notes([layer_id])
+            if note.metadata.folder_path == folder
+        }
+        if base.strip().lower() not in existing:
+            return base
+        counter = 2
+        while f"{base} {counter}".strip().lower() in existing:
+            counter += 1
+        return f"{base} {counter}"[:200]
+
+    def _source_node(
+        self,
+        *,
+        analysis: ResearchAnalysis,
+        sources: list[Note],
+        title: str,
+        parent: CandidateNode | None,
+        target_layer_id: str,
+        folder: str,
+        provenance: dict[str, str],
+        derived: str,
+        source_urls: list[str],
+    ) -> Operation:
+        """The page, as a node: what it says, where it came from, what it hangs off."""
+        body = analysis.summary.strip()
+        if not body:
+            # A model that returned nothing usable is a reason to keep less, not
+            # to keep nothing: the page's own opening stands in for the summary,
+            # and the warning below says why.
+            body = sources[0].content.strip()[:FALLBACK_EXCERPT_CHARS]
+            if len(sources[0].content.strip()) > FALLBACK_EXCERPT_CHARS:
+                body += "\n\n…"
+
+        sections = [f"# {title}", "", "## Summary", "", body or "_The page had no readable text._"]
+        if analysis.key_points:
+            sections += [
+                "",
+                "## Key points",
+                "",
+                "\n".join(f"- {point}" for point in analysis.key_points[:12]),
+            ]
+        if analysis.claims_to_verify:
+            sections += [
+                "",
+                "## Needs checking",
+                "",
+                "\n".join(f"- {claim}" for claim in analysis.claims_to_verify[:8]),
+            ]
+        if analysis.open_questions:
+            sections += [
+                "",
+                "## Open questions",
+                "",
+                "\n".join(f"- {question}" for question in analysis.open_questions[:8]),
+            ]
+        sections += ["", "## Source", ""]
+        if parent is not None:
+            sections.append(f"parent:: [[{parent.title}]]")
+        sections.append(derived)
+        if source_urls:
+            sections.append(f"url:: {source_urls[0]}")
+
+        properties = {"type": "research-source", **provenance}
+        if source_urls:
+            properties["url"] = source_urls[0]
+        return Operation(
+            type="create_note",
+            layer_id=target_layer_id,
+            folder_path=folder,
+            title=title,
+            content="\n".join(sections) + "\n",
+            properties=properties,
+            rationale=(
+                f"File this page under “{parent.title}”"
+                if parent
+                else "File this page as a new node"
+            ),
         )
 
     @staticmethod
