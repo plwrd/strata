@@ -193,4 +193,45 @@ describe("AI Context Composer", () => {
     });
     expect(writeText).not.toHaveBeenCalled();
   });
+
+  it("lists installed models so Qwythos can be chosen", () => {
+    useStore.setState({
+      providers: [
+        {
+          provider_id: "ollama",
+          display_name: "Ollama",
+          is_local: true,
+          configured: true,
+          requires_api_key: false,
+          capabilities: ["text", "streaming"],
+          max_context_tokens: 32768,
+          note: "Runs on this machine.",
+        },
+      ],
+      providerId: "ollama",
+      model: "qwythos",
+      providerModels: [
+        {
+          id: "qwythos",
+          display_name: "qwythos",
+          context_tokens: 32768,
+          is_local: true,
+        },
+        {
+          id: "llama3",
+          display_name: "llama3",
+          context_tokens: 32768,
+          is_local: true,
+        },
+      ],
+      providerReachable: true,
+    });
+
+    render(<AIComposerPanel />);
+
+    const select = screen.getByRole("combobox", { name: "Model" });
+    expect(select).toHaveValue("qwythos");
+    expect(screen.getByRole("option", { name: "qwythos" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "llama3" })).toBeInTheDocument();
+  });
 });

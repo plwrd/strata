@@ -36,12 +36,18 @@ from app.domain.export import PrivacyReceipt
 from app.domain.history import AIExecutionRecord, ExecutionKind
 from app.domain.ids import new_execution_id, new_export_id
 from app.domain.layer import LayerDescriptor
+from app.domain.local_model import (
+    THINKING_OUTPUT_TOKENS,
+    THINKING_TEMPERATURE,
+    is_thinking_model,
+)
 from app.infrastructure.ai_providers.anthropic import ANTHROPIC, AnthropicProvider
 from app.infrastructure.ai_providers.base import AIProvider
 from app.infrastructure.ai_providers.claude_cli import CLAUDE_CLI, ClaudeCliProvider
 from app.infrastructure.ai_providers.openai_compatible import (
     DEFAULT_BASE_URLS,
     LLAMACPP,
+    LLAMACPP_FALLBACK_URLS,
     LMSTUDIO,
     OLLAMA,
     OPENAI,
@@ -53,9 +59,9 @@ from app.infrastructure.logging.logger import get_logger
 from app.services.ai_history_service import AIHistoryService
 from app.services.settings_service import SettingsService
 from app.services.system_prompt import (
-    is_distill_qwen_7b,
     load_strata_system_prompt,
     resolve_model,
+    uses_strata_identity,
 )
 from app.services.workspace_service import WorkspaceService
 
@@ -88,11 +94,12 @@ UNTRUSTED_PREAMBLE = (
 def build_system_prompt(model: str) -> str:
     """Compose the system message for a request.
 
-    Distill Qwen 7B (Strata's default local model) receives ``SystemPrompt.md``
-    as its identity, always followed by the untrusted-sources framing. Other
-    models keep the framing alone so their behaviour does not change silently.
+    Distill Qwen 7B and Qwythos (Strata's default local model) receive
+    ``SystemPrompt.md`` as identity, always followed by the untrusted-sources
+    framing. Other models keep the framing alone so their behaviour does not
+    change silently.
     """
-    if is_distill_qwen_7b(model):
+    if uses_strata_identity(model):
         identity = load_strata_system_prompt()
         if identity:
             return f"{identity}\n\n---\n\n{UNTRUSTED_PREAMBLE}"
@@ -149,11 +156,18 @@ class AIService:
         if provider_id == "claude-cli":
             return ClaudeCliProvider(self._settings.settings.claude_cli_path)
 
+        fallback_urls: list[str] = []
+        overrides = self._settings.settings.provider_base_urls
+        if provider_id == "llamacpp" and provider_id not in overrides:
+            configured = self._base_url(provider_id)
+            fallback_urls = [url for url in LLAMACPP_FALLBACK_URLS if url != configured]
+
         return OpenAICompatibleProvider(
             capabilities,
             base_url=self._base_url(provider_id),
             api_key=self._credentials.get(provider_id) if capabilities.requires_api_key else None,
             embedding_model=self._settings.settings.embedding_model,
+            fallback_urls=fallback_urls,
         )
 
     async def health(self, provider_id: str) -> ProviderHealth:
@@ -230,7 +244,7 @@ class AIService:
 
         provider = self.provider(provider_id)
         cancel = cancel or asyncio.Event()
-        # Distill Qwen 7B is the local default only — never rewrite a remote model id.
+        # Local default only — never rewrite a remote model id.
         if provider.capabilities.is_local:
             resolved_model = resolve_model(
                 model, default_model=self._settings.settings.default_model
@@ -239,10 +253,17 @@ class AIService:
             resolved_model = model.strip() or model
         system_prompt = build_system_prompt(resolved_model)
 
+        temperature = 0.2
+        output_budget = max_output_tokens
+        if provider.capabilities.is_local and is_thinking_model(resolved_model):
+            temperature = THINKING_TEMPERATURE
+            output_budget = max(max_output_tokens, THINKING_OUTPUT_TOKENS)
+
         request = AIRequest(
             provider_id=provider_id,
             model=resolved_model,
-            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            max_output_tokens=output_budget,
             messages=[
                 AIMessage(role="system", content=system_prompt),
                 # Prior turns of the conversation, replayed from Python's own

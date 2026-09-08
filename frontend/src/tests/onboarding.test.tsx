@@ -34,7 +34,7 @@ function seedSettings(completed: boolean): void {
       theme_colors: {},
       relay_url: "",
       default_provider: "ollama",
-      default_model: "deepseek-r1:7b",
+      default_model: "qwythos",
       onboarding_tour_completed: completed,
       hide_for_sharing: true,
     },

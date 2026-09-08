@@ -7,6 +7,7 @@ adapter under test is the real one, including its SSE parsing and its error mapp
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -16,6 +17,7 @@ from app.domain.ai import AIMessage, AIRequest, EmbeddingRequest
 from app.domain.errors import ProviderError
 from app.infrastructure.ai_providers.anthropic import ANTHROPIC, AnthropicProvider
 from app.infrastructure.ai_providers.openai_compatible import (
+    LLAMACPP,
     OLLAMA,
     OPENAI,
     OpenAICompatibleProvider,
@@ -58,6 +60,78 @@ async def test_streaming_yields_start_deltas_and_done() -> None:
 
     assert [event.kind for event in events] == ["start", "delta", "delta", "done"]
     assert "".join(event.text for event in events) == "Hello"
+
+
+@respx.mock
+async def test_qwythos_think_block_is_stripped_from_the_answer() -> None:
+    respx.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            text=sse(
+                '{"choices":[{"delta":{"content":"<think>secret"}}]}',
+                '{"choices":[{"delta":{"content":"</think>Hello"}}]}',
+            ),
+        )
+    )
+    provider = OpenAICompatibleProvider(OLLAMA, BASE)
+
+    events = [
+        event async for event in provider.stream(request_for("ollama", "qwythos"), asyncio.Event())
+    ]
+
+    assert "".join(event.text for event in events) == "Hello"
+
+
+@respx.mock
+async def test_reasoning_content_is_not_shown_as_the_answer() -> None:
+    respx.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            text=sse(
+                '{"choices":[{"delta":{"reasoning_content":"plan"}}]}',
+                '{"choices":[{"delta":{"content":"Done"}}]}',
+            ),
+        )
+    )
+    provider = OpenAICompatibleProvider(OLLAMA, BASE)
+
+    events = [
+        event async for event in provider.stream(request_for("ollama", "qwythos"), asyncio.Event())
+    ]
+
+    assert "".join(event.text for event in events) == "Done"
+
+
+@respx.mock
+async def test_qwythos_ollama_body_enables_think_and_sampling() -> None:
+    route = respx.post(f"{BASE}/v1/chat/completions").mock(
+        return_value=httpx.Response(200, text=sse('{"choices":[{"delta":{"content":"ok"}}]}'))
+    )
+    provider = OpenAICompatibleProvider(OLLAMA, BASE)
+
+    async for _event in provider.stream(request_for("ollama", "qwythos"), asyncio.Event()):
+        pass
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["think"] is True
+    assert body["options"]["top_k"] == 20
+    assert body["top_p"] == 0.95
+
+
+@respx.mock
+async def test_llamacpp_falls_back_to_8088_when_8080_is_down() -> None:
+    respx.get("http://127.0.0.1:8080/v1/models").mock(side_effect=httpx.ConnectError("refused"))
+    respx.get("http://127.0.0.1:8088/v1/models").mock(
+        return_value=httpx.Response(200, json={"data": [{"id": "qwythos"}]})
+    )
+    provider = OpenAICompatibleProvider(
+        LLAMACPP, "http://127.0.0.1:8080", fallback_urls=["http://127.0.0.1:8088"]
+    )
+
+    health = await provider.health_check()
+
+    assert health.reachable is True
+    assert {model.id for model in health.models} == {"qwythos"}
 
 
 @respx.mock

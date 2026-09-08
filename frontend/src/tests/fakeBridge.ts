@@ -571,7 +571,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           theme_colors: {},
           relay_url: "",
           default_provider: "ollama",
-          default_model: "deepseek-r1:7b",
+          default_model: "qwythos",
           onboarding_tour_completed: true,
           hide_for_sharing: true,
         },
@@ -596,7 +596,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           theme_colors: {},
           relay_url: "",
           default_provider: "ollama",
-          default_model: "deepseek-r1:7b",
+          default_model: "qwythos",
           onboarding_tour_completed: true,
           hide_for_sharing: true,
           ...(payload["values"] as object),
@@ -1139,6 +1139,12 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         configured: true,
         detail: "1 model available.",
         models: [
+          {
+            id: "qwythos",
+            display_name: "qwythos",
+            context_tokens: 32768,
+            is_local: true,
+          },
           {
             id: "llama3",
             display_name: "llama3",

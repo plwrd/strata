@@ -575,6 +575,10 @@ Strata routes requests to a provider you configure — each is labelled
 | OpenAI-compatible endpoint | remote | none |
 | Claude CLI | remote¹ | none |
 
+The local default is **Qwythos-9B** ([GGUF](https://huggingface.co/empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF)), served as the Ollama tag `qwythos`. Pick any installed model from the composer dropdown. llama.cpp is probed on port **8080**, then **8088** (the blueteam harness port) if 8080 is down.
+
+Qwythos is a reasoning model: Strata enables thinking-mode sampling and **strips** `<think>` / `reasoning_content` so the composer shows the answer, not the chain of thought. Use temperature around 0.6 — greedy decoding loops on this family.
+
 ¹ The Claude CLI runs on your machine but sends content to Anthropic, so
 Strata counts it as remote — the policy gate treats it accordingly.
 

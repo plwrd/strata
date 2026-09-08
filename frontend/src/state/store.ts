@@ -13,6 +13,10 @@ import { bridge, BridgeCallError } from "../bridge/client";
 import { dropSession } from "../features/collaboration/collabDoc";
 import type { ImportedFile } from "../features/explorer/importDrop";
 import { applyTheme } from "../features/settings/applyTheme";
+import {
+  DEFAULT_LOCAL_MODEL,
+  pickInstalledModel,
+} from "../features/ai-composer/localModel";
 import type {
   AIStreamEvent,
   AppSettings,
@@ -33,6 +37,7 @@ import type {
   PolicyView,
   PrivacyReceipt,
   UsedSource,
+  ProviderHealthView,
   ProviderView,
   SearchResult,
   TrashEntry,
@@ -152,6 +157,9 @@ interface StrataState {
   tokenBudget: number | null;
   providers: ProviderView[];
   keychainAvailable: boolean;
+  providerModels: ProviderHealthView["models"];
+  providerReachable: boolean | null;
+  providerHealthDetail: string;
   plan: ContextPlan | null;
   planning: boolean;
   planError: string | null;
@@ -303,6 +311,7 @@ interface StrataState {
   // AI request
   setProvider: (providerId: string) => Promise<void>;
   setModel: (model: string) => void;
+  refreshProviderHealth: () => Promise<void>;
   refreshPolicy: () => Promise<void>;
   storeCredential: (providerId: string, apiKey: string) => Promise<boolean>;
   sendToModel: (confirmedRemote: boolean) => Promise<void>;
@@ -388,6 +397,9 @@ export const useStore = create<StrataState>((set, get) => ({
   tokenBudget: null,
   providers: [],
   keychainAvailable: true,
+  providerModels: [],
+  providerReachable: null,
+  providerHealthDetail: "",
   plan: null,
   planning: false,
   planError: null,
@@ -429,11 +441,12 @@ export const useStore = create<StrataState>((set, get) => ({
         keychainAvailable: providerInfo.keychain_available,
         providerId:
           settings.default_provider || firstConfigured?.provider_id || "ollama",
-        // Distill Qwen 7B (`deepseek-r1:7b`) is the product default for Ollama.
-        model: settings.default_model || "deepseek-r1:7b",
+        model: settings.default_model || DEFAULT_LOCAL_MODEL,
         schemas,
         activeLensId: settings.default_lens_id,
       });
+
+      await get().refreshProviderHealth();
 
       // AI output streams in over this signal, keyed by request id.
       await bridge.ai.onEvent((raw) => {
@@ -1333,21 +1346,44 @@ export const useStore = create<StrataState>((set, get) => ({
 
   async setProvider(providerId) {
     const { settings } = get();
+    const local =
+      providerId === "ollama" ||
+      providerId === "llamacpp" ||
+      providerId === "lmstudio";
     set({
       providerId,
-      // Keep Distill Qwen 7B when switching back to a local provider that
-      // shares the product default; otherwise clear so the user picks again.
-      model:
-        providerId === "ollama" ||
-        providerId === "llamacpp" ||
-        providerId === "lmstudio"
-          ? settings?.default_model || "deepseek-r1:7b"
-          : "",
+      model: local ? settings?.default_model || DEFAULT_LOCAL_MODEL : "",
+      providerModels: [],
+      providerReachable: null,
+      providerHealthDetail: "",
     });
+    await get().refreshProviderHealth();
     await get().refreshPolicy();
   },
 
   setModel: (model) => set({ model }),
+
+  async refreshProviderHealth() {
+    const { providerId, model, settings } = get();
+    if (!providerId) return;
+    try {
+      const health = await bridge.ai.health(providerId);
+      const ids = health.models.map((entry) => entry.id);
+      const preferred = model || settings?.default_model || DEFAULT_LOCAL_MODEL;
+      set({
+        providerModels: health.models,
+        providerReachable: health.reachable,
+        providerHealthDetail: health.detail,
+        model: pickInstalledModel(ids, preferred),
+      });
+    } catch (error) {
+      set({
+        providerModels: [],
+        providerReachable: false,
+        providerHealthDetail: describeError(error),
+      });
+    }
+  },
 
   async refreshPolicy() {
     const { selectedIds, graph, providerId } = get();
@@ -1394,7 +1430,7 @@ export const useStore = create<StrataState>((set, get) => ({
       providerId === "llamacpp" ||
       providerId === "lmstudio";
     const resolvedModel = localProvider
-      ? model || get().settings?.default_model || "deepseek-r1:7b"
+      ? model || get().settings?.default_model || DEFAULT_LOCAL_MODEL
       : model || "default";
 
     set({

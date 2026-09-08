@@ -777,7 +777,7 @@ export interface AppSettings {
   theme_colors: Partial<Record<ThemeColorKey, string>>;
   relay_url: string;
   default_provider: string;
-  /** Ollama id for Distill Qwen 7B (`deepseek-r1:7b`) by default. */
+  /** Ollama id for Qwythos-9B (`qwythos`) by default. */
   default_model: string;
   /** False until the first-run tutorial is skipped or finished. */
   onboarding_tour_completed: boolean;

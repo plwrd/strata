@@ -1,4 +1,4 @@
-"""Strata's identity prompt for the default local model (Distill Qwen 7B).
+"""Strata's identity prompt for the default local model (Qwythos / Distill Qwen).
 
 ``SystemPrompt.md`` at the repo (or bundle) root is the source of truth. It is
 composed with the untrusted-sources framing in :mod:`app.services.ai_service`
@@ -11,19 +11,28 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+from app.domain.local_model import (
+    DEFAULT_LOCAL_MODEL,
+    is_distill_qwen_7b,
+    is_qwythos,
+    resolve_model,
+    uses_strata_identity,
+)
 from app.infrastructure.logging.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Official Ollama tag for DeepSeek-R1-Distill-Qwen-7B.
-DEFAULT_LOCAL_MODEL = "deepseek-r1:7b"
+__all__ = [
+    "DEFAULT_LOCAL_MODEL",
+    "is_distill_qwen_7b",
+    "is_qwythos",
+    "load_strata_system_prompt",
+    "resolve_model",
+    "strata_system_prompt_path",
+    "uses_strata_identity",
+]
 
-_DISTILL_QWEN_7B_MARKERS = (
-    "deepseek-r1:7b",
-    "7b-qwen-distill",
-    "distill-qwen-7b",
-    "deepseek-r1-distill-qwen-7b",
-)
+logger = get_logger(__name__)
 
 
 def _resource_root() -> Path:
@@ -35,22 +44,6 @@ def _resource_root() -> Path:
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     # app/services/system_prompt.py → repo root
     return Path(__file__).resolve().parent.parent.parent
-
-
-def is_distill_qwen_7b(model: str) -> bool:
-    """True when ``model`` names Distill Qwen 7B (any common Ollama/HF id)."""
-    name = model.strip().lower()
-    if not name:
-        return False
-    return any(marker in name for marker in _DISTILL_QWEN_7B_MARKERS)
-
-
-def resolve_model(model: str, *, default_model: str = "") -> str:
-    """Fill in empty / placeholder model ids with the Distill Qwen 7B default."""
-    cleaned = model.strip()
-    if not cleaned or cleaned.lower() == "default":
-        return default_model.strip() or DEFAULT_LOCAL_MODEL
-    return cleaned
 
 
 @lru_cache(maxsize=1)

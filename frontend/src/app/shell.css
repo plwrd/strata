@@ -1254,6 +1254,18 @@
   line-height: 1.5;
 }
 
+.providers__model {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.providers__model .select,
+.providers__model .input {
+  width: 100%;
+}
+
 .providers__policy {
   margin: var(--space-2) 0 0;
   padding: var(--space-2);
