@@ -832,6 +832,7 @@ Settings exposed in the UI via **Command bar → More → Settings**:
 | Graph quality | High / Balanced / Low GPU |
 | Particles / Bloom | Graph chrome toggles |
 | **Hidden for sharing** | Screen-capture exclusion (see below) |
+| **Minimize to tray** | Close/minimize hides the window to a tray icon (see below) |
 
 Choosing a **template** resets custom colours to that pack (fonts and UI scale
 stay). Colour overrides — including **connected** and **idle** graph edges —
@@ -847,6 +848,21 @@ app normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, �
 do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
 `WDA_MONITOR` on older builds. Turn it off in Settings if you need to demo or
 record Strata itself.
+
+**Minimize to tray** (**off by default**) puts a Strata icon in the system tray.
+With it on, closing or minimizing the window *hides* it — it leaves the taskbar,
+but Strata keeps running and your workspace stays open behind the icon. Click
+the icon to bring the window back; quit deliberately from the icon's **Quit
+Strata** menu. **Start hidden in the tray** launches straight to the icon, for a
+start that does not announce itself on the taskbar.
+
+This hides the **window**, not the **process**. Strata stays listed in Task
+Manager, `tasklist`, Process Explorer and every other process tool, on purpose:
+the only ways to hide a process from the OS are kernel rootkit techniques, an
+app that used them would be malware, and Strata will not ship one. If your goal
+is that a shoulder-surfer not see Strata, the tray plus *Hidden for sharing*
+(above) is the honest version of that; hiding from the process list is not on
+offer.
 
 Further settings live in a JSON settings file in the OS config directory and
 are currently **edited by hand**, not in the UI: AI defaults (provider, model,

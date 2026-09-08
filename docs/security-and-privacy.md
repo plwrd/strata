@@ -93,3 +93,13 @@ Local malware and a compromised OS remain out of scope (THREAT_MODEL). AI memory
 Strata "zero-knowledge" — while unlocked, the app holds keys and plaintext in memory, and
 public-layer history is plaintext on the user's own disk by design. We document leakage; we do
 not market around it.
+
+**Process concealment is a non-goal, and a refused one.** The system tray can hide Strata's
+*window* from the taskbar (`minimize_to_tray`, off by default), but the *process* stays fully
+visible to Task Manager and every other OS process tool. Hiding a process from the OS requires
+kernel-level DKOM or API-hooking rootkit techniques; an app that shipped them would be
+indistinguishable from malware, would be flagged as such by AV/EDR, and would betray the trust
+a local-first encrypted workspace depends on. A request to hide the process — including via a
+"run as a service" framing, which does not hide it either — is declined by design, not by
+omission. `app/desktop/tray.py` states this at the top of the module so a future contributor
+does not quietly add it.

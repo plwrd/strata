@@ -37,6 +37,8 @@ function seedSettings(completed: boolean): void {
       default_model: "qwythos",
       onboarding_tour_completed: completed,
       hide_for_sharing: true,
+      minimize_to_tray: false,
+      start_in_tray: false,
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
       browser_executable_path: "",

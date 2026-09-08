@@ -42,7 +42,10 @@ class SettingsBridge(QObject):
         # Native window effects (screen-capture exclusion) live outside the
         # renderer — apply them whenever the setting changes.
         parent = self.parent()
-        apply = getattr(parent, "apply_hide_for_sharing", None)
-        if callable(apply):
-            apply(settings.hide_for_sharing)
+        apply_capture = getattr(parent, "apply_hide_for_sharing", None)
+        if callable(apply_capture):
+            apply_capture(settings.hide_for_sharing)
+        apply_tray = getattr(parent, "apply_minimize_to_tray", None)
+        if callable(apply_tray):
+            apply_tray(settings.minimize_to_tray)
         return SettingsResponse(settings=settings)

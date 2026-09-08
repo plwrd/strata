@@ -597,6 +597,48 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
 
           <section
             className="settings-dialog__section"
+            aria-labelledby="settings-tray"
+          >
+            <h3 id="settings-tray" className="settings-dialog__heading">
+              System tray
+            </h3>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.minimize_to_tray ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    minimize_to_tray: event.target.checked,
+                  })
+                }
+              />
+              <span>Minimize to tray</span>
+            </label>
+            <p className="settings-dialog__hint">
+              When on, closing or minimizing hides the window to a tray icon
+              instead of quitting — it leaves the taskbar, but Strata keeps
+              running and the workspace stays open. Quit from the tray menu.
+            </p>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.start_in_tray ?? false}
+                disabled={!(settings?.minimize_to_tray ?? false)}
+                onChange={(event) =>
+                  void applySettings({ start_in_tray: event.target.checked })
+                }
+              />
+              <span>Start hidden in the tray</span>
+            </label>
+            <p className="settings-dialog__hint">
+              This hides the <em>window</em>, never the process. Strata stays
+              listed in Task Manager and every other process tool — that is by
+              design, and any app that hid its own process would be malware.
+            </p>
+          </section>
+
+          <section
+            className="settings-dialog__section"
             aria-labelledby="settings-research"
           >
             <h3 id="settings-research" className="settings-dialog__heading">

@@ -155,6 +155,18 @@ class AppSettings(BaseModel):
     # stays visible on your display.
     hide_for_sharing: bool = True
 
+    # -- System tray ---------------------------------------------------------
+    #
+    # When on, closing or minimizing the window *hides* it: it leaves the
+    # taskbar but Strata keeps running behind a tray icon, and quitting is a
+    # deliberate act from the tray menu. `start_in_tray` starts hidden, for a
+    # launch that does not announce itself.
+    #
+    # This hides the window, never the process. Strata stays fully visible to
+    # Task Manager and every other process tool by design — see app/desktop/tray.py.
+    minimize_to_tray: bool = False
+    start_in_tray: bool = False
+
     @field_validator("browser_backend", mode="before")
     @classmethod
     def _check_backend(cls, value: Any) -> str:

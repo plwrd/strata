@@ -787,6 +787,13 @@ export interface AppSettings {
    */
   hide_for_sharing: boolean;
   /**
+   * When on, closing or minimizing hides the window to a tray icon instead of
+   * quitting — it leaves the taskbar, but the process stays honestly listed.
+   * `start_in_tray` launches hidden. Enforced by the native shell.
+   */
+  minimize_to_tray: boolean;
+  start_in_tray: boolean;
+  /**
    * Off by default: lets Strata launch and read a Chrome window of its own, so
    * research reaches logged-in and JavaScript-rendered pages. Blank executable
    * and profile paths mean "find Chrome yourself" and "use Strata's own
