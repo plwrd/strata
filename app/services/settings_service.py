@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from app.domain.browser import SEARCH_URLS
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.paths import replace_atomic
 
@@ -119,6 +120,27 @@ class AppSettings(BaseModel):
     # redirects) and can be switched off entirely here.
     url_import_enabled: bool = True
 
+    # -- Browser research ----------------------------------------------------
+    #
+    # Strata can drive a real Chrome over a loopback DevTools port so research
+    # reaches logged-in and JavaScript-rendered pages (and so the user's own
+    # extensions apply). That is a large surface — a browser Strata can read is
+    # a browser Strata can read *everything* in — so it ships off, and turning
+    # it on is a deliberate act. Blank executable and profile paths mean "find
+    # Chrome yourself" and "use the profile Strata owns"; pointing
+    # `browser_profile_path` at an everyday profile hands Strata that whole
+    # session, which is the user's call to make, not the default.
+    browser_control_enabled: bool = False
+    # "embedded" is the browser pane inside the Strata window: no second
+    # process, no loopback port, sign-ins kept in a profile of its own. It
+    # cannot load Chrome extensions — Qt ships Chromium without the extensions
+    # subsystem — so "chrome" stays available for the pages that need them.
+    browser_backend: str = "embedded"
+    browser_executable_path: str = ""
+    browser_profile_path: str = ""
+    browser_debug_port: int = 9333
+    browser_search_engine: str = "duckduckgo"
+
     # -- Onboarding ----------------------------------------------------------
     #
     # False until the first-run tutorial is skipped or finished. Replay from
@@ -132,6 +154,35 @@ class AppSettings(BaseModel):
     # (Windows: WDA_EXCLUDEFROMCAPTURE, with WDA_MONITOR fallback). The window
     # stays visible on your display.
     hide_for_sharing: bool = True
+
+    @field_validator("browser_backend", mode="before")
+    @classmethod
+    def _check_backend(cls, value: Any) -> str:
+        backend = str(value).strip().lower()
+        if backend not in ("embedded", "chrome"):
+            raise ValueError("browser_backend must be 'embedded' or 'chrome'")
+        return backend
+
+    @field_validator("browser_debug_port", mode="before")
+    @classmethod
+    def _check_debug_port(cls, value: Any) -> int:
+        """A user-space port, or the default. Never a privileged one, and never
+        a number the frontend picked out of range."""
+        try:
+            port = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("browser_debug_port must be a number") from exc
+        if not 1024 <= port <= 65535:
+            raise ValueError("browser_debug_port must be between 1024 and 65535")
+        return port
+
+    @field_validator("browser_search_engine", mode="before")
+    @classmethod
+    def _check_search_engine(cls, value: Any) -> str:
+        engine = str(value).strip().lower()
+        if engine not in SEARCH_URLS:
+            raise ValueError("browser_search_engine must be an engine Strata knows")
+        return engine
 
     @field_validator("ui_scale", mode="before")
     @classmethod

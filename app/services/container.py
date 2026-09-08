@@ -16,6 +16,7 @@ from app.infrastructure.keychain.credentials import LAYER_UNLOCK_SERVICE, Creden
 from app.services.ai_generation_service import AIGenerationService
 from app.services.ai_history_service import AIHistoryService
 from app.services.ai_service import AIService
+from app.services.browser_service import BrowserService
 from app.services.capture_service import CaptureService
 from app.services.collaboration_service import CollaborationService
 from app.services.connection_service import ConnectionService
@@ -29,6 +30,7 @@ from app.services.memory_service import MemoryService
 from app.services.note_service import NoteService
 from app.services.operation_service import OperationService
 from app.services.prompt_library_service import PromptLibraryService
+from app.services.research_service import ResearchService
 from app.services.retrieval_service import RetrievalService
 from app.services.review_service import ReviewService
 from app.services.search_service import SearchService
@@ -89,8 +91,12 @@ class Services:
         )
         self.ai_generation = AIGenerationService(self.ai)
         self.capture = CaptureService(self.workspace, self.notes, self.settings)
+        self.browser = BrowserService(self.settings, paths.data_dir)
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
         self.retrieval = RetrievalService(self.search)
+        self.research = ResearchService(
+            self.ai, self.notes, self.exports, self.retrieval, self.workspace
+        )
         self.prompts = PromptLibraryService(self.workspace)
         self.conversations = ConversationService(self.workspace)
         self.synthesis = SynthesisService(self.ai, self.notes, self.exports)

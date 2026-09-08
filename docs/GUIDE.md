@@ -15,6 +15,7 @@ planned but not yet reachable from the UI, the guide says so explicitly.
 1. [Starting Strata](#1-starting-strata)
 2. [The window](#2-the-window)
 3. [Layers: public, private, locked](#3-layers-public-private-locked)
+3¾. [Browser research](#3%C2%BE-browser-research)
 4. [Files and folders](#4-files-and-folders)
 5. [Drag and drop](#5-drag-and-drop)
 6. [Writing notes](#6-writing-notes)
@@ -211,6 +212,88 @@ History section of the Properties tab, where each prior state shows who
 replaced it (you, an AI plan, or a restore) and can be restored without ever
 silently overwriting anything. Private layers keep no version files on disk by
 design; snapshots remain their recovery mechanism.
+
+---
+
+## 3¾. Browser research
+
+The **Research** panel in the navigator is for the material that lives on the
+web rather than in your head. **Open browser pane** splits the window: your
+workspace on the left, a real browser on the right, with its own address bar,
+back and forward. It reaches the pages a plain fetch never could — the ones
+behind a login, and the ones that are blank until JavaScript runs — and it
+signs in once, because the pane keeps a profile of its own.
+
+It is **off until you turn it on** (Settings → Browser research). While it is
+off, every part of it refuses to run and the panel says so instead of failing.
+
+The loop:
+
+1. **Open browser pane.** The browser appears beside your workspace. Drag the
+   divider to resize it; **Close pane** puts it away.
+2. **Search.** Type a query, pick an engine, press Search. Strata builds the
+   URL and the *browser* goes there — no search API, no key, and no request
+   from Strata, so the engine sees an ordinary browser session. You can also
+   type straight into the pane's address bar.
+3. **Scrape page** reads what the pane is showing and gives you the text. It
+   writes nothing — this is a look, not a save.
+4. **Capture only** files that text into the Inbox as a raw, untrusted capture,
+   with its source URL, exactly like URL import.
+5. **Analyse & file** does the interesting part, described below.
+
+### When the pane is not enough
+
+The pane cannot load Chrome extensions. That is not a setting we forgot: Qt
+ships Chromium without the extensions subsystem, so there is nothing to switch
+on. A few sign-in pages also refuse embedded browsers outright.
+
+For those, Settings → Browser research → **Browser** offers *Your own Chrome*.
+Strata then launches the Chrome you already have — your extensions, a profile
+Strata owns — and reads the tab you point it at instead. Everything else in
+this section works identically; the panel grows a tab picker, because Chrome
+has real tabs and the pane shows one page.
+
+### Analyse & file
+
+Tick the layers this research concerns — public, private, or both — and Strata
+searches *only* those layers for the nodes the page relates to. The model is
+shown that shortlist and nothing else, and is asked one question: where does
+this belong? What comes back is a proposal:
+
+- **relationships** from the capture to the existing nodes it extends;
+- **subnodes** — new pages filed under a matched node, inheriting its layer and
+  folder, linked back with `parent::`;
+- **added context** — a short section appended to a node that was already about
+  this, under a line naming the source, the execution, and the words
+  *ai-inferred, unverified*, so nobody months later mistakes it for something
+  you wrote.
+
+Two limits are worth knowing because they are what makes this safe to run on
+notes you care about. A node the retrieval step never offered **cannot** be
+touched, even if the page tries hard to name one — an unknown id is dropped, not
+looked up. And nothing outside the layers you ticked can be touched at all.
+
+Nothing is written yet. The proposal arrives in the **Changes** tab as an
+ordinary plan: read the diff, tick what you want, apply it in one transaction,
+undo it if you were wrong (§13).
+
+### What this costs you
+
+A browser Strata can read is a browser Strata can read *everything* in. That is
+the trade in both modes, and it is why the feature ships off and why it reads
+one page at a time, when you ask.
+
+The pane keeps your research sign-ins in a cookie store inside Strata's data
+directory. It shares nothing with the Strata UI's own profile — different
+cookie jar, different cache, no bridge on that page, and it cannot navigate to
+`strata://` or `file://` — but an attacker holding your disk gets those
+sessions, exactly as they would from any browser profile.
+
+The Chrome mode adds one more: a loopback debugging port, which is not an
+access-control boundary. While that window is open, anything running as you can
+drive it. That is a property of Chrome's protocol, not something Strata can
+fix, which is why it is not the default. Strata closes whichever browser it
+started when you close the window. See THREAT_MODEL.md T-34.
 
 ---
 

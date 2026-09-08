@@ -786,6 +786,18 @@ export interface AppSettings {
    * screenshots / screen shares. Enforced by the native shell, not the web UI.
    */
   hide_for_sharing: boolean;
+  /**
+   * Off by default: lets Strata launch and read a Chrome window of its own, so
+   * research reaches logged-in and JavaScript-rendered pages. Blank executable
+   * and profile paths mean "find Chrome yourself" and "use Strata's own
+   * profile".
+   */
+  browser_control_enabled: boolean;
+  browser_backend: BrowserBackend;
+  browser_executable_path: string;
+  browser_profile_path: string;
+  browser_debug_port: number;
+  browser_search_engine: string;
 }
 
 export interface JobRecord {
@@ -838,4 +850,54 @@ export interface CollaborationState {
   peers: PresencePeer[];
   pending_conflicts: number;
   uncompacted_updates: number;
+}
+
+// --- browser research -----------------------------------------------------
+//
+// Strata drives a real Chrome over a loopback DevTools port rather than
+// embedding a view, so the user's own extensions and sign-ins apply. Every
+// field below describes something that happened in *that* browser; page text
+// is untrusted data and is rendered as text, never as markup.
+
+export type BrowserBackend = "embedded" | "chrome";
+
+export interface BrowserStatus {
+  enabled: boolean;
+  /** "embedded" is the pane in this window; "chrome" is a real Chrome. */
+  backend: BrowserBackend;
+  running: boolean;
+  /** Only the Chrome backend can load the user's extensions. */
+  supports_extensions: boolean;
+  port: number;
+  browser_version: string;
+  executable: string;
+  profile_path: string;
+  tab_count: number;
+  detail: string;
+}
+
+export interface BrowserTab {
+  target_id: string;
+  title: string;
+  url: string;
+  active: boolean;
+}
+
+/** Reading a page is asynchronous: `scrape_tab` starts it, this delivers it. */
+export interface PageStreamEvent {
+  requestId: string;
+  kind: "page" | "error";
+  page?: ScrapedPage;
+  note?: Note;
+  error?: string;
+}
+
+export interface ScrapedPage {
+  url: string;
+  title: string;
+  text: string;
+  char_count: number;
+  truncated: boolean;
+  target_id: string;
+  note_id: string;
 }

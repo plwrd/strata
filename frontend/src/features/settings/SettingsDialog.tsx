@@ -76,6 +76,17 @@ const FONT_MONO: { value: FontMono; label: string }[] = [
   { value: "system", label: "System mono" },
 ];
 
+// Kept in step with app.domain.browser.SEARCH_URLS — Python refuses an engine it
+// does not know, so a stale entry here fails loudly rather than silently.
+const SEARCH_ENGINES: { value: string; label: string }[] = [
+  { value: "duckduckgo", label: "DuckDuckGo" },
+  { value: "google", label: "Google" },
+  { value: "bing", label: "Bing" },
+  { value: "brave", label: "Brave" },
+  { value: "kagi", label: "Kagi" },
+  { value: "startpage", label: "Startpage" },
+];
+
 const UI_SCALES: { value: number; label: string }[] = [
   { value: 0.9, label: "Small" },
   { value: 1, label: "Default" },
@@ -581,6 +592,91 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               and screen shares do not. Turn off only when you need to demo or
               record the app itself.
             </p>
+          </section>
+
+          <section
+            className="settings-dialog__section"
+            aria-labelledby="settings-research"
+          >
+            <h3 id="settings-research" className="settings-dialog__heading">
+              Browser research
+            </h3>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.browser_control_enabled ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    browser_control_enabled: event.target.checked,
+                  })
+                }
+              />
+              <span>Let Strata drive a browser</span>
+            </label>
+            <p className="settings-dialog__hint">
+              Off by default. When on, Strata opens a browser beside your
+              workspace and reads the page you point it at, so research reaches
+              pages a plain fetch cannot. A browser Strata can read is a browser
+              Strata can read everything in, so leave this off unless you are
+              researching.
+            </p>
+            <label className="composer__field">
+              <span className="label">Browser</span>
+              <select
+                className="select"
+                value={settings?.browser_backend ?? "embedded"}
+                aria-label="Research browser"
+                onChange={(event) =>
+                  void applySettings({
+                    browser_backend: event.target
+                      .value as AppSettings["browser_backend"],
+                  })
+                }
+              >
+                <option value="embedded">Pane in this window</option>
+                <option value="chrome">Your own Chrome</option>
+              </select>
+            </label>
+            <p className="settings-dialog__hint">
+              The pane keeps its own sign-ins and needs nothing installed, but
+              it cannot load Chrome extensions — Qt ships Chromium without the
+              extensions subsystem. Choose your own Chrome when a page needs
+              your extensions, or refuses to let you sign in to an embedded
+              browser.
+            </p>
+            <label className="composer__field">
+              <span className="label">Search engine</span>
+              <select
+                className="select"
+                value={settings?.browser_search_engine ?? "duckduckgo"}
+                aria-label="Research search engine"
+                onChange={(event) =>
+                  void applySettings({
+                    browser_search_engine: event.target.value,
+                  })
+                }
+              >
+                {SEARCH_ENGINES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="composer__field">
+              <span className="label">Browser path (optional)</span>
+              <input
+                className="input"
+                value={settings?.browser_executable_path ?? ""}
+                placeholder="Found automatically if left empty"
+                aria-label="Browser executable path"
+                onChange={(event) =>
+                  void applySettings({
+                    browser_executable_path: event.target.value,
+                  })
+                }
+              />
+            </label>
           </section>
         </div>
       </div>

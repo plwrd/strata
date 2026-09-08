@@ -179,9 +179,20 @@ interface StrataState {
   aiExecutionId: string | null;
   aiSources: UsedSource[];
 
+  // A plan job started somewhere other than the Changes panel — research
+  // filing, today. The panel that owns plan review adopts it and takes over the
+  // waiting, so a second copy of the review UI never has to exist.
+  handedOffPlanRequestId: string | null;
+  /** The layers that plan is allowed to touch — the ones the user ticked. */
+  handedOffPlanLayerIds: string[];
+
   // actions
   initialise: () => Promise<void>;
   clearLastError: () => void;
+  /** Hand a running plan job to the Changes panel and switch to it. */
+  handOffPlanRequest: (requestId: string, layerIds: string[]) => void;
+  /** Take the handed-off job, once. Null when there is none. */
+  claimPlanRequest: () => { requestId: string; layerIds: string[] } | null;
   setMode: (mode: AppMode) => void;
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
@@ -416,6 +427,8 @@ export const useStore = create<StrataState>((set, get) => ({
   conversationId: null,
   aiExecutionId: null,
   aiSources: [],
+  handedOffPlanRequestId: null,
+  handedOffPlanLayerIds: [],
 
   async initialise() {
     try {
@@ -493,6 +506,21 @@ export const useStore = create<StrataState>((set, get) => ({
   },
 
   clearLastError: () => set({ lastError: null }),
+  handOffPlanRequest: (requestId, layerIds) =>
+    set({
+      handedOffPlanRequestId: requestId,
+      handedOffPlanLayerIds: layerIds,
+      mode: "command",
+    }),
+  claimPlanRequest: () => {
+    const { handedOffPlanRequestId, handedOffPlanLayerIds } = get();
+    if (!handedOffPlanRequestId) return null;
+    set({ handedOffPlanRequestId: null, handedOffPlanLayerIds: [] });
+    return {
+      requestId: handedOffPlanRequestId,
+      layerIds: handedOffPlanLayerIds,
+    };
+  },
   setMode: (mode) => set({ mode }),
   setDimension: (dimension) => set({ dimension }),
   setExplorerDensity: (density) => set({ explorerDensity: density }),

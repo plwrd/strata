@@ -82,12 +82,16 @@ export function OperationsPanel(): JSX.Element {
   // The request id we are currently waiting on. A ref, not state, so the event
   // handler reads the latest value without re-subscribing.
   const pendingRef = useRef<string | null>(null);
+  // Set while an adopted plan is in flight; null means "use the selection".
+  const adoptedLayerIdsRef = useRef<string[] | null>(null);
+  const allowedLayerIds = (): string[] =>
+    adoptedLayerIdsRef.current ?? layerIdsRef.current;
 
   const reviewPlan = async (plan: OperationPlan): Promise<void> => {
     try {
       const { review } = await bridge.operations.review(
         plan,
-        layerIdsRef.current,
+        allowedLayerIds(),
       );
       setPhase({
         kind: "review",
@@ -122,9 +126,28 @@ export function OperationsPanel(): JSX.Element {
       }
       void reviewPlan(event.plan);
     });
+    // Subscribed once, for the life of the panel: the listener reads the
+    // pending request id from a ref, so it never needs re-binding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A plan job can also be started elsewhere — research filing hands one over
+  // rather than growing a second review UI. Adopt it exactly once, and review it
+  // against the layers *that* panel scoped it to, not the current selection's.
+  const { handedOffPlanRequestId, claimPlanRequest } = state;
+  useEffect(() => {
+    if (!handedOffPlanRequestId) return;
+    const handoff = claimPlanRequest();
+    if (!handoff) return;
+    adoptedLayerIdsRef.current = handoff.layerIds.length
+      ? handoff.layerIds
+      : null;
+    pendingRef.current = handoff.requestId;
+    setPhase({ kind: "generating", requestId: handoff.requestId });
+  }, [handedOffPlanRequestId, claimPlanRequest]);
+
   const generate = async (): Promise<void> => {
+    adoptedLayerIdsRef.current = null;
     const provider = state.providerId;
     const model = state.model || "default";
     try {
@@ -201,7 +224,7 @@ export function OperationsPanel(): JSX.Element {
       const { applied } = await bridge.operations.apply(
         phase.review.plan,
         approved,
-        layerIds,
+        allowedLayerIds(),
       );
       setPhase({
         kind: "applied",

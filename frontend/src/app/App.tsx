@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { AIComposerPanel } from "../features/ai-composer/AIComposerPanel";
+import { BrowserPanel } from "../features/browser/BrowserPanel";
 import { CollaborationPanel } from "../features/collaboration/CollaborationPanel";
 import { EditorPane } from "../features/editor/EditorPane";
 import { FileTree } from "../features/explorer/FileTree";
@@ -258,6 +259,11 @@ export function App(): JSX.Element {
                   id: "search",
                   label: "Search",
                   children: <SearchPanel />,
+                },
+                {
+                  id: "research",
+                  label: "Research",
+                  children: <BrowserPanel />,
                 },
                 {
                   id: "collab",

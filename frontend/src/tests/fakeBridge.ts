@@ -49,6 +49,10 @@ export interface FakeBridgeOptions {
   prompts?: SavedPrompt[];
   /** Seed connection suggestions served via `graph.suggest_connections`. */
   suggestions?: ConnectionSuggestion[];
+  /** False models a workspace where browser research was never switched on. */
+  browserEnabled?: boolean;
+  /** Which research browser the fake reports. Defaults to the pane. */
+  browserBackend?: "embedded" | "chrome";
   /** Seed the health report served via `workspace.knowledge_health`. */
   health?: HealthReport;
   failWith?: { code: string; message: string };
@@ -402,8 +406,41 @@ export const aiListeners: ((value: string) => void)[] = [];
 /** Listeners registered against the `operations.planEvent` signal. */
 export const planListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `browser.pageEvent` signal. */
+export const pageListeners: ((value: string) => void)[] = [];
+
 /** Listeners registered against the `collaboration.collabEvent` signal. */
 export const collabListeners: ((value: string) => void)[] = [];
+
+/** One scraped page, as Python would send it. */
+function scrapedPage(noteId: string): Record<string, unknown> {
+  return {
+    url: "https://example.com/paper",
+    title: "A research page",
+    text: "Scraped body text.",
+    char_count: 18,
+    truncated: false,
+    target_id: "pane",
+    note_id: noteId,
+  };
+}
+
+/** Deliver a page read on `pageEvent`, after the caller has its request id. */
+function emitPage(requestId: string, payload: Record<string, unknown>): void {
+  const raw = JSON.stringify({ requestId, kind: "page", ...payload });
+  // A macrotask, not a microtask: in Python this arrives from a worker thread,
+  // strictly after the caller has taken its request id and started listening.
+  // A microtask can beat that assignment and the event lands on nobody.
+  setTimeout(() => {
+    for (const listener of pageListeners) listener(raw);
+  }, 0);
+}
+
+/** Fire a page-read failure the way Python would. */
+export function emitPageError(requestId: string, error: string): void {
+  const raw = JSON.stringify({ requestId, kind: "error", error });
+  for (const listener of pageListeners) listener(raw);
+}
 
 /** Fire a collaboration event (remote change / conflict) the way Python would. */
 export function emitCollabEvent(payload: Record<string, unknown>): void {
@@ -464,6 +501,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   changeListeners.length = 0;
   aiListeners.length = 0;
   planListeners.length = 0;
+  pageListeners.length = 0;
   collabListeners.length = 0;
   _docs.clear();
   // The client memoises its channel, so a fresh fake must invalidate it or the
@@ -482,6 +520,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   captured.length = 0;
   const noteVersions: FakeVersion[] = [...(options.versions ?? [])];
   const versionsSupported = options.versionsSupported ?? true;
+  const browserEnabled = options.browserEnabled ?? true;
+  const browserBackend = options.browserBackend ?? "embedded";
   const savedPrompts: SavedPrompt[] = (options.prompts ?? []).map((entry) => ({
     ...entry,
   }));
@@ -872,6 +912,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         captured.push(payload);
         return { request_id: "req_synth_1" };
       },
+      file_research: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_research_1" };
+      },
       refresh_project: (payload) => {
         captured.push(payload);
         return { request_id: "req_refresh_1" };
@@ -1252,6 +1296,124 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             (payload["prompt"] as string) ?? "",
           ),
       }),
+    },
+    // Browser research. The default fake is a browser that is enabled but not
+    // running, because that is the state the panel has to render first.
+    browser: {
+      get_status: () => ({
+        status: {
+          enabled: browserEnabled,
+          backend: browserBackend,
+          running: false,
+          supports_extensions: browserBackend === "chrome",
+          port: 0,
+          browser_version: "",
+          executable: "",
+          profile_path: "",
+          tab_count: 0,
+          detail: browserEnabled
+            ? "The browser pane is closed."
+            : "Turn on browser research in Settings to use it.",
+        },
+        engines: ["duckduckgo", "google"],
+      }),
+      launch: () => ({
+        status: {
+          enabled: true,
+          backend: browserBackend,
+          running: true,
+          supports_extensions: browserBackend === "chrome",
+          port: 0,
+          browser_version: "",
+          executable: "",
+          profile_path: "",
+          tab_count: 1,
+          detail: "The browser pane is open on example.com.",
+        },
+        engines: ["duckduckgo", "google"],
+      }),
+      close_browser: () => ({
+        status: {
+          enabled: true,
+          backend: browserBackend,
+          running: false,
+          supports_extensions: browserBackend === "chrome",
+          port: 0,
+          browser_version: "",
+          executable: "",
+          profile_path: "",
+          tab_count: 0,
+          detail: "The browser pane is closed.",
+        },
+        engines: ["duckduckgo", "google"],
+      }),
+      pageEvent: {
+        connect: (listener: (value: string) => void) =>
+          pageListeners.push(listener),
+      },
+      search: (payload) => {
+        captured.push(payload);
+        return {
+          tab: {
+            target_id: "tab_1",
+            title: "Results",
+            url: "https://duckduckgo.com/?q=test",
+            active: true,
+          },
+        };
+      },
+      open_url: (payload) => {
+        captured.push(payload);
+        return {
+          tab: {
+            target_id: "tab_1",
+            title: "Page",
+            url: String(payload["url"]),
+            active: true,
+          },
+        };
+      },
+      list_tabs: () => ({
+        tabs: [
+          {
+            target_id: "tab_1",
+            title: "A research page",
+            url: "https://example.com/paper",
+            active: true,
+          },
+        ],
+      }),
+      // Reading is asynchronous in Python, so the fake answers the same way:
+      // a request id now, the page on `pageEvent` a tick later.
+      scrape_tab: (payload) => {
+        captured.push(payload);
+        emitPage("req_read_1", { page: scrapedPage("") });
+        return { request_id: "req_read_1" };
+      },
+      capture_tab: (payload) => {
+        captured.push(payload);
+        emitPage("req_read_2", {
+          page: scrapedPage("note_capture_1"),
+          note: {
+            metadata: {
+              id: "note_capture_1",
+              layer_id: PUBLIC_LAYER.id,
+              title: "A research page",
+              folder_path: "Inbox",
+              aliases: [],
+              tags: [],
+              properties: { type: "capture" },
+              links: [],
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+              size_bytes: 18,
+              word_count: 3,
+            },
+            content: "Scraped body text.",
+          },
+        });
+        return { request_id: "req_read_2" };
+      },
     },
     export: {
       render_export: (payload) => ({

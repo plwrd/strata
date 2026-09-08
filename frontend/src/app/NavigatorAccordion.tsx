@@ -3,11 +3,7 @@
 import { useId, useState, type ReactNode } from "react";
 
 export type NavigatorSectionId =
-  | "layers"
-  | "files"
-  | "search"
-  | "collab"
-  | "graph";
+  "layers" | "files" | "search" | "research" | "collab" | "graph";
 
 type SectionDef = {
   id: NavigatorSectionId;
@@ -25,7 +21,9 @@ export function NavigatorAccordion({ sections }: Props): JSX.Element {
   const [openIds, setOpenIds] = useState<Set<NavigatorSectionId>>(
     () =>
       new Set(
-        sections.filter((section) => section.defaultOpen).map((section) => section.id),
+        sections
+          .filter((section) => section.defaultOpen)
+          .map((section) => section.id),
       ),
   );
 

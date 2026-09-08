@@ -37,6 +37,12 @@ function seedSettings(completed: boolean): void {
       default_model: "qwythos",
       onboarding_tour_completed: completed,
       hide_for_sharing: true,
+      browser_control_enabled: false,
+      browser_backend: "embedded" as const,
+      browser_executable_path: "",
+      browser_profile_path: "",
+      browser_debug_port: 9333,
+      browser_search_engine: "duckduckgo",
     },
     mode: "explore",
     workspace: {
@@ -156,8 +162,12 @@ describe("Onboarding tour", () => {
     ).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^More$/i }));
-    const menu = screen.getByRole("group", { name: /More workspace controls/i });
-    await userEvent.click(within(menu).getByRole("button", { name: /Tutorial/i }));
+    const menu = screen.getByRole("group", {
+      name: /More workspace controls/i,
+    });
+    await userEvent.click(
+      within(menu).getByRole("button", { name: /Tutorial/i }),
+    );
 
     expect(
       await screen.findByRole("dialog", { name: /Welcome to your workspace/i }),

@@ -2572,3 +2572,93 @@ body:has(.dialog-backdrop) .stage__graph {
   font-size: var(--text-xs);
   padding: var(--space-1) var(--space-2);
 }
+
+/* --- browser research ---------------------------------------------------- */
+
+.research {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.research__status {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  margin: 0;
+}
+
+.research__search,
+.research__tabs,
+.research__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.research__actions {
+  flex-direction: row;
+}
+
+.research__tabs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.research__preview {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.research__preview-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.research__preview-url,
+.research__preview-meta {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+/* Page text is data. It is shown as text — never parsed, never rendered as
+   markup — so a scraped page has no say in how the panel looks. */
+.research__preview-text {
+  margin: 0;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.research__scope {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.research__scope-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.research__hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}

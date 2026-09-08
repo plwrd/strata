@@ -58,7 +58,7 @@ flowchart LR
 
 | Step | What it means in Strata |
 | --- | --- |
-| **Capture** | Quick capture into a layer; Markdown editor (CodeMirror 6, from M2). |
+| **Capture** | Quick capture into a layer; guarded URL import; **browser research** — a browser pane beside your workspace (or your own Chrome, when a page needs your extensions) that reads the page you point it at and files it under the existing nodes it belongs to. Off by default; see THREAT_MODEL.md T-34. Markdown editor (CodeMirror 6, from M2). |
 | **Organize** | Folders, tags, properties, schemas, templates, database views. |
 | **Connect** | Wiki links, typed relations, backlinks. |
 | **Explore** | 3D/2D knowledge graph; **Knowledge Lens** = a saved multi-layer perspective. |
