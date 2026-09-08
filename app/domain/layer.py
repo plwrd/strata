@@ -85,6 +85,7 @@ class LayerDescriptor(BaseModel):
     updated_at: str
     color: str = "layer-public"
     ai_policy: LayerAIPolicy = Field(default_factory=LayerAIPolicy)
+    password_remembered: bool = False
 
     @property
     def is_readable(self) -> bool:

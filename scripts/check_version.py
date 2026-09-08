@@ -1,9 +1,9 @@
 """Assert the version is the same everywhere (guards against the v1.0.1 drift).
 
-The version lives in four hand-edited places — ``pyproject.toml`` (the source of
-truth), ``APP_VERSION`` (what the app reports to the user), and the two packaging
-scripts (what installers are named). They drifted once, so this runs in CI: if
-any of them disagrees with ``pyproject``, the build fails with a precise message.
+The version lives in ``pyproject.toml`` (the source of truth) and is copied into
+the app, packaging scripts, and the documents people read first. They drifted
+once, so this runs in CI: if any of them disagrees with ``pyproject``, the build
+fails with a precise message.
 
 Usage::
 
@@ -48,10 +48,48 @@ def main() -> int:
             ROOT / "packaging" / "windows" / "strata.iss",
             r'#define AppVersion "([^"]+)"',
         ),
+        (
+            "README.md status table",
+            ROOT / "README.md",
+            r"\|\s*\*\*Version\*\*\s*\|\s*([0-9]+\.[0-9]+\.[0-9]+)",
+        ),
+        (
+            "SECURITY.md",
+            ROOT / "SECURITY.md",
+            r"(?m)^Strata \*\*([0-9]+\.[0-9]+\.[0-9]+)\*\*",
+        ),
+        (
+            "frontend/package.json",
+            ROOT / "frontend" / "package.json",
+            r'"version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"',
+        ),
+        (
+            "package.json",
+            ROOT / "package.json",
+            r'"version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"',
+        ),
+        (
+            "THREAT_MODEL.md",
+            ROOT / "THREAT_MODEL.md",
+            r"Version ([0-9]+\.[0-9]+\.[0-9]+)",
+        ),
+        (
+            "PRODUCT_REQUIREMENTS.md",
+            ROOT / "PRODUCT_REQUIREMENTS.md",
+            r"Version ([0-9]+\.[0-9]+\.[0-9]+)",
+        ),
+        (
+            "docs/architecture/system-architecture.md",
+            ROOT / "docs" / "architecture" / "system-architecture.md",
+            r"Version ([0-9]+\.[0-9]+\.[0-9]+)",
+        ),
     ]
 
     mismatches: list[str] = []
     for label, path, pattern in sources:
+        if not path.is_file():
+            mismatches.append(f"  {label}: file not found")
+            continue
         found = _extract(path, pattern)
         if found is None:
             mismatches.append(f"  {label}: version not found")

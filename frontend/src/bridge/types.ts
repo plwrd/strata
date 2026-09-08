@@ -72,6 +72,8 @@ export interface LayerDescriptor {
   updated_at: string;
   color: string;
   ai_policy: LayerAIPolicy;
+  /** True when this device has a keychain-saved password for the layer. */
+  password_remembered?: boolean;
 }
 
 export interface KnowledgeLens {
@@ -716,9 +718,44 @@ export interface ViewResult {
   locked_layers_excluded: number;
 }
 
+export type AppearanceTemplate =
+  | "cyberpunk-dark"
+  | "cyberpunk-dim"
+  | "high-contrast"
+  | "ember"
+  | "forest"
+  | "slate";
+
+export type FontBody = "inter" | "system" | "chakra";
+export type FontDisplay = "chakra" | "inter" | "system";
+export type FontMono = "jetbrains" | "consolas" | "system";
+
+/** Whitelisted theme colour keys (snake_case → CSS --kebab-case). */
+export type ThemeColorKey =
+  | "surface_void"
+  | "surface_base"
+  | "surface_raised"
+  | "surface_overlay"
+  | "text_primary"
+  | "text_secondary"
+  | "text_tertiary"
+  | "accent_primary"
+  | "accent_ai"
+  | "accent_collaboration"
+  | "status_success"
+  | "status_warning"
+  | "status_danger"
+  | "graph_background"
+  | "graph_node_default"
+  | "graph_node_selected"
+  | "graph_glow_selected"
+  | "graph_edge_default"
+  | "graph_edge_selected"
+  | "border_accent";
+
 export interface AppSettings {
   format_version: number;
-  appearance: "cyberpunk-dark" | "cyberpunk-dim" | "high-contrast";
+  appearance: AppearanceTemplate;
   motion: "full" | "reduced" | "system";
   graph_quality: "high" | "balanced" | "low-gpu";
   particles_enabled: boolean;
@@ -728,7 +765,39 @@ export interface AppSettings {
   default_lens_id: string;
   last_workspace_path: string;
   developer_tools: boolean;
+  /** Body UI font stack preset. */
+  font_body: FontBody;
+  /** Display / chrome font stack preset. */
+  font_display: FontDisplay;
+  /** Monospace font stack preset. */
+  font_mono: FontMono;
+  /** Rem cascade multiplier (0.85–1.35). */
+  ui_scale: number;
+  /** Optional #RRGGBB overrides layered on the appearance template. */
+  theme_colors: Partial<Record<ThemeColorKey, string>>;
   relay_url: string;
+  default_provider: string;
+  /** Ollama id for Qwythos-9B (`qwythos`) by default. */
+  default_model: string;
+  /** False until the first-run tutorial is skipped or finished. */
+  onboarding_tour_completed: boolean;
+  /**
+   * Signal-style (on by default): exclude the whole Strata window from
+   * screenshots / screen shares. Enforced by the native shell, not the web UI.
+   */
+  hide_for_sharing: boolean;
+  /**
+   * Off by default: lets Strata launch and read a Chrome window of its own, so
+   * research reaches logged-in and JavaScript-rendered pages. Blank executable
+   * and profile paths mean "find Chrome yourself" and "use Strata's own
+   * profile".
+   */
+  browser_control_enabled: boolean;
+  browser_backend: BrowserBackend;
+  browser_executable_path: string;
+  browser_profile_path: string;
+  browser_debug_port: number;
+  browser_search_engine: string;
 }
 
 export interface JobRecord {
@@ -781,4 +850,54 @@ export interface CollaborationState {
   peers: PresencePeer[];
   pending_conflicts: number;
   uncompacted_updates: number;
+}
+
+// --- browser research -----------------------------------------------------
+//
+// Strata drives a real Chrome over a loopback DevTools port rather than
+// embedding a view, so the user's own extensions and sign-ins apply. Every
+// field below describes something that happened in *that* browser; page text
+// is untrusted data and is rendered as text, never as markup.
+
+export type BrowserBackend = "embedded" | "chrome";
+
+export interface BrowserStatus {
+  enabled: boolean;
+  /** "embedded" is the pane in this window; "chrome" is a real Chrome. */
+  backend: BrowserBackend;
+  running: boolean;
+  /** Only the Chrome backend can load the user's extensions. */
+  supports_extensions: boolean;
+  port: number;
+  browser_version: string;
+  executable: string;
+  profile_path: string;
+  tab_count: number;
+  detail: string;
+}
+
+export interface BrowserTab {
+  target_id: string;
+  title: string;
+  url: string;
+  active: boolean;
+}
+
+/** Reading a page is asynchronous: `scrape_tab` starts it, this delivers it. */
+export interface PageStreamEvent {
+  requestId: string;
+  kind: "page" | "error";
+  page?: ScrapedPage;
+  note?: Note;
+  error?: string;
+}
+
+export interface ScrapedPage {
+  url: string;
+  title: string;
+  text: string;
+  char_count: number;
+  truncated: boolean;
+  target_id: string;
+  note_id: string;
 }

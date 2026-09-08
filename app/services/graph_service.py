@@ -85,7 +85,11 @@ class GraphService:
             )
 
         if include_folders:
-            for folder in self._notes.list_folders(layer_ids):
+            # Match by (layer, path). Public folder ids are path hashes; private
+            # ones are random object ids — never re-derive the id from the path.
+            folders = self._notes.list_folders(layer_ids)
+            folder_by_key = {(folder.layer_id, folder.path): folder for folder in folders}
+            for folder in folders:
                 nodes[folder.id] = GraphNode(
                     id=folder.id,
                     layer_id=folder.layer_id,
@@ -93,20 +97,42 @@ class GraphService:
                     label=folder.name,
                     folder_path=folder.path,
                 )
-            for note in notes:
-                folder_id = self._folder_id_for(note)
-                if folder_id and folder_id in nodes:
+            for folder in folders:
+                parent_id = folder.parent_id
+                if parent_id is None:
+                    parent_path = self._parent_folder_path(folder.path)
+                    if parent_path is not None:
+                        parent = folder_by_key.get((folder.layer_id, parent_path))
+                        parent_id = parent.id if parent is not None else None
+                if parent_id and parent_id in nodes:
                     edges.append(
                         GraphEdge(
-                            id=f"e_folder_{folder_id}_{note.metadata.id}",
-                            source=folder_id,
-                            target=note.metadata.id,
+                            id=f"e_folder_{parent_id}_{folder.id}",
+                            source=parent_id,
+                            target=folder.id,
                             type="folder_membership",
                             relationship="contains",
                             origin="derived",
-                            weight=0.4,
+                            weight=0.35,
                         )
                     )
+            for note in notes:
+                folder = folder_by_key.get(
+                    (note.metadata.layer_id, note.metadata.folder_path)
+                )
+                if folder is None:
+                    continue
+                edges.append(
+                    GraphEdge(
+                        id=f"e_folder_{folder.id}_{note.metadata.id}",
+                        source=folder.id,
+                        target=note.metadata.id,
+                        type="folder_membership",
+                        relationship="contains",
+                        origin="derived",
+                        weight=0.4,
+                    )
+                )
 
         if include_tags:
             for note in notes:
@@ -245,12 +271,11 @@ class GraphService:
         return "note"
 
     @staticmethod
-    def _folder_id_for(note: Note) -> str | None:
-        if not note.metadata.folder_path:
+    def _parent_folder_path(path: str) -> str | None:
+        """Immediate parent folder path, or None for a top-level / empty path."""
+        if not path or "/" not in path:
             return None
-        from app.infrastructure.storage.markdown_store import note_id_for
-
-        return note_id_for(note.metadata.layer_id, note.metadata.folder_path + "/")
+        return path.rsplit("/", 1)[0]
 
     @staticmethod
     def _restrict_to_neighbourhood(

@@ -9,7 +9,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NoteMetadata } from "../bridge/types";
 import { FileTree } from "../features/explorer/FileTree";
 import { useStore } from "../state/store";
@@ -209,6 +209,202 @@ describe("FileTree drag and drop", () => {
     await waitFor(() => {
       const move = calls.find((call) => call.method === "move_note");
       expect(move?.payload).toMatchObject({ note_id: "n1", folder_path: "" });
+    });
+  });
+
+  it("reparents a dragged folder under another folder", async () => {
+    const calls = installRecording();
+    useStore.setState({
+      connection: "ready",
+      layers: [PUBLIC_LAYER],
+      tree: {
+        folders: [
+          {
+            id: "f1",
+            layer_id: "layer_a",
+            name: "Security",
+            path: "Security",
+            parent_id: null,
+          },
+          {
+            id: "f2",
+            layer_id: "layer_a",
+            name: "Archive",
+            path: "Archive",
+            parent_id: null,
+          },
+        ],
+        notes: [],
+        locked_layer_ids: [],
+      },
+      trash: [],
+      tabs: [],
+      dirty: {},
+      selectedIds: [],
+      openNote: null,
+      activeNoteId: null,
+      draft: null,
+    });
+    render(<FileTree />);
+
+    const archiveRow = screen.getByText("Archive").closest("[role=treeitem]")!;
+    fireEvent.drop(archiveRow, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) =>
+          type === "text/strata-folder"
+            ? JSON.stringify({
+                id: "f1",
+                layerId: "layer_a",
+                path: "Security",
+              })
+            : "",
+      },
+    });
+
+    await waitFor(() => {
+      const move = calls.find((call) => call.method === "move_folder");
+      expect(move?.payload).toMatchObject({
+        folder_id: "f1",
+        parent_folder_path: "Archive",
+      });
+    });
+  });
+});
+
+describe("FileTree density, keyboard, and trash", () => {
+  beforeEach(() => {
+    installFakeBridge();
+    seed();
+  });
+
+  it("toggles List / Large density on the Files panel", async () => {
+    const user = userEvent.setup();
+    render(<FileTree />);
+
+    const panel = screen.getByLabelText("Files");
+    expect(panel).toHaveAttribute("data-density", "list");
+
+    await user.click(screen.getByTitle("Large icons"));
+    expect(panel).toHaveAttribute("data-density", "large");
+
+    await user.click(screen.getByTitle("List view"));
+    expect(panel).toHaveAttribute("data-density", "list");
+  });
+
+  it("freezes drag and drop on the Files panel", async () => {
+    const user = userEvent.setup();
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const panel = screen.getByLabelText("Files");
+    expect(panel).toHaveAttribute("data-frozen", "false");
+
+    await user.click(screen.getByTitle("Freeze — disable drag and drop"));
+    expect(panel).toHaveAttribute("data-frozen", "true");
+
+    fireEvent.drop(screen.getByText("Security").closest("[role=treeitem]")!, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) => (type === "text/strata-note" ? "n1" : ""),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.find((call) => call.method === "move_note")).toBeUndefined();
+
+    await user.click(screen.getByTitle("Unfreeze — allow drag and drop"));
+    expect(panel).toHaveAttribute("data-frozen", "false");
+  });
+
+  it("renames a folder with F2 and expands/collapses with Enter", async () => {
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const folder = screen
+      .getByText("Security")
+      .closest("[role=treeitem]") as HTMLElement;
+    folder.focus();
+    fireEvent.keyDown(folder, { key: "Enter" });
+    expect(folder).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.keyDown(folder, { key: "Enter" });
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.keyDown(folder, { key: "F2" });
+    const input = await screen.findByLabelText("Folder name");
+    fireEvent.change(input, { target: { value: "Safety" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      const renamed = calls.find((call) => call.method === "rename_folder");
+      expect(renamed?.payload).toMatchObject({
+        folder_id: "f1",
+        name: "Safety",
+      });
+    });
+  });
+
+  it("duplicates a focused note with Ctrl+D", async () => {
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const note = screen
+      .getByText("Encryption Architecture")
+      .closest("[role=treeitem]") as HTMLElement;
+    note.focus();
+    fireEvent.keyDown(note, { key: "d", ctrlKey: true });
+
+    await waitFor(() => {
+      const duplicated = calls.find((call) => call.method === "duplicate_note");
+      expect(duplicated?.payload).toMatchObject({ note_id: "n1" });
+    });
+  });
+
+  it("empties the trash after confirmation", async () => {
+    const calls = installRecording();
+    useStore.setState({
+      trash: [
+        {
+          entry: "layer_a__gone.md",
+          title: "Gone",
+          layer_id: "layer_a",
+          folder_path: "",
+        },
+      ],
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const user = userEvent.setup();
+    render(<FileTree />);
+
+    await user.click(screen.getByRole("button", { name: "Empty trash" }));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(calls.some((call) => call.method === "empty_trash")).toBe(true);
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("deletes a folder with Delete", async () => {
+    const calls = installRecording();
+    seed();
+    render(<FileTree />);
+
+    const folder = screen
+      .getByText("Security")
+      .closest("[role=treeitem]") as HTMLElement;
+    folder.focus();
+    fireEvent.keyDown(folder, { key: "Delete" });
+
+    await waitFor(() => {
+      const deleted = calls.find((call) => call.method === "delete_folder");
+      expect(deleted?.payload).toMatchObject({ folder_id: "f1" });
     });
   });
 });

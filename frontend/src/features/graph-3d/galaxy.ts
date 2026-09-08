@@ -10,7 +10,14 @@
 import * as THREE from "three";
 import type { GraphEdge, GraphNode } from "../../bridge/types";
 import type { Positions } from "../graph/useGraphLayout";
-import { edgeColor, glowColor, nodeRadius } from "../graph/nodeStyle";
+import {
+  edgeColor,
+  edgeIsLit,
+  glowColor,
+  neighborIds,
+  nodeRadius,
+} from "../graph/nodeStyle";
+import { edgeControlPoint, edgeSalt } from "./edgeCurves";
 
 /** Deterministic PRNG (mulberry32): same seed, same galaxy, stable frames. */
 export function mulberry32(seed: number): () => number {
@@ -156,8 +163,10 @@ export function buildNodeGlow(
   positions: Positions,
   selectedIds: Set<string>,
   scale: number,
+  edges: GraphEdge[] = [],
 ): GlowData {
   const placed = nodes.filter((node) => positions[node.id] !== undefined);
+  const connected = neighborIds(edges, selectedIds);
   const out: GlowData = {
     positions: new Float32Array(placed.length * 3),
     colors: new Float32Array(placed.length * 3),
@@ -172,11 +181,13 @@ export function buildNodeGlow(
     out.positions[i * 3 + 1] = p[1] * scale;
     out.positions[i * 3 + 2] = p[2] * scale;
     const isSelected = selectedIds.has(node.id);
-    color.set(glowColor(node, isSelected));
+    const isConnected = connected.has(node.id);
+    color.set(glowColor(node, isSelected, isConnected));
     out.colors[i * 3] = color.r;
     out.colors[i * 3 + 1] = color.g;
     out.colors[i * 3 + 2] = color.b;
-    out.sizes[i] = nodeRadius(node) * (isSelected ? 3.4 : 2.2);
+    out.sizes[i] =
+      nodeRadius(node) * (isSelected ? 5.2 : isConnected ? 3.4 : 2.2);
     out.selected[i] = isSelected ? 1 : 0;
   });
   return out;
@@ -186,6 +197,7 @@ export interface EdgeParticleData {
   /** Named `position` for THREE; holds each particle's start point. */
   starts: Float32Array;
   ends: Float32Array;
+  controls: Float32Array;
   colors: Float32Array;
   offsets: Float32Array;
   speeds: Float32Array;
@@ -193,9 +205,9 @@ export interface EdgeParticleData {
 }
 
 /**
- * Particles that flow along edges. Start/end/phase are baked into attributes;
- * the vertex shader moves them, so animating 6,000 particles is one uniform
- * write per frame.
+ * Particles that flow along edges. Start/control/end/phase are baked into
+ * attributes; the vertex shader walks a quadratic Bézier, so animating
+ * thousands of particles is one uniform write per frame.
  */
 export function buildEdgeParticles(
   edges: GraphEdge[],
@@ -214,6 +226,7 @@ export function buildEdgeParticles(
   const out: EdgeParticleData = {
     starts: new Float32Array(total * 3),
     ends: new Float32Array(total * 3),
+    controls: new Float32Array(total * 3),
     colors: new Float32Array(total * 3),
     offsets: new Float32Array(total),
     speeds: new Float32Array(total),
@@ -224,13 +237,31 @@ export function buildEdgeParticles(
     const edge = valid[i % valid.length]!;
     const from = positions[edge.source]!;
     const to = positions[edge.target]!;
-    out.starts[i * 3] = from[0] * scale;
-    out.starts[i * 3 + 1] = from[1] * scale;
-    out.starts[i * 3 + 2] = from[2] * scale;
-    out.ends[i * 3] = to[0] * scale;
-    out.ends[i * 3 + 1] = to[1] * scale;
-    out.ends[i * 3 + 2] = to[2] * scale;
-    const lit = selectedIds.has(edge.source) && selectedIds.has(edge.target);
+    const ax = from[0] * scale;
+    const ay = from[1] * scale;
+    const az = from[2] * scale;
+    const bx = to[0] * scale;
+    const by = to[1] * scale;
+    const bz = to[2] * scale;
+    const [cx, cy, cz] = edgeControlPoint(
+      ax,
+      ay,
+      az,
+      bx,
+      by,
+      bz,
+      edgeSalt(edge.source, edge.target),
+    );
+    out.starts[i * 3] = ax;
+    out.starts[i * 3 + 1] = ay;
+    out.starts[i * 3 + 2] = az;
+    out.ends[i * 3] = bx;
+    out.ends[i * 3 + 1] = by;
+    out.ends[i * 3 + 2] = bz;
+    out.controls[i * 3] = cx;
+    out.controls[i * 3 + 1] = cy;
+    out.controls[i * 3 + 2] = cz;
+    const lit = edgeIsLit(edge, selectedIds);
     color.set(edgeColor(lit, edge.origin));
     // Lit constellation edges carry brighter, faster traffic.
     const boost = lit ? 1.6 : 1.0;

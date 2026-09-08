@@ -14,11 +14,26 @@ import { useStore } from "../../state/store";
 import { CredentialDialog } from "./CredentialDialog";
 
 export function ProviderSelector(): JSX.Element {
-  const { providers, providerId, setProvider, policy, keychainAvailable } =
-    useStore();
+  const {
+    providers,
+    providerId,
+    setProvider,
+    policy,
+    keychainAvailable,
+    model,
+    setModel,
+    providerModels,
+    providerReachable,
+    providerHealthDetail,
+  } = useStore();
   const [configuring, setConfiguring] = useState<ProviderView | null>(null);
 
   const selected = providers.find((p) => p.provider_id === providerId);
+  const modelIds = providerModels.map((entry) => entry.id);
+  const modelOptions =
+    model && !modelIds.includes(model)
+      ? [{ id: model, display_name: model }, ...providerModels]
+      : providerModels;
 
   return (
     <div className="providers">
@@ -67,6 +82,41 @@ export function ProviderSelector(): JSX.Element {
           );
         })}
       </ul>
+
+      {selected && (
+        <label className="providers__model">
+          <span className="label">Model</span>
+          {modelOptions.length > 0 ? (
+            <select
+              className="select"
+              value={model}
+              aria-label="Model"
+              onChange={(event) => setModel(event.target.value)}
+            >
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.display_name || entry.id}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="input"
+              value={model}
+              aria-label="Model"
+              placeholder="qwythos"
+              onChange={(event) => setModel(event.target.value)}
+            />
+          )}
+        </label>
+      )}
+
+      {selected && providerReachable === false && (
+        <p className="providers__notice" role="status">
+          {providerHealthDetail ||
+            `${selected.display_name} is not reachable. Is it running?`}
+        </p>
+      )}
 
       {selected && (
         <p className="providers__note">

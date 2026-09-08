@@ -10,6 +10,8 @@
 
 import type {
   BridgeError,
+  BrowserStatus,
+  BrowserTab,
   CollaborationState,
   ConflictRecord,
   ContentMode,
@@ -276,7 +278,12 @@ export const bridge = {
       call<{ layer: LayerDescriptor; recovery_key: string | null }>(
         "layers",
         "create_layer",
-        { display_name, visibility, password, with_recovery_key },
+        {
+          display_name,
+          visibility,
+          password,
+          with_recovery_key,
+        },
       ),
     rename: (layer_id: string, display_name: string) =>
       call<{ layer: LayerDescriptor }>("layers", "rename_layer", {
@@ -284,10 +291,15 @@ export const bridge = {
         display_name,
       }),
 
-    unlock: (layer_id: string, password: string) =>
+    unlock: (
+      layer_id: string,
+      password: string,
+      remember_on_this_device = false,
+    ) =>
       call<{ layer: LayerDescriptor }>("layers", "unlock_layer", {
         layer_id,
         password,
+        remember_on_this_device,
       }),
     unlockWithRecoveryKey: (layer_id: string, recovery_key: string) =>
       call<{ layer: LayerDescriptor }>("layers", "unlock_with_recovery_key", {
@@ -319,6 +331,10 @@ export const bridge = {
         "rotate_key",
         { layer_id, password },
       ),
+    forgetSavedPassword: (layer_id: string) =>
+      call<{ layer: LayerDescriptor }>("layers", "forget_saved_password", {
+        layer_id,
+      }),
     setAIPolicy: (layer_id: string, policy: LayerAIPolicy) =>
       call<{ layer: LayerDescriptor }>("layers", "set_ai_policy", {
         layer_id,
@@ -376,6 +392,11 @@ export const bridge = {
       call<{ folder: TreeFolder }>("notes", "rename_folder", {
         folder_id,
         name,
+      }),
+    moveFolder: (folder_id: string, parent_folder_path: string) =>
+      call<{ folder: TreeFolder }>("notes", "move_folder", {
+        folder_id,
+        parent_folder_path,
       }),
     deleteFolder: (folder_id: string) =>
       call<{ count: number }>("notes", "delete_folder", { folder_id }),
@@ -592,6 +613,14 @@ export const bridge = {
       confirmed_remote?: boolean;
       profile?: "general" | "meeting";
     }) => call<{ request_id: string }>("operations", "process_notes", request),
+    fileResearch: (request: {
+      provider_id: string;
+      model: string;
+      note_ids: string[];
+      layer_ids: string[];
+      target_layer_id?: string;
+      confirmed_remote?: boolean;
+    }) => call<{ request_id: string }>("operations", "file_research", request),
     synthesizeNotes: (request: {
       provider_id: string;
       model: string;
@@ -634,6 +663,41 @@ export const bridge = {
     auditLog: () => call<{ entries: AppliedPlan[] }>("operations", "audit_log"),
     onPlan: (listener: (payload: string) => void) =>
       subscribe("operations", "planEvent", listener),
+  },
+
+  // Browser research. Every one of these is refused unless the user has turned
+  // browser control on in Settings; `getStatus` answers regardless, because the
+  // panel has to be able to say why it is unavailable.
+  browser: {
+    getStatus: () =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "get_status",
+      ),
+    launch: () =>
+      call<{ status: BrowserStatus; engines: string[] }>("browser", "launch"),
+    search: (query: string, engine = "") =>
+      call<{ tab: BrowserTab }>("browser", "search", { query, engine }),
+    openUrl: (url: string) =>
+      call<{ tab: BrowserTab }>("browser", "open_url", { url }),
+    listTabs: () => call<{ tabs: BrowserTab[] }>("browser", "list_tabs"),
+    closeBrowser: () =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "close_browser",
+      ),
+    // Reading is asynchronous — extraction runs in the page, and a page can be
+    // slow or hostile. Both of these start a read and answer on `onPage`;
+    // `scrapeTab` never writes, `captureTab` files the result as a capture.
+    scrapeTab: (target_id = "") =>
+      call<{ request_id: string }>("browser", "scrape_tab", { target_id }),
+    captureTab: (request: {
+      target_id?: string;
+      layer_id?: string;
+      capture_reason?: string;
+    }) => call<{ request_id: string }>("browser", "capture_tab", request),
+    onPage: (listener: (payload: string) => void) =>
+      subscribe("browser", "pageEvent", listener),
   },
 
   snapshots: {

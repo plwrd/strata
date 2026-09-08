@@ -15,6 +15,7 @@ planned but not yet reachable from the UI, the guide says so explicitly.
 1. [Starting Strata](#1-starting-strata)
 2. [The window](#2-the-window)
 3. [Layers: public, private, locked](#3-layers-public-private-locked)
+3¾. [Browser research](#3%C2%BE-browser-research)
 4. [Files and folders](#4-files-and-folders)
 5. [Drag and drop](#5-drag-and-drop)
 6. [Writing notes](#6-writing-notes)
@@ -53,6 +54,16 @@ directory on disk: you can back it up, put it in Git, or copy it to a USB
 stick. There is currently no workspace picker in the UI — one default
 workspace opens on launch.
 
+### First-run tutorial
+
+The first time Strata opens with a fresh settings file, a short **interactive
+tour** walks through the shell: modes, Layers, writing, the graph,
+and AI selection privacy. Skip it with Escape or the Skip button; finish it
+with Finish. Either way it will not auto-open again.
+
+Replay anytime from **More → Tutorial** in the command bar. The seeded
+**Start Here** note (in a new workspace) remains the longer, in-note walkthrough.
+
 ---
 
 ## 2. The window
@@ -83,13 +94,14 @@ The command bar switches the centre stage between four modes:
 | **Focus** | "Read and write" | The Markdown editor with its tab bar. |
 | **Explore** | "Navigate the graph" | The knowledge graph (3D or 2D). |
 | **Views** | "Table, kanban, calendar, timeline" | Database-style views over your notes. |
-| **Command** | "AI and bulk operations" | The graph, with the **Changes** inspector active for AI operation plans. |
+| **Command** | "AI and bulk operations" | The Command workspace: propose changes, review the plan, apply or undo. |
 
 The **2D / 3D** segmented control chooses the graph dimension. Strata falls
 back to 2D automatically when the machine has no WebGL or when graph quality
 is set to `low-gpu` — a notice explains the fallback when it happens.
 
-The **Motion** button toggles reduced motion: with it on, decorative animation
+The **Motion** preference (Command bar → More → Settings) chooses full,
+reduced, or system motion: with reduced on, decorative animation
 (auto-rotation, twinkling, particles, pulses) stops while every state signal
 stays visible statically.
 
@@ -98,8 +110,9 @@ stays visible statically.
 - **Navigator** (left): Layers, Files, Search, Collaboration, and the Graph
   list — a fully keyboard-accessible mirror of the graph.
 - **Inspector** (right): four tabs — **AI**, **Changes**, **Properties**,
-  **Links**. The active tab follows the mode (Focus → Properties, Command →
-  Changes, otherwise AI), and you can switch it manually at any time.
+  **Links**. The active tab follows the mode (Focus → Properties, otherwise
+  AI). In **Command** mode the Change and Ask tools live in the centre stage;
+  the matching inspector tabs point you there.
 - Both side panels collapse with the ◀ / ▶ toggles; on narrow windows they
   become drawers automatically.
 
@@ -179,12 +192,10 @@ version trails) are part of it and travel with it.
 
 ## 3½. Capture and the knowledge loop
 
-The **⇣ Capture** button in the command bar is the fastest way in: paste text
-(or import a page by URL) and it lands in the **Inbox/** folder as a raw
-capture — with the source URL, when you saved it, and *why* you kept it. New
-workspaces start with four conventional folders: **Inbox** (unprocessed
-material), **Knowledge** (processed concepts, people, decisions), **Reports**
-(finished AI-assisted outputs), and **Templates**.
+Raw captures land in the **Inbox/** folder — with the source URL, when you saved
+it, and *why* you kept it. New workspaces start with four conventional folders:
+**Inbox** (unprocessed material), **Knowledge** (processed concepts, people,
+decisions), **Reports** (finished AI-assisted outputs), and **Templates**.
 
 URL import fetches a page's *text* once, over a guarded fetch that refuses
 private and local addresses, redirects, and oversized pages. The page is stored
@@ -204,11 +215,99 @@ design; snapshots remain their recovery mechanism.
 
 ---
 
+## 3¾. Browser research
+
+The **Research** panel in the navigator is for the material that lives on the
+web rather than in your head. **Open browser pane** splits the window: your
+workspace on the left, a real browser on the right, with its own address bar,
+back and forward. It reaches the pages a plain fetch never could — the ones
+behind a login, and the ones that are blank until JavaScript runs — and it
+signs in once, because the pane keeps a profile of its own.
+
+It is **off until you turn it on** (Settings → Browser research). While it is
+off, every part of it refuses to run and the panel says so instead of failing.
+
+The loop:
+
+1. **Open browser pane.** The browser appears beside your workspace. Drag the
+   divider to resize it; **Close pane** puts it away.
+2. **Search.** Type a query, pick an engine, press Search. Strata builds the
+   URL and the *browser* goes there — no search API, no key, and no request
+   from Strata, so the engine sees an ordinary browser session. You can also
+   type straight into the pane's address bar.
+3. **Scrape page** reads what the pane is showing and gives you the text. It
+   writes nothing — this is a look, not a save.
+4. **Capture only** files that text into the Inbox as a raw, untrusted capture,
+   with its source URL, exactly like URL import.
+5. **Analyse & file** does the interesting part, described below.
+
+### When the pane is not enough
+
+The pane cannot load Chrome extensions. That is not a setting we forgot: Qt
+ships Chromium without the extensions subsystem, so there is nothing to switch
+on. A few sign-in pages also refuse embedded browsers outright.
+
+For those, Settings → Browser research → **Browser** offers *Your own Chrome*.
+Strata then launches the Chrome you already have — your extensions, a profile
+Strata owns — and reads the tab you point it at instead. Everything else in
+this section works identically; the panel grows a tab picker, because Chrome
+has real tabs and the pane shows one page.
+
+### Analyse & file
+
+Tick the layers this research concerns — public, private, or both — and Strata
+searches *only* those layers for the nodes the page relates to. The model is
+shown that shortlist and nothing else, and is asked one question: where does
+this belong? What comes back is a proposal:
+
+- **relationships** from the capture to the existing nodes it extends;
+- **subnodes** — new pages filed under a matched node, inheriting its layer and
+  folder, linked back with `parent::`;
+- **added context** — a short section appended to a node that was already about
+  this, under a line naming the source, the execution, and the words
+  *ai-inferred, unverified*, so nobody months later mistakes it for something
+  you wrote.
+
+Two limits are worth knowing because they are what makes this safe to run on
+notes you care about. A node the retrieval step never offered **cannot** be
+touched, even if the page tries hard to name one — an unknown id is dropped, not
+looked up. And nothing outside the layers you ticked can be touched at all.
+
+Nothing is written yet. The proposal arrives in the **Changes** tab as an
+ordinary plan: read the diff, tick what you want, apply it in one transaction,
+undo it if you were wrong (§13).
+
+### What this costs you
+
+A browser Strata can read is a browser Strata can read *everything* in. That is
+the trade in both modes, and it is why the feature ships off and why it reads
+one page at a time, when you ask.
+
+The pane keeps your research sign-ins in a cookie store inside Strata's data
+directory. It shares nothing with the Strata UI's own profile — different
+cookie jar, different cache, no bridge on that page, and it cannot navigate to
+`strata://` or `file://` — but an attacker holding your disk gets those
+sessions, exactly as they would from any browser profile.
+
+The Chrome mode adds one more: a loopback debugging port, which is not an
+access-control boundary. While that window is open, anything running as you can
+drive it. That is a property of Chrome's protocol, not something Strata can
+fix, which is why it is not the default. Strata closes whichever browser it
+started when you close the window. See THREAT_MODEL.md T-34.
+
+---
+
 ## 4. Files and folders
 
 The **Files** panel is a real tree over the real folders on disk. In a public
 layer, what you see is literally the directory structure — rename a folder in
 Strata and the directory on disk is renamed.
+
+Use the **List** / **Large** toggle in the Files header to switch between a
+compact tree and taller rows with larger folder and note icons. **Freeze**
+locks the tree so drag-and-drop moves and OS file drops are disabled until you
+unfreeze. Right-click a layer, folder, note, or the Trash section for a
+context menu of the same actions (plus Empty trash).
 
 Each layer has its own section, headed by the layer's name. Hover the layer
 name for its actions:
@@ -245,6 +344,10 @@ while you hover over it:
 layer's *name* to move it to the layer root. The move is validated by the
 Python backend, which re-checks the destination path — a dragged note cannot
 escape its layer or be dropped somewhere unsafe.
+
+**Moving folders.** Drag a folder onto another folder to nest it as a subfolder,
+or onto a layer's name to move it to the layer root. A folder cannot be dropped
+into itself or into one of its descendants, and it cannot leave its layer.
 
 **Importing files from your computer.** Drag files from your file manager
 (Explorer, Finder, …) onto a folder or a layer name:
@@ -364,9 +467,9 @@ how many layers were excluded.
 - **Similar to this** (shown while a note is open) finds the open note's
   semantic neighbours.
 
-Results are selectable — click to select the note in the graph/composer,
-`Ctrl+click` to add, or **Select all** to select every result. Search is the
-fastest way to build an AI context selection.
+Click a result to open it in the editor. `Ctrl/Cmd+click` adds it to the
+graph/composer selection, or use **Select all** for every result. Search is
+also a fast way to build an AI context selection.
 
 ---
 
@@ -382,7 +485,9 @@ redacted marker — nothing about its contents leaks into the picture.
 Selection is the graph's central verb — it drives the AI composer, exports,
 and bulk operations.
 
-- **Click** — select a node. **Ctrl+click** — add/remove from the selection.
+- **Click** — select a node and show it in the **3D** galaxy (switches from
+  2D when 3D is available; the camera flies to the node). **Ctrl+click** —
+  add/remove from the selection without changing the view.
 - **Shift+click** — select the *shortest path* between the anchor and the
   clicked node.
 - **Double-click** — open the note in the editor.
@@ -396,6 +501,51 @@ path between the first and last selected nodes).
 The toolbar also toggles **Semantic edges** (AI-inferred similarity edges) and
 **Cluster colours** (colour nodes by semantic cluster).
 
+### Navigating the 2D graph (step by step)
+
+When the command bar is set to **2D** (or Strata has fallen back from 3D), the
+stage shows a flat canvas of the same graph. Use this sequence the first time
+you explore it:
+
+1. **Switch to Explore + 2D.** Click **Explore** in the command bar, then the
+   **2D** segment (next to **3D**). The graph fills the stage; a small zoom
+   toolbar appears at the bottom-right.
+2. **Read the fit view.** At **100%**, the whole layout is fitted into the
+   canvas with a margin. Labels appear on hubs and selected nodes.
+3. **Zoom in.** Either:
+   - click **+** on the zoom toolbar, or
+   - scroll the mouse wheel **up**.
+
+   Zoom always grows from the **centre of the view** (not from the cursor), so
+   the middle of the canvas stays put while the graph enlarges around it.
+4. **Zoom out.** Click **−**, or scroll the wheel **down**. The level readout
+   (e.g. `125%`) updates as you go. Zoom is clamped between about 40% and 800%.
+5. **Pan to look around.** After zooming in, click empty space (not on a node)
+   and drag. The graph slides under the view so you can inspect regions that
+   left the centre.
+6. **Fit everything again.** Click **Fit** on the zoom toolbar to reset to
+   100% and clear any pan — back to the full overview.
+7. **Select while zoomed.** Click a node to select it; **Ctrl+click** to
+   add/remove. Selection still drives the AI composer and exports the same way
+   as in 3D.
+8. **Lasso a region.** Hold **Shift**, drag a rectangle over several nodes,
+   then release. Hold **Ctrl** as well to *add* those nodes to the current
+   selection instead of replacing it.
+9. **Open a note.** Double-click a node to open it in the editor (Focus mode).
+
+**Quick reference (2D only)**
+
+| Action | How |
+| --- | --- |
+| Zoom in | **+** button or scroll wheel up |
+| Zoom out | **−** button or scroll wheel down |
+| Reset view | **Fit** button |
+| Pan | Drag empty canvas |
+| Lasso select | **Shift+drag** (add with **Ctrl**) |
+
+The hint under the graph controls restates the essentials:
+*scroll to zoom · drag empty space to pan · shift-drag to lasso*.
+
 ### The accessible graph
 
 The **Graph list** in the navigator is the same graph as a real tree — for
@@ -408,22 +558,25 @@ announced as such.
 ## 10. The 3D galaxy
 
 In 3D, the graph is rendered as a galaxy: nodes are glowing stars, edges are
-lines of light with particles flowing along them, behind everything a
+soft Bézier arcs of light with particles flowing along them, behind everything a
 starfield drifts and faint nebula clouds breathe. The scene is engineered to
 stay smooth at ten thousand nodes.
 
 What the visuals *mean*:
 
-- **Node colour and size** encode type and importance; selected nodes ignite
-  gold and pulse.
+- **Node colour and size** encode type and importance; selected nodes warm to
+  a soft gold core with a brighter ignition glow.
 - **Hover** a node and it swells, its name appears, its connections light up,
   and the cursor becomes a hand — you can see a node's neighbourhood without
   committing to a selection.
-- **Select** a node and the camera glides over and re-centres on it; the
-  flight eases out and then stops, so it never fights your own navigation.
-  With several nodes selected, edges *between* selected nodes burn brightest —
-  the "constellation" is exactly the shape you are about to send to a model —
-  while unrelated edges recede.
+- **Select** a node (canvas or Graph list) and the camera flies in and
+  re-centres on that star when you are already in **3D**. The flight eases
+  out and then stops, so it never fights your own navigation.
+  Staying in **2D** keeps you in 2D — use the 2D/3D control to switch views.
+  Edges that touch the selection light bright red, and every one-hop neighbour
+  shifts to the same red so the local constellation is obvious at a glance.
+  With several nodes selected, the shared neighbourhood stays lit while
+  unrelated edges stay dark gray.
 - **Labels** name the landmarks: selected and hovered nodes always, then the
   most-connected hubs.
 - The galaxy **auto-rotates while idle** and holds still the moment you select
@@ -505,6 +658,10 @@ Strata routes requests to a provider you configure — each is labelled
 | OpenAI-compatible endpoint | remote | none |
 | Claude CLI | remote¹ | none |
 
+The local default is **Qwythos-9B** ([GGUF](https://huggingface.co/empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF)), served as the Ollama tag `qwythos`. Pick any installed model from the composer dropdown. llama.cpp is probed on port **8080**, then **8088** (the blueteam harness port) if 8080 is down.
+
+Qwythos is a reasoning model: Strata enables thinking-mode sampling and **strips** `<think>` / `reasoning_content` so the composer shows the answer, not the chain of thought. Use temperature around 0.6 — greedy decoding loops on this family.
+
 ¹ The Claude CLI runs on your machine but sends content to Anthropic, so
 Strata counts it as remote — the policy gate treats it accordingly.
 
@@ -574,7 +731,7 @@ Strata.
 
 ## 13. AI operations: reorganise and generate notes
 
-The **Changes** inspector tab (front and centre in **Command** mode) lets a
+The **Command** stage (and the **Changes** inspector tab in other modes) lets a
 model *change* the workspace — under a review-first contract: **the model
 proposes; only you apply.**
 
@@ -652,8 +809,8 @@ panel (*"n conflict(s) — nothing was lost"*) with explicit choices such as
 
 - **Trash, not deletion.** Deleting a note or folder moves it to the
   workspace trash. The **Trash (n)** section at the bottom of the file tree
-  lists entries with a **Restore** button. (Emptying the trash is not yet
-  exposed in the UI — trashed files simply remain recoverable.)
+  lists entries with a **Restore** button. **Empty trash** permanently deletes
+  every entry after a confirmation — that cannot be undone.
 - **Snapshots before AI applies.** Every applied operation plan takes a
   snapshot first; **Undo** restores it.
 - **Transactional applies.** A plan applies fully or not at all.
@@ -664,21 +821,38 @@ panel (*"n conflict(s) — nothing was lost"*) with explicit choices such as
 
 ## 17. Settings
 
-Settings exposed in the UI:
+Settings exposed in the UI via **Command bar → More → Settings**:
 
-| Setting | Where |
+| Setting | Notes |
 | --- | --- |
-| Motion (full / reduced) | Command bar toggle |
-| Semantic edges, cluster colours | Graph controls |
-| Semantic search | Search panel checkbox |
-| Sync relay URL | Collaboration panel |
+| **Templates** | Cyberpunk Dark / Dim, High contrast, Ember, Forest, Slate |
+| **Typography** | Body / display / mono fonts; UI scale (Small–XL) |
+| **Colours** | Whitelisted token pickers (surfaces, text, accents, status, graph) |
+| Motion | Full / Reduced / System |
+| Graph quality | High / Balanced / Low GPU |
+| Particles / Bloom | Graph chrome toggles |
+| **Hidden for sharing** | Screen-capture exclusion (see below) |
+
+Choosing a **template** resets custom colours to that pack (fonts and UI scale
+stay). Colour overrides — including **connected** and **idle** graph edges —
+layer on top of the template. A “Customized” badge appears when any colour
+override is set.
+
+Semantic edges and cluster colours live under Graph controls. Semantic search
+is a Search panel checkbox. Sync relay URL is in the Collaboration panel.
+
+**Hidden for sharing** (Signal-style, **on by default**) asks the OS to exclude
+the *entire* Strata window from screenshots and screen shares. You still see the
+app normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
+do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
+`WDA_MONITOR` on older builds. Turn it off in Settings if you need to demo or
+record Strata itself.
 
 Further settings live in a JSON settings file in the OS config directory and
-are currently **edited by hand**, not in the UI: appearance theme
-(`cyberpunk-dark` / `cyberpunk-dim` / `high-contrast`), `graph_quality`
-(`high` / `balanced` / `low-gpu`), `particles_enabled`, `bloom_enabled`,
-`battery_saver`, AI defaults (provider, model, base URLs, Claude CLI path,
-token limits), and `telemetry_enabled` (off by default).
+are currently **edited by hand**, not in the UI: AI defaults (provider, model,
+base URLs, Claude CLI path, token limits), and `telemetry_enabled` (off by
+default). `battery_saver` is a Settings toggle: it forces the low-GPU graph
+path (2D, fewer layout ticks).
 
 Per-layer AI policy (what a model may read, summarise, or edit per layer) is
 enforced by the backend with safe defaults — new layers allow **local-only**
@@ -694,13 +868,24 @@ Strata's shortcuts are scoped to the panel you are in.
 | Context | Keys | Action |
 | --- | --- | --- |
 | Anywhere | `Ctrl/Cmd+N` | New note (in the first unlocked layer) |
+| Anywhere | `Ctrl/Cmd+,` | Open / close Settings |
+| Anywhere | `Ctrl/Cmd+Shift+H` | Toggle **Hidden for sharing** (§17) — the one setting you need *before* you start sharing a screen, not after |
+| Anywhere | `Ctrl/Cmd+Shift+B` | Open / close the research browser pane (§3¾) |
 | Editor | `Ctrl/Cmd+S` | Save now |
+| Editor | `Ctrl/Cmd+W` | Close the active tab |
+| Editor | `Ctrl/Cmd+Shift+T` | Reopen the last closed tab |
 | Editor | `Ctrl/Cmd+click` on `[[link]]` | Open the linked note |
 | Editor | `Ctrl/Cmd+Z` / `Ctrl/Cmd+Y` | Undo / redo |
 | Editor | `Ctrl/Cmd+F` | Find in note |
+| File tree | `↑` `↓` | Move focus |
+| File tree (folder focused) | `←` / `→` | Collapse / expand (or move to parent / child) |
+| File tree (folder focused) | `Enter` | Expand / collapse |
+| File tree (folder focused) | `F2` | Rename |
+| File tree (folder focused) | `Delete` | Move folder and its notes to trash |
 | File tree (note focused) | `Enter` | Open |
 | File tree (note focused) | `F2` | Rename |
 | File tree (note focused) | `Delete` | Move to trash |
+| File tree (note focused) | `Ctrl/Cmd+D` | Duplicate |
 | Rename fields | `Enter` / `Esc` | Commit / cancel |
 | Graph list | `↑` `↓` | Move focus |
 | Graph list | `Enter` | Open note |
@@ -709,6 +894,9 @@ Strata's shortcuts are scoped to the panel you are in.
 | Graph & lists | `Ctrl/Cmd+click` | Add/remove from selection |
 | Graph | `Shift+click` | Shortest-path selection |
 | 2D graph | `Shift+drag` | Lasso selection |
+| 2D graph | Scroll wheel | Zoom in / out (about view centre) |
+| 2D graph | Drag empty space | Pan the view |
+| 2D graph | Zoom toolbar `+` / `−` / `Fit` | Zoom in, out, or reset to fit |
 | Dialogs / menus | `Esc` | Close |
 
 ---
@@ -720,7 +908,9 @@ desktop shell. Start Strata with `python -m app.main`.
 
 **The 3D view doesn't appear.** Strata falls back to the 2D graph when WebGL
 is unavailable or graph quality is `low-gpu`. Everything except the galaxy
-rendering works identically in 2D.
+rendering works identically in 2D — including selection, lasso, and the zoom
+toolbar (**+** / **−** / **Fit**, scroll to zoom about the centre, drag empty
+space to pan). See [Navigating the 2D graph](#navigating-the-2d-graph-step-by-step).
 
 **"Ask" is greyed out.** Read the tooltip: either no provider is configured
 (add one in the AI tab, with an API key if required), or the policy gate

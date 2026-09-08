@@ -146,7 +146,11 @@ export function AIComposerPanel(): JSX.Element {
   };
 
   return (
-    <section className="composer" aria-label="AI Context Composer">
+    <section
+      className="composer"
+      aria-label="AI Context Composer"
+      data-tour="inspector-ai"
+    >
       <header className="composer__header">
         <h2 className="composer__title">AI Context Composer</h2>
         <span className="tag tag--ai">{summary.count} selected</span>
@@ -155,10 +159,8 @@ export function AIComposerPanel(): JSX.Element {
       {state.selectedIds.length === 0 ? (
         <div className="composer__body scroll-y">
           <p className="empty-state">
-            Select nodes in the graph, the tree or the search results — whatever
-            you illuminate is exactly what a model would see. Or just ask: with
-            nothing selected, retrieval picks a few relevant notes as context
-            and shows you which ones it used.
+            Select notes to build context, or ask with nothing selected —
+            retrieval will pick relevant sources.
           </p>
           <PromptLibraryPanel />
           <PromptEditor

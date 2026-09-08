@@ -1,0 +1,254 @@
+"""Browser research: drive the browser, read a page, keep what it said.
+
+The widening this represents is deliberate (THREAT_MODEL §6,
+docs/security-and-privacy.md §4). Everything here is refused outright unless
+``settings.browser_control_enabled`` is on, and every page that comes back is
+stored as an ordinary untrusted capture — the same shape URL import produces,
+reaching a model only through the usual policy gate.
+
+Two shapes of method, for two reasons:
+
+* **Navigation is synchronous.** Opening a page is a widget call or one loopback
+  request; it returns before the page has loaded, which is what a browser does.
+* **Reading is not.** Extraction runs *in* the page, and a page can be slow,
+  hostile, or gone. So ``scrape_tab``/``capture_tab`` return a request id and
+  deliver on ``pageEvent`` — the read happens on a worker thread, and the editor
+  stays responsive while it does.
+
+Reading is also split from capturing on purpose: ``scrape_tab`` shows you the
+text, ``capture_tab`` is what writes a note. A user who reads the wrong page
+sees it before anything lands in their workspace. The write itself is marshalled
+back onto the Qt thread, so no worker thread ever touches the note store.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict, Field
+from PySide6.QtCore import QObject, Qt, Signal, Slot
+
+from app.bridge.envelope import EmptyRequest, bridge_method
+from app.domain.browser import SEARCH_URLS, BrowserStatus, BrowserTab, ScrapedPage
+from app.domain.errors import StrataError
+from app.domain.ids import new_request_id
+from app.infrastructure.logging.logger import get_logger
+from app.services.container import Services
+
+logger = get_logger(__name__)
+
+MAX_CAPTURE_TITLE = 200
+
+
+class SearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=500)
+    engine: str = Field(default="", max_length=32)
+
+
+class OpenUrlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class ReadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_id: str = Field(default="", max_length=256)
+    # Capture only. Ignored by `scrape_tab`, which never writes.
+    layer_id: str = Field(default="", max_length=128)
+    capture_reason: str = Field(default="", max_length=500)
+
+
+class StatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: BrowserStatus
+    engines: list[str] = Field(default_factory=list)
+
+
+class TabResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tab: BrowserTab
+
+
+class TabListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tabs: list[BrowserTab] = Field(default_factory=list)
+
+
+class ReadStartedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+
+
+@dataclass
+class _PendingRead:
+    """One in-flight read. Written by its worker, read on the Qt thread."""
+
+    target_id: str
+    capture: bool
+    layer_id: str = ""
+    capture_reason: str = ""
+    page: ScrapedPage | None = None
+    error: str = ""
+
+
+class BrowserBridge(QObject):
+    """The controlled browser, exposed to the frontend.
+
+    ``pageEvent`` is the only push channel: it carries a page's text — untrusted
+    data the frontend renders as text — and never anything from a layer.
+    """
+
+    pageEvent = Signal(str)
+    # Internal hop from the reading thread back to the Qt thread, so the capture
+    # (a filesystem write) happens where every other write happens.
+    _readFinished = Signal(str)
+
+    def __init__(self, services: Services, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._services = services
+        self._pending: dict[str, _PendingRead] = {}
+        self._readFinished.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+
+    # -- state ---------------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def get_status(self, _request: EmptyRequest) -> StatusResponse:
+        """Answers even when the feature is off — the UI needs to say *why*."""
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def launch(self, _request: EmptyRequest) -> StatusResponse:
+        """Open the pane, or start Chrome — whichever backend is configured."""
+        return StatusResponse(
+            status=self._services.browser.launch(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def close_browser(self, _request: EmptyRequest) -> StatusResponse:
+        """Close the pane, or stop the Chrome Strata started."""
+        self._services.browser.close()
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    # -- navigation ----------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(SearchRequest)
+    def search(self, request: SearchRequest) -> TabResponse:
+        """Search is navigation: the query becomes a URL the browser goes to.
+
+        Strata makes no request of its own, so no search API is involved — the
+        engine sees an ordinary browser session."""
+        return TabResponse(tab=self._services.browser.search(request.query, request.engine))
+
+    @Slot(str, result=str)
+    @bridge_method(OpenUrlRequest)
+    def open_url(self, request: OpenUrlRequest) -> TabResponse:
+        return TabResponse(tab=self._services.browser.open_url(request.url))
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def list_tabs(self, _request: EmptyRequest) -> TabListResponse:
+        return TabListResponse(tabs=self._services.browser.tabs())
+
+    # -- reading -------------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(ReadRequest)
+    def scrape_tab(self, request: ReadRequest) -> ReadStartedResponse:
+        """Read a page without writing anything. Look before you file."""
+        return self._start(request, capture=False)
+
+    @Slot(str, result=str)
+    @bridge_method(ReadRequest)
+    def capture_tab(self, request: ReadRequest) -> ReadStartedResponse:
+        """Read a page and file it as a raw capture in the chosen layer."""
+        return self._start(request, capture=True)
+
+    def _start(self, request: ReadRequest, *, capture: bool) -> ReadStartedResponse:
+        # The gate is enforced here, on the calling thread, so a disabled feature
+        # is a plain refusal rather than an event nobody is listening for yet.
+        self._services.browser.require_enabled()
+        request_id = new_request_id()
+        self._pending[request_id] = _PendingRead(
+            target_id=request.target_id,
+            capture=capture,
+            layer_id=request.layer_id,
+            capture_reason=request.capture_reason,
+        )
+        thread = threading.Thread(target=self._read, args=(request_id,), daemon=True)
+        thread.start()
+        return ReadStartedResponse(request_id=request_id)
+
+    def _read(self, request_id: str) -> None:
+        """On a worker thread: extraction takes as long as the page takes."""
+        pending = self._pending.get(request_id)
+        if pending is None:
+            return
+        try:
+            pending.page = self._services.browser.read_page(pending.target_id)
+        except StrataError as exc:
+            pending.error = exc.message
+        except Exception:  # a bug here must not strand the caller in silence
+            logger.info("browser.read_failed")
+            pending.error = "The page could not be read."
+        self._readFinished.emit(request_id)
+
+    @Slot(str)
+    def _deliver(self, request_id: str) -> None:
+        """Back on the Qt thread: capture if asked, then tell the frontend."""
+        pending = self._pending.pop(request_id, None)
+        if pending is None:
+            return
+        if pending.error or pending.page is None:
+            self._emit(request_id, {"kind": "error", "error": pending.error or "The read failed."})
+            return
+
+        page = pending.page
+        if not pending.capture:
+            self._emit(request_id, {"kind": "page", "page": page.model_dump()})
+            return
+
+        try:
+            note = self._services.capture.capture(
+                content=page.text,
+                title=page.title[:MAX_CAPTURE_TITLE],
+                layer_id=pending.layer_id,
+                source_url=page.url,
+                capture_reason=pending.capture_reason,
+            )
+        except StrataError as exc:
+            self._emit(request_id, {"kind": "error", "error": exc.message})
+            return
+
+        self._services.watcher.announce("strata")
+        self._emit(
+            request_id,
+            {
+                "kind": "page",
+                "page": page.model_copy(update={"note_id": note.metadata.id}).model_dump(),
+                "note": note.model_dump(),
+            },
+        )
+
+    def _emit(self, request_id: str, payload: dict[str, object]) -> None:
+        self.pageEvent.emit(json.dumps({"requestId": request_id, **payload}))

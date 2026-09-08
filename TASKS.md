@@ -142,24 +142,29 @@ from the UI.
 
 ### Known gaps at the end of M3
 
-- [ ] Key rotation is not crash-atomic. If the process dies part-way, some objects
-      are under the new key and some under the old; the header is only written after
-      every object succeeds, so the old key still opens the un-rotated ones. Needs a
-      rotation journal — M11.
-- [ ] "Remember on this device" (OS keychain) is accepted by the bridge but not yet
-      wired to `keyring`. M7, with the credential store.
+- [x] Key rotation is crash-resumed via a journal (new key wrapped with the old
+      key; header committed after every object is rewritten).
+- [x] "Remember on this device" stores the layer password in the OS keychain
+      (fails closed if there is no keychain). Unlock without the checkbox
+      forgets a previously saved password.
 - [ ] Private search is a live scan of the decrypted manifest, not an index. The
       ephemeral in-memory index lands in M4.
 - [ ] Cross-layer link rewriting skips *locked* layers (we will not unlock a layer
       to fix a link). The link goes stale until that layer is next unlocked.
 
-## Milestone 4 — Search and indexes
+## Milestone 4 — Search and indexes ✅
 
-- [ ] Per-layer SQLite FTS5 index for public layers
-- [ ] Ephemeral in-memory private index, rebuilt on unlock
-- [ ] Embeddings abstraction; private embeddings never leave encrypted storage
-- [ ] Hybrid ranking: lexical + semantic + graph proximity + property + recency
-- [ ] Result explanations backed by the real ranker
+- [x] Per-layer SQLite FTS5 index for public layers
+- [x] Ephemeral in-memory private index, rebuilt on unlock
+- [x] Embeddings abstraction; private embeddings never leave encrypted storage
+- [x] Hybrid ranking: lexical + semantic + graph proximity + property + recency
+- [x] Result explanations backed by the real ranker
+
+### Known gaps at the end of M4
+
+- [ ] Production embedder is `HashingEmbedder` (deterministic bag-of-words). A
+      local model behind the same ABC is the remaining upgrade. The Search panel
+      labels this honestly.
 
 ## Milestone 5 — 2D and 3D graph
 
@@ -199,8 +204,7 @@ from the UI.
 
 ### Known gaps at the end of M7
 
-- [ ] "Remember on this device" for a layer *password* still not wired to the keychain
-      (the AI credential path is). Small follow-up.
+- [x] "Remember on this device" for a layer password is wired to the OS keychain.
 - [ ] Structured-output validation (for M8 operation plans) is declared as a capability
       but the JSON-schema enforcement lands with the transactional engine in M8.
 - [ ] Token estimates use the character-ratio fallback; a provider's own tokeniser is

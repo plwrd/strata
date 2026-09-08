@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.domain.errors import ConflictError, NotFoundError
+from app.domain.errors import ConflictError, InvalidRequestError, NotFoundError
 from app.domain.note import FolderNode, Note
 from app.infrastructure.encryption.layer_header import LayerHeader
 from app.infrastructure.storage.encrypted_store import (
@@ -261,6 +261,51 @@ class PrivateLayerAccess:
         entry.updated_at = _now()
 
         # Every note and subfolder beneath it moves too.
+        for other in self.manifest.entries.values():
+            if other.object_id == folder_id:
+                continue
+            if other.folder_path == old_path:
+                other.folder_path = new_path
+            elif other.folder_path.startswith(f"{old_path}/"):
+                other.folder_path = new_path + other.folder_path[len(old_path) :]
+
+        self._commit()
+        return FolderNode(
+            id=folder_id, layer_id=self.layer_id, name=name, path=new_path, parent_id=None
+        )
+
+    def move_folder(self, folder_id: str, parent_folder_path: str) -> FolderNode:
+        """Reparent a folder under another folder (or the layer root).
+
+        Same-layer only. Refuses moves into itself or a descendant.
+        """
+        entry = self._require(folder_id, "folder")
+        old_path = entry.folder_path
+        name = entry.title
+        parent = parent_folder_path.strip().strip("/")
+        if parent == old_path or parent.startswith(f"{old_path}/"):
+            raise InvalidRequestError("A folder cannot be moved into itself.")
+        if parent:
+            if not any(
+                other.kind == "folder" and other.folder_path == parent
+                for other in self.manifest.entries.values()
+            ):
+                raise NotFoundError("Destination folder not found.")
+        new_path = f"{parent}/{name}" if parent else name
+        if new_path == old_path:
+            return FolderNode(
+                id=folder_id, layer_id=self.layer_id, name=name, path=old_path, parent_id=None
+            )
+        if any(
+            other.kind == "folder"
+            and other.folder_path == new_path
+            and other.object_id != folder_id
+            for other in self.manifest.entries.values()
+        ):
+            raise ConflictError("A folder with that name already exists.")
+
+        entry.folder_path = new_path
+        entry.updated_at = _now()
         for other in self.manifest.entries.values():
             if other.object_id == folder_id:
                 continue

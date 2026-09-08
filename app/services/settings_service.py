@@ -7,19 +7,61 @@ to the OS keychain (Milestone 7), passwords go nowhere.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from app.domain.browser import SEARCH_URLS
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.paths import replace_atomic
 
 logger = get_logger(__name__)
 
-Appearance = Literal["cyberpunk-dark", "cyberpunk-dim", "high-contrast"]
+Appearance = Literal[
+    "cyberpunk-dark",
+    "cyberpunk-dim",
+    "high-contrast",
+    "ember",
+    "forest",
+    "slate",
+]
 MotionPreference = Literal["full", "reduced", "system"]
 GraphQuality = Literal["high", "balanced", "low-gpu"]
+FontBody = Literal["inter", "system", "chakra"]
+FontDisplay = Literal["chakra", "inter", "system"]
+FontMono = Literal["jetbrains", "consolas", "system"]
+
+# Whitelisted theme colour keys (snake_case → --kebab-case on the frontend).
+THEME_COLOR_KEYS: frozenset[str] = frozenset(
+    {
+        "surface_void",
+        "surface_base",
+        "surface_raised",
+        "surface_overlay",
+        "text_primary",
+        "text_secondary",
+        "text_tertiary",
+        "accent_primary",
+        "accent_ai",
+        "accent_collaboration",
+        "status_success",
+        "status_warning",
+        "status_danger",
+        "graph_background",
+        "graph_node_default",
+        "graph_node_selected",
+        "graph_glow_selected",
+        "graph_edge_default",
+        "graph_edge_selected",
+        "border_accent",
+    }
+)
+
+_HEX6 = re.compile(r"^#[0-9A-Fa-f]{6}$")
+_UI_SCALE_MIN = 0.85
+_UI_SCALE_MAX = 1.35
 
 
 class AppSettings(BaseModel):
@@ -37,6 +79,16 @@ class AppSettings(BaseModel):
     last_workspace_path: str = ""
     developer_tools: bool = False
 
+    # -- Theme customization -------------------------------------------------
+    #
+    # Template lives in `appearance`. These fields layer CSS variable overrides
+    # on top: fonts, UI rem scale, and a whitelist of hex colours.
+    font_body: FontBody = "inter"
+    font_display: FontDisplay = "chakra"
+    font_mono: FontMono = "jetbrains"
+    ui_scale: float = 1.0
+    theme_colors: dict[str, str] = Field(default_factory=dict)
+
     # -- Collaboration -------------------------------------------------------
     #
     # When set to a relay URL (e.g. https://relay.example/), collaboration syncs
@@ -49,14 +101,16 @@ class AppSettings(BaseModel):
     # Note what is NOT here: no API keys. Those live in the OS keychain, never in a
     # settings file that gets copied into a bug report or synced to a backup.
     default_provider: str = "ollama"
-    default_model: str = ""
+    # Qwythos-9B via Ollama (`qwythos`). Empty was historically allowed; the
+    # AI service resolves blank/"default" to this id as well.
+    default_model: str = "qwythos"
     embedding_model: str = ""
     claude_cli_path: str = ""
     provider_base_urls: dict[str, str] = Field(default_factory=dict)
     prefer_local_ai: bool = True
     # Resource controls for local models.
     local_context_tokens: int = 8192
-    local_max_output_tokens: int = 2048
+    local_max_output_tokens: int = 8192
     ai_request_timeout: int = 120
 
     # -- Capture -------------------------------------------------------------
@@ -65,6 +119,99 @@ class AppSettings(BaseModel):
     # It ships SSRF-guarded (scheme allowlist, private-range block, no
     # redirects) and can be switched off entirely here.
     url_import_enabled: bool = True
+
+    # -- Browser research ----------------------------------------------------
+    #
+    # Strata can drive a real Chrome over a loopback DevTools port so research
+    # reaches logged-in and JavaScript-rendered pages (and so the user's own
+    # extensions apply). That is a large surface — a browser Strata can read is
+    # a browser Strata can read *everything* in — so it ships off, and turning
+    # it on is a deliberate act. Blank executable and profile paths mean "find
+    # Chrome yourself" and "use the profile Strata owns"; pointing
+    # `browser_profile_path` at an everyday profile hands Strata that whole
+    # session, which is the user's call to make, not the default.
+    browser_control_enabled: bool = False
+    # "embedded" is the browser pane inside the Strata window: no second
+    # process, no loopback port, sign-ins kept in a profile of its own. It
+    # cannot load Chrome extensions — Qt ships Chromium without the extensions
+    # subsystem — so "chrome" stays available for the pages that need them.
+    browser_backend: str = "embedded"
+    browser_executable_path: str = ""
+    browser_profile_path: str = ""
+    browser_debug_port: int = 9333
+    browser_search_engine: str = "duckduckgo"
+
+    # -- Onboarding ----------------------------------------------------------
+    #
+    # False until the first-run tutorial is skipped or finished. Replay from
+    # More → Tutorial does not clear this; Skip/Finish set it true again.
+    onboarding_tour_completed: bool = False
+
+    # -- Screen security -----------------------------------------------------
+    #
+    # Signal-style "Hidden for sharing" (on by default): when True, the OS
+    # excludes the entire Strata window from screenshots and screen shares
+    # (Windows: WDA_EXCLUDEFROMCAPTURE, with WDA_MONITOR fallback). The window
+    # stays visible on your display.
+    hide_for_sharing: bool = True
+
+    @field_validator("browser_backend", mode="before")
+    @classmethod
+    def _check_backend(cls, value: Any) -> str:
+        backend = str(value).strip().lower()
+        if backend not in ("embedded", "chrome"):
+            raise ValueError("browser_backend must be 'embedded' or 'chrome'")
+        return backend
+
+    @field_validator("browser_debug_port", mode="before")
+    @classmethod
+    def _check_debug_port(cls, value: Any) -> int:
+        """A user-space port, or the default. Never a privileged one, and never
+        a number the frontend picked out of range."""
+        try:
+            port = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("browser_debug_port must be a number") from exc
+        if not 1024 <= port <= 65535:
+            raise ValueError("browser_debug_port must be between 1024 and 65535")
+        return port
+
+    @field_validator("browser_search_engine", mode="before")
+    @classmethod
+    def _check_search_engine(cls, value: Any) -> str:
+        engine = str(value).strip().lower()
+        if engine not in SEARCH_URLS:
+            raise ValueError("browser_search_engine must be an engine Strata knows")
+        return engine
+
+    @field_validator("ui_scale", mode="before")
+    @classmethod
+    def _clamp_ui_scale(cls, value: Any) -> float:
+        try:
+            scale = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("ui_scale must be a number") from exc
+        return max(_UI_SCALE_MIN, min(_UI_SCALE_MAX, scale))
+
+    @field_validator("theme_colors", mode="before")
+    @classmethod
+    def _sanitize_theme_colors(cls, value: Any) -> dict[str, str]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("theme_colors must be an object")
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_hex in value.items():
+            key = str(raw_key)
+            if key not in THEME_COLOR_KEYS:
+                continue
+            hex_value = str(raw_hex).strip()
+            if not _HEX6.match(hex_value):
+                raise ValueError(
+                    f"theme_colors.{key} must be a #RRGGBB hex colour"
+                )
+            cleaned[key] = hex_value.lower()
+        return cleaned
 
 
 class SettingsService:

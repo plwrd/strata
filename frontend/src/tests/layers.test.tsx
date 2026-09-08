@@ -47,7 +47,12 @@ describe("LayerPanel", () => {
   it("says what a locked layer contributes: nothing", () => {
     render(<LayerPanel />);
 
-    expect(screen.getByText(/contributes nothing/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Layers are permission boundaries/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle(/A locked layer contributes nothing/i),
+    ).toBeInTheDocument();
   });
 
   it("unlocks with a password and never keeps it in the store", async () => {
@@ -69,6 +74,71 @@ describe("LayerPanel", () => {
     // The password must not be anywhere in the application state.
     const state = JSON.stringify(useStore.getState());
     expect(state).not.toContain("correct horse battery");
+  });
+
+  it("offers remember-on-this-device in the unlock dialog", async () => {
+    const user = userEvent.setup();
+    render(<LayerPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Unlock" }));
+    expect(
+      screen.getByRole("checkbox", { name: /Remember on this device/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("reloads the graph after unlock so 2D/3D receive private nodes", async () => {
+    const user = userEvent.setup();
+    useStore.setState({
+      connection: "ready",
+      layers: [PUBLIC_LAYER, { ...PRIVATE_LAYER, state: "locked" }],
+      graph: {
+        nodes: [
+          {
+            id: "locked:layer_p",
+            layer_id: "layer_p",
+            type: "note",
+            label: "Locked knowledge object",
+            locked: true,
+            folder_path: "",
+            tags: [],
+            degree: 0,
+            updated_at: "",
+            word_count: 0,
+            cluster: -1,
+          },
+        ],
+        edges: [],
+        truncated: false,
+        total_nodes: 1,
+        total_edges: 0,
+        locked_layer_ids: ["layer_p"],
+      },
+      tabs: [],
+      dirty: {},
+      selectedIds: [],
+      searchResults: [],
+      openNote: null,
+      activeNoteId: null,
+      draft: null,
+      tree: null,
+    });
+
+    render(<LayerPanel />);
+    await user.click(screen.getByRole("button", { name: "Unlock" }));
+    await user.type(
+      screen.getByLabelText("Layer password"),
+      "correct horse battery",
+    );
+    await user.click(screen.getAllByRole("button", { name: "Unlock" })[1]!);
+
+    await waitFor(() => {
+      const graph = useStore.getState().graph;
+      expect(graph?.locked_layer_ids).toEqual([]);
+      expect(graph?.nodes.some((node) => node.id === "n_private")).toBe(true);
+      expect(graph?.edges.some((edge) => edge.target === "n_private")).toBe(
+        true,
+      );
+    });
   });
 
   it("reports a failed unlock without saying why it failed", async () => {

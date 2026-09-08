@@ -16,16 +16,16 @@ because time passed.
 | --- | --- | --- |
 | **M0** | Architecture & security foundation | ✅ **Complete** |
 | **M1** | Python desktop shell | ✅ **Complete** |
-| M2 | Public Markdown workspace | Planned |
-| M3 | Private encrypted layers | Planned |
-| M4 | Search & indexes | Planned |
-| M5 | 2D/3D graph | Shipped (v0.1.0) |
-| M6 | AI Context Composer & export | Planned |
-| M7 | AI providers | Planned |
-| M8 | Transactional AI operations | Planned |
-| M9 | Collaboration | Shipped (v0.2.0) |
-| M10 | Structured views | Planned |
-| M11 | Production hardening | Shipped (v1.0.0) |
+| **M2** | Public Markdown workspace | ✅ **Complete** |
+| **M3** | Private encrypted layers | ✅ **Complete** (unaudited) |
+| **M4** | Search & indexes | ✅ Core shipped; hashed embedder until a local model is wired |
+| **M5** | 2D/3D graph | ✅ Core shipped; 100k clustering and 3D lasso remain |
+| **M6** | AI Context Composer & export | ✅ Core shipped |
+| **M7** | AI providers | ✅ **Complete** |
+| **M8** | Transactional AI operations | ✅ **Complete** |
+| **M9** | Collaboration | ✅ CRDT + relay shipped; identities/roles remain |
+| **M10** | Structured views | ✅ **Complete** |
+| **M11** | Production hardening | In progress |
 
 ## Dependencies
 

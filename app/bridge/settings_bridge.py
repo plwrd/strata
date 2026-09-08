@@ -38,4 +38,11 @@ class SettingsBridge(QObject):
     @bridge_method(UpdateSettingsRequest)
     def update_settings(self, request: UpdateSettingsRequest) -> SettingsResponse:
         # AppSettings ignores unknown keys, so a rogue key cannot inject state.
-        return SettingsResponse(settings=self._services.settings.update(request.values))
+        settings = self._services.settings.update(request.values)
+        # Native window effects (screen-capture exclusion) live outside the
+        # renderer — apply them whenever the setting changes.
+        parent = self.parent()
+        apply = getattr(parent, "apply_hide_for_sharing", None)
+        if callable(apply):
+            apply(settings.hide_for_sharing)
+        return SettingsResponse(settings=settings)

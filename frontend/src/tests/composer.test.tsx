@@ -36,7 +36,9 @@ describe("AI Context Composer", () => {
   it("says nothing is selected before anything is selected", () => {
     render(<AIComposerPanel />);
 
-    expect(screen.getByText(/Select nodes in the graph/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Select notes to build context/i),
+    ).toBeInTheDocument();
   });
 
   it("lists every source that would be included, with its stable id", async () => {
@@ -190,5 +192,46 @@ describe("AI Context Composer", () => {
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
     expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("lists installed models so Qwythos can be chosen", () => {
+    useStore.setState({
+      providers: [
+        {
+          provider_id: "ollama",
+          display_name: "Ollama",
+          is_local: true,
+          configured: true,
+          requires_api_key: false,
+          capabilities: ["text", "streaming"],
+          max_context_tokens: 32768,
+          note: "Runs on this machine.",
+        },
+      ],
+      providerId: "ollama",
+      model: "qwythos",
+      providerModels: [
+        {
+          id: "qwythos",
+          display_name: "qwythos",
+          context_tokens: 32768,
+          is_local: true,
+        },
+        {
+          id: "llama3",
+          display_name: "llama3",
+          context_tokens: 32768,
+          is_local: true,
+        },
+      ],
+      providerReachable: true,
+    });
+
+    render(<AIComposerPanel />);
+
+    const select = screen.getByRole("combobox", { name: "Model" });
+    expect(select).toHaveValue("qwythos");
+    expect(screen.getByRole("option", { name: "qwythos" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "llama3" })).toBeInTheDocument();
   });
 });

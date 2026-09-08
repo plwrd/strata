@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { BridgeCallError } from "../../bridge/client";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   onClose: () => void;
@@ -71,64 +72,68 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog dialog--neutral"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="create-layer-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
-        <h2 id="create-layer-title" className="dialog__title">
-          New layer
-        </h2>
+    <DialogPortal>
+      <div className="dialog-backdrop" role="presentation">
+        <div
+          className="dialog dialog--neutral"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-layer-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") onClose();
+          }}
+        >
+          <h2 id="create-layer-title" className="dialog__title">
+            New layer
+          </h2>
 
-        <div className="dialog__body">
-          <label className="properties__field">
-            <span className="label">Name</span>
-            <input
-              className="input"
-              value={name}
-              autoFocus
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-
-          <fieldset className="dialog__fieldset">
-            <legend className="label">Visibility</legend>
-
-            <label className="dialog__choice">
+          <div className="dialog__body">
+            <label className="properties__field">
+              <span className="label">Name</span>
               <input
-                type="radio"
-                name="visibility"
-                checked={!isPrivate}
-                onChange={() => setIsPrivate(false)}
+                className="input"
+                value={name}
+                autoFocus
+                onChange={(event) => setName(event.target.value)}
               />
-              <span>
-                <strong>Public</strong> — plain Markdown files on disk. Readable
-                by anything on this machine, and by any editor you like.
-              </span>
             </label>
 
-            <label className="dialog__choice">
-              <input
-                type="radio"
-                name="visibility"
-                checked={isPrivate}
-                onChange={() => setIsPrivate(true)}
-              />
-              <span>
-                <strong>Private</strong> — encrypted. Filenames, folders,
-                titles, tags and attachments are all opaque on disk. Nothing is
-                readable without the password.
-              </span>
-            </label>
-          </fieldset>
+            <fieldset className="dialog__fieldset">
+              <legend className="label">Visibility</legend>
 
-          {isPrivate && (
-            <>
+              <label className="dialog__choice">
+                <input
+                  type="radio"
+                  name="visibility"
+                  checked={!isPrivate}
+                  onChange={() => setIsPrivate(false)}
+                />
+                <span>
+                  <strong>Public</strong> — plain Markdown files on disk.
+                  Readable by anything on this machine, and by any editor you
+                  like.
+                </span>
+              </label>
+
+              <label className="dialog__choice">
+                <input
+                  type="radio"
+                  name="visibility"
+                  checked={isPrivate}
+                  onChange={() => setIsPrivate(true)}
+                />
+                <span>
+                  <strong>Private</strong> — encrypted. Filenames, folders,
+                  titles, tags and attachments are all opaque on disk. Nothing
+                  is readable without the password.
+                </span>
+              </label>
+            </fieldset>
+
+            <div
+              className={`dialog__private-fields ${isPrivate ? "" : "dialog__private-fields--collapsed"}`}
+              aria-hidden={!isPrivate}
+            >
               <label className="properties__field">
                 <span className="label">Password</span>
                 <input
@@ -136,6 +141,7 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
                   type="password"
                   autoComplete="new-password"
                   value={password}
+                  tabIndex={isPrivate ? 0 : -1}
                   onChange={(event) => setPassword(event.target.value)}
                 />
               </label>
@@ -147,6 +153,7 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
                   type="password"
                   autoComplete="new-password"
                   value={confirm}
+                  tabIndex={isPrivate ? 0 : -1}
                   onChange={(event) => setConfirm(event.target.value)}
                 />
               </label>
@@ -155,6 +162,7 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
                 <input
                   type="checkbox"
                   checked={withRecoveryKey}
+                  tabIndex={isPrivate ? 0 : -1}
                   onChange={(event) => setWithRecoveryKey(event.target.checked)}
                 />
                 <span>
@@ -169,68 +177,70 @@ export function CreateLayerDialog({ onClose, onCreated }: Props): JSX.Element {
                 no copy of the recovery key. If you lose both, the contents are
                 gone permanently.
               </p>
-            </>
-          )}
+            </div>
 
-          <fieldset className="dialog__fieldset">
-            <legend className="label">Start with</legend>
+            <fieldset className="dialog__fieldset">
+              <legend className="label">Start with</legend>
 
-            <label className="properties__field">
-              <span className="label">Folders (comma-separated, optional)</span>
-              <input
-                className="input"
-                value={starterFolders}
-                placeholder="Ideas, Research, Archive"
-                onChange={(event) => setStarterFolders(event.target.value)}
-              />
-            </label>
+              <label className="properties__field">
+                <span className="label">
+                  Folders (comma-separated, optional)
+                </span>
+                <input
+                  className="input"
+                  value={starterFolders}
+                  placeholder="Ideas, Research, Archive"
+                  onChange={(event) => setStarterFolders(event.target.value)}
+                />
+              </label>
 
-            <label className="dialog__choice">
-              <input
-                type="checkbox"
-                checked={firstNote}
-                onChange={(event) => setFirstNote(event.target.checked)}
-              />
-              <span>
-                Create a first note, so the layer opens ready to write in.
-              </span>
-            </label>
-          </fieldset>
+              <label className="dialog__choice">
+                <input
+                  type="checkbox"
+                  checked={firstNote}
+                  onChange={(event) => setFirstNote(event.target.checked)}
+                />
+                <span>
+                  Create a first note, so the layer opens ready to write in.
+                </span>
+              </label>
+            </fieldset>
 
-          {error && (
-            <p
-              className="composer__status composer__status--error"
-              role="alert"
+            {error && (
+              <p
+                className="composer__status composer__status--error"
+                role="alert"
+              >
+                {error}
+              </p>
+            )}
+          </div>
+
+          <div className="dialog__actions">
+            <button
+              type="button"
+              className="button"
+              onClick={onClose}
+              disabled={busy}
             >
-              {error}
-            </p>
-          )}
-        </div>
-
-        <div className="dialog__actions">
-          <button
-            type="button"
-            className="button"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={Boolean(problem) || busy}
-            title={problem ?? undefined}
-            onClick={() => void submit()}
-          >
-            {busy
-              ? "Creating…"
-              : isPrivate
-                ? "Create encrypted layer"
-                : "Create layer"}
-          </button>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={Boolean(problem) || busy}
+              title={problem ?? undefined}
+              onClick={() => void submit()}
+            >
+              {busy
+                ? "Creating…"
+                : isPrivate
+                  ? "Create encrypted layer"
+                  : "Create layer"}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </DialogPortal>
   );
 }

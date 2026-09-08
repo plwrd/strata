@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtWebChannel import QWebChannel
 
 from app.bridge.ai_bridge import AIComposerBridge
+from app.bridge.browser_bridge import BrowserBridge
 from app.bridge.collaboration_bridge import CollaborationBridge
 from app.bridge.export_bridge import ExportBridge
 from app.bridge.graph_bridge import GraphBridge
@@ -40,6 +41,7 @@ BRIDGE_NAMES = (
     "operations",
     "views",
     "jobs",
+    "browser",
 )
 
 
@@ -59,6 +61,7 @@ def build_channel(services: Services, parent: QObject | None = None) -> QWebChan
         "operations": OperationsBridge(services, parent),
         "views": ViewsBridge(services, parent),
         "jobs": JobBridge(services, parent),
+        "browser": BrowserBridge(services, parent),
     }
     assert set(bridges) == set(BRIDGE_NAMES)
     for name, bridge in bridges.items():

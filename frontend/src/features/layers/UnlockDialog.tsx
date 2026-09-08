@@ -14,16 +14,24 @@ import { useState } from "react";
 import { BridgeCallError } from "../../bridge/client";
 import type { LayerDescriptor } from "../../bridge/types";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   layer: LayerDescriptor;
   onClose: () => void;
+  /** Fired after a successful unlock so the parent can close and reload the graph. */
+  onUnlocked: () => void;
 }
 
-export function UnlockDialog({ layer, onClose }: Props): JSX.Element {
+export function UnlockDialog({
+  layer,
+  onClose,
+  onUnlocked,
+}: Props): JSX.Element {
   const { unlockLayer, unlockLayerWithRecoveryKey } = useStore();
   const [mode, setMode] = useState<"password" | "recovery">("password");
   const [secret, setSecret] = useState("");
+  const [remember, setRemember] = useState(layer.password_remembered);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -32,10 +40,10 @@ export function UnlockDialog({ layer, onClose }: Props): JSX.Element {
     setBusy(true);
     setFailed(false);
     try {
-      if (mode === "password") await unlockLayer(layer.id, secret);
+      if (mode === "password") await unlockLayer(layer.id, secret, remember);
       else await unlockLayerWithRecoveryKey(layer.id, secret);
       setSecret("");
-      onClose();
+      onUnlocked();
     } catch (error) {
       // Every failure looks the same, on purpose.
       setFailed(true);
@@ -46,84 +54,97 @@ export function UnlockDialog({ layer, onClose }: Props): JSX.Element {
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog dialog--neutral"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="unlock-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
-        <h2 id="unlock-title" className="dialog__title">
-          <span aria-hidden="true">🔒</span> Unlock {layer.display_name}
-        </h2>
+    <DialogPortal>
+      <div className="dialog-backdrop" role="presentation">
+        <div
+          className="dialog dialog--neutral"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unlock-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") onClose();
+          }}
+        >
+          <h2 id="unlock-title" className="dialog__title">
+            <span aria-hidden="true">🔒</span> Unlock {layer.display_name}
+          </h2>
 
-        <div className="dialog__body">
-          <label className="properties__field">
-            <span className="label">
-              {mode === "password" ? "Password" : "Recovery key"}
-            </span>
-            <input
-              className="input"
-              type={mode === "password" ? "password" : "text"}
-              autoComplete="off"
-              autoFocus
-              value={secret}
-              aria-label={
-                mode === "password" ? "Layer password" : "Recovery key"
-              }
-              onChange={(event) => setSecret(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
+          <div className="dialog__body">
+            <label className="properties__field">
+              <span className="label">
+                {mode === "password" ? "Password" : "Recovery key"}
+              </span>
+              <input
+                className="input"
+                type={mode === "password" ? "password" : "text"}
+                autoComplete="off"
+                autoFocus
+                value={secret}
+                aria-label={
+                  mode === "password" ? "Layer password" : "Recovery key"
+                }
+                onChange={(event) => setSecret(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void submit();
+                }}
+              />
+            </label>
+
+            {mode === "password" && (
+              <label className="search__toggle">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                />
+                <span>Remember on this device</span>
+              </label>
+            )}
+
+            {failed && (
+              <p
+                className="composer__status composer__status--error"
+                role="alert"
+              >
+                That did not unlock the layer. Try again.
+              </p>
+            )}
+
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={() => {
+                setMode(mode === "password" ? "recovery" : "password");
+                setSecret("");
+                setFailed(false);
               }}
-            />
-          </label>
-
-          {failed && (
-            <p
-              className="composer__status composer__status--error"
-              role="alert"
             >
-              That did not unlock the layer. Try again.
-            </p>
-          )}
+              {mode === "password"
+                ? "Use a recovery key instead"
+                : "Use the password instead"}
+            </button>
+          </div>
 
-          <button
-            type="button"
-            className="button button--ghost"
-            onClick={() => {
-              setMode(mode === "password" ? "recovery" : "password");
-              setSecret("");
-              setFailed(false);
-            }}
-          >
-            {mode === "password"
-              ? "Use a recovery key instead"
-              : "Use the password instead"}
-          </button>
-        </div>
-
-        <div className="dialog__actions">
-          <button
-            type="button"
-            className="button"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={!secret || busy}
-            onClick={() => void submit()}
-          >
-            {busy ? "Unlocking…" : "Unlock"}
-          </button>
+          <div className="dialog__actions">
+            <button
+              type="button"
+              className="button"
+              onClick={onClose}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={!secret || busy}
+              onClick={() => void submit()}
+            >
+              {busy ? "Unlocking…" : "Unlock"}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </DialogPortal>
   );
 }

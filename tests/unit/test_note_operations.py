@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.errors import ConflictError, NotFoundError
+from app.domain.errors import ConflictError, InvalidRequestError, NotFoundError
 from app.domain.schema import BUILTIN_SCHEMAS, schema_by_id, validate_properties
 from app.services.container import Services
 
@@ -181,6 +181,25 @@ def test_creating_and_renaming_a_folder(workspace: Services) -> None:
     renamed = workspace.notes.rename_folder(folder.id, "Deep Research")
     assert renamed.path == "Deep Research"
     assert (workspace.workspace.root / "layers" / layer / "Deep Research").is_dir()
+
+
+def test_moving_a_folder_nests_it_under_another(workspace: Services) -> None:
+    layer = workspace.workspace.descriptor.layers[0].id
+    parent = workspace.notes.create_folder(layer, "", "Archive")
+    child = workspace.notes.create_folder(layer, "", "Drafts")
+
+    moved = workspace.notes.move_folder(child.id, parent.path)
+
+    assert moved.path == "Archive/Drafts"
+    assert (workspace.workspace.root / "layers" / layer / "Archive" / "Drafts").is_dir()
+    assert not (workspace.workspace.root / "layers" / layer / "Drafts").exists()
+
+
+def test_a_folder_cannot_move_into_itself(workspace: Services) -> None:
+    folder = next(f for f in workspace.notes.list_folders() if f.name == "Security")
+
+    with pytest.raises(InvalidRequestError):
+        workspace.notes.move_folder(folder.id, folder.path)
 
 
 def test_deleting_a_folder_trashes_its_notes(workspace: Services) -> None:

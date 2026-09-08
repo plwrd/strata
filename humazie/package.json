@@ -1,0 +1,40 @@
+{
+  "name": "humazie-bot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Autonomous product-review loop for the Strata React frontend",
+  "bin": {
+    "humazie": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "humazie:discover": "tsx src/cli.ts discover",
+    "humazie:review": "tsx src/cli.ts review",
+    "humazie:watch": "tsx src/cli.ts review --visual --no-fix --pace=demo",
+    "humazie:watch:brisk": "tsx src/cli.ts review --visual --no-fix --pace=brisk",
+    "humazie:rerun": "tsx src/cli.ts rerun",
+    "humazie:report": "tsx src/cli.ts report",
+    "humazie:dashboard": "npm --prefix dashboard run dev",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@prisma/client": "^6.5.0",
+    "commander": "^13.1.0",
+    "playwright": "^1.51.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "prisma": "^6.5.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  }
+}

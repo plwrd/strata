@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("HUMAZIE_DATABASE_URL")
+}
+
+model ReviewRun {
+  id            String   @id
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  status        String
+  baseUrl       String
+  gitCommit     String?
+  mobile        Boolean  @default(false)
+  autoFix       Boolean  @default(false)
+  totalFlows    Int      @default(0)
+  passedFlows   Int      @default(0)
+  failedFlows   Int      @default(0)
+  issuesFound   Int      @default(0)
+  issuesFixed   Int      @default(0)
+  durationMs    Int      @default(0)
+  summaryPath   String?
+  productMap    String?
+  flowsJson     String?
+  issuesJson    String?
+  fixesJson     String?
+}
+
+model FlowResult {
+  id        String   @id @default(cuid())
+  runId     String
+  flowId    String
+  name      String
+  status    String
+  durationMs Int     @default(0)
+  evidence  String?
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+}
+
+model IssueRecord {
+  id        String   @id
+  runId     String
+  flowId    String
+  title     String
+  category  String
+  severity  String
+  status    String
+  payload   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([runId])
+}
