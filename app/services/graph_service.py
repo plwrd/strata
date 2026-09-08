@@ -117,15 +117,15 @@ class GraphService:
                         )
                     )
             for note in notes:
-                folder = folder_by_key.get(
+                owning_folder = folder_by_key.get(
                     (note.metadata.layer_id, note.metadata.folder_path)
                 )
-                if folder is None:
+                if owning_folder is None:
                     continue
                 edges.append(
                     GraphEdge(
-                        id=f"e_folder_{folder.id}_{note.metadata.id}",
-                        source=folder.id,
+                        id=f"e_folder_{owning_folder.id}_{note.metadata.id}",
+                        source=owning_folder.id,
                         target=note.metadata.id,
                         type="folder_membership",
                         relationship="contains",

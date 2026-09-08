@@ -23,11 +23,7 @@ attached to it.
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 from datetime import datetime, timezone
-
-from pydantic import ValidationError
 
 from app.domain.errors import InvalidRequestError, ProviderError
 from app.domain.ids import new_execution_id, new_job_id
@@ -43,13 +39,12 @@ from app.domain.schema import INBOX_FOLDER, KNOWLEDGE_FOLDER
 from app.infrastructure.logging.logger import get_logger
 from app.services.ai_service import AIService
 from app.services.context_export_service import ContextExportService
+from app.services.model_answer import parse_model_json
 from app.services.note_service import NoteService
 from app.services.search_service import SearchService
 from app.services.workspace_service import WorkspaceService
 
 logger = get_logger(__name__)
-
-_JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 MAX_SOURCES = 10
 MAX_CANDIDATES = 15
@@ -185,7 +180,7 @@ class ResearchService:
             elif event.kind == "error":
                 raise ProviderError(event.error or "The model failed to analyse the material.")
 
-        analysis, parse_problem = self._parse(full)
+        analysis, parse_problem = parse_model_json(full, ResearchAnalysis)
         return self._propose(
             analysis=analysis,
             parse_problem=parse_problem,
@@ -301,37 +296,6 @@ class ResearchService:
         return "Candidate nodes this material may attach to:\n\n" + "\n".join(lines)
 
     # -- parsing -------------------------------------------------------------
-
-    def _parse(self, text: str) -> tuple[ResearchAnalysis, str]:
-        """The analysis, and why it is thin when it is.
-
-        The reason is returned rather than parked in ``summary``: the summary
-        becomes the node's body, and an apology is not content. An unparseable
-        answer must leave the summary *empty* so the page's own text stands in.
-        """
-        match = _JSON_BLOCK.search(text)
-        if not match:
-            return ResearchAnalysis(), "The model did not return an analysis."
-        try:
-            payload = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return ResearchAnalysis(), "The model's analysis was not valid JSON."
-        if not isinstance(payload, dict):
-            return ResearchAnalysis(), "The model's analysis was not an object."
-        try:
-            return ResearchAnalysis.model_validate(payload), ""
-        except ValidationError:
-            # Salvage field by field rather than discarding a mostly-good answer.
-            salvaged = ResearchAnalysis()
-            for field in ResearchAnalysis.model_fields:
-                if field not in payload:
-                    continue
-                try:
-                    partial = ResearchAnalysis.model_validate({field: payload[field]})
-                except ValidationError:
-                    continue
-                setattr(salvaged, field, getattr(partial, field))
-            return salvaged, "Parts of the analysis did not fit the schema."
 
     # -- proposal building ---------------------------------------------------
 

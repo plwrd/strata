@@ -93,3 +93,24 @@ def wait_for_tree(qtbot: Any, window: Any) -> None:
         lambda: run_js(qtbot, window, "document.querySelectorAll('[role=treeitem]').length") > 0,
         timeout=20_000,
     )
+
+
+def open_graph_section(qtbot: Any, window: Any) -> None:
+    """Expand the navigator's Graph section and wait for the list to render.
+
+    The section ships collapsed — the navigator's job is to save room — so the
+    accessible graph tree does not exist until something opens it. A test that
+    asserts on that tree has to do what a user does rather than assume it is
+    already on screen.
+    """
+    if run_js(qtbot, window, "!!document.querySelector('.graph-list')") is True:
+        return
+    run_js(
+        qtbot,
+        window,
+        "document.querySelector('[data-tour-section=\"graph\"]').click()",
+    )
+    qtbot.waitUntil(
+        lambda: run_js(qtbot, window, "!!document.querySelector('.graph-list')") is True,
+        timeout=10_000,
+    )

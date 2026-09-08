@@ -26,7 +26,23 @@ import type {
 } from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
-type Signal = { connect: (listener: (value: string) => void) => void };
+type Signal = {
+  connect: (listener: (value: string) => void) => void;
+  disconnect: (listener: (value: string) => void) => void;
+};
+
+/** A signal proxy over a listener array, with the disconnect Qt really has. */
+function signal(listeners: ((value: string) => void)[]): Signal {
+  return {
+    connect: (listener) => {
+      listeners.push(listener);
+    },
+    disconnect: (listener) => {
+      const index = listeners.indexOf(listener);
+      if (index >= 0) listeners.splice(index, 1);
+    },
+  };
+}
 
 export interface FakeVersion {
   created_at: string;
@@ -250,10 +266,7 @@ function makeCollaboration(): Record<string, Handler | Signal> {
       return { state: stateOf(p["layer_id"] as string), conflicts: [] };
     },
 
-    collabEvent: {
-      connect: (listener: (value: string) => void) =>
-        collabListeners.push(listener),
-    },
+    collabEvent: signal(collabListeners),
   };
 }
 
@@ -910,10 +923,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           issues: [],
         };
       },
-      changed: {
-        connect: (listener: (value: string) => void) =>
-          changeListeners.push(listener),
-      },
+      changed: signal(changeListeners),
     },
     search: {
       search: () => ({ results: [], total: 0, locked_layers_excluded: 1 }),
@@ -1011,10 +1021,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
       }),
       audit_log: () => ({ entries: [] }),
-      planEvent: {
-        connect: (listener: (value: string) => void) =>
-          planListeners.push(listener),
-      },
+      planEvent: signal(planListeners),
     },
     views: {
       run_view: (payload) => ({
@@ -1300,10 +1307,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         executions = [];
         return { cleared_files: cleared };
       },
-      aiEvent: {
-        connect: (listener: (value: string) => void) =>
-          aiListeners.push(listener),
-      },
+      aiEvent: signal(aiListeners),
       plan_context: (payload) => ({
         plan:
           options.plan ??
@@ -1363,10 +1367,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
         engines: ["duckduckgo", "google"],
       }),
-      pageEvent: {
-        connect: (listener: (value: string) => void) =>
-          pageListeners.push(listener),
-      },
+      pageEvent: signal(pageListeners),
       search: (payload) => {
         captured.push(payload);
         return {

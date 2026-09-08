@@ -22,9 +22,7 @@ def test_product_default_is_qwythos() -> None:
 
 
 def test_prefer_installed_picks_qwythos_over_legacy_default() -> None:
-    assert (
-        prefer_installed_model(["llama3", "qwythos"], preferred="deepseek-r1:7b") == "qwythos"
-    )
+    assert prefer_installed_model(["llama3", "qwythos"], preferred="deepseek-r1:7b") == "qwythos"
     assert prefer_installed_model(["llama3", "qwythos"], preferred="qwythos") == "qwythos"
     assert prefer_installed_model(["llama3", "qwythos"], preferred="llama3") == "llama3"
     assert prefer_installed_model(["phi3"], preferred="qwythos") == "phi3"

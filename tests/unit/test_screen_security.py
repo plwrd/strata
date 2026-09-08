@@ -68,10 +68,7 @@ def test_windows_falls_back_to_monitor_when_exclude_fails(
     assert set_window_excluded_from_capture(window, enabled=True) is True
 
     assert fake_user32.SetWindowDisplayAffinity.call_count == 2
-    assert (
-        fake_user32.SetWindowDisplayAffinity.call_args_list[0][0][1]
-        == WDA_EXCLUDEFROMCAPTURE
-    )
+    assert fake_user32.SetWindowDisplayAffinity.call_args_list[0][0][1] == WDA_EXCLUDEFROMCAPTURE
     assert fake_user32.SetWindowDisplayAffinity.call_args_list[1][0][1] == WDA_MONITOR
 
 

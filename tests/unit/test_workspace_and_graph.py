@@ -146,9 +146,7 @@ def test_folders_connect_to_their_notes(workspace: Services) -> None:
         if node.type == "folder" and node.layer_id == layer_id
     }
     membership = {
-        (edge.source, edge.target)
-        for edge in snapshot.edges
-        if edge.type == "folder_membership"
+        (edge.source, edge.target) for edge in snapshot.edges if edge.type == "folder_membership"
     }
 
     assert folders["Projects"]

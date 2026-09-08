@@ -14,7 +14,7 @@ only toggles the request.
 from __future__ import annotations
 
 import sys
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 from app.infrastructure.logging.logger import get_logger
 
@@ -31,13 +31,22 @@ class _HasWinId(Protocol):
     def winId(self) -> object: ...
 
 
+def _is_windows() -> bool:
+    """A function, not `sys.platform == "win32"` inline.
+
+    Type checkers narrow that literal to whichever platform they are running
+    on, which marks every other branch unreachable and stops checking it. This
+    code has to be correct on all three."""
+    return sys.platform == "win32"
+
+
 def set_window_excluded_from_capture(window: _HasWinId, *, enabled: bool) -> bool:
     """Ask the OS to hide ``window`` from screen capture when ``enabled``.
 
     Returns True when the platform call succeeded (or was a deliberate no-op on
     an unsupported OS). Returns False when the call was attempted and failed.
     """
-    if sys.platform == "win32":
+    if _is_windows():
         return _windows_set_display_affinity(window, enabled=enabled)
     # macOS has NSWindow.sharingType = .none; Qt's winId is an NSView and the
     # Cocoa bridge is fragile without PyObjC. Leave a clear log rather than a
@@ -61,7 +70,9 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> bool:
     user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
     user32.GetAncestor.restype = wintypes.HWND
 
-    raw = int(window.winId())
+    # winId() is a sip.voidptr on Qt; the Protocol types it as `object`
+    # because this module must not import Qt just to name it.
+    raw = int(cast(Any, window.winId()))
     hwnd = int(user32.GetAncestor(raw, GA_ROOT) or 0) or raw
 
     if not enabled:

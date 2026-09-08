@@ -113,21 +113,33 @@ export function OperationsPanel(): JSX.Element {
   // empty plan, not a crash. The side-effecting review runs *outside* the state
   // updater, keyed off the request id we are waiting on.
   useEffect(() => {
-    void bridge.operations.onPlan((raw) => {
-      const event = JSON.parse(raw) as PlanStreamEvent;
-      if (event.requestId !== pendingRef.current) return;
-      pendingRef.current = null;
-      if (event.kind === "error" || !event.plan) {
-        setPhase({
-          kind: "error",
-          message: event.error ?? "The model did not return a plan.",
-        });
-        return;
-      }
-      void reviewPlan(event.plan);
-    });
-    // Subscribed once, for the life of the panel: the listener reads the
-    // pending request id from a ref, so it never needs re-binding.
+    let drop: (() => void) | null = null;
+    let cancelled = false;
+    void bridge.operations
+      .onPlan((raw) => {
+        const event = JSON.parse(raw) as PlanStreamEvent;
+        if (event.requestId !== pendingRef.current) return;
+        pendingRef.current = null;
+        if (event.kind === "error" || !event.plan) {
+          setPhase({
+            kind: "error",
+            message: event.error ?? "The model did not return a plan.",
+          });
+          return;
+        }
+        void reviewPlan(event.plan);
+      })
+      .then((unsubscribe) => {
+        // Unmounted while the channel was still connecting: drop it at once.
+        if (cancelled) unsubscribe();
+        else drop = unsubscribe;
+      });
+    return () => {
+      cancelled = true;
+      drop?.();
+    };
+    // Subscribed once per mount: the listener reads the pending request id from
+    // a ref, so it never needs re-binding.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

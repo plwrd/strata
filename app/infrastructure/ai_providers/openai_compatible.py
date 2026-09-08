@@ -121,9 +121,14 @@ class OpenAICompatibleProvider(AIProvider):
     async def list_models(self) -> list[ModelInfo]:
         payload = await self._get_models_payload()
 
-        models = payload.get("data", payload.get("models", []))
+        raw_models = payload.get("data", payload.get("models", []))
+        # A provider that answers with the wrong shape lists nothing; it does
+        # not crash the model picker.
+        models = raw_models if isinstance(raw_models, list) else []
         result: list[ModelInfo] = []
         for entry in models:
+            if not isinstance(entry, dict):
+                continue
             identifier = entry.get("id") or entry.get("name") or ""
             if not identifier:
                 continue
@@ -238,8 +243,7 @@ OLLAMA = ProviderCapabilities(
         Capability.EMBEDDINGS,
     ],
     max_context_tokens=32_768,
-    note="Runs on this machine. Default model: Qwythos-9B (qwythos). "
-    "Nothing leaves it.",
+    note="Runs on this machine. Default model: Qwythos-9B (qwythos). Nothing leaves it.",
 )
 
 LLAMACPP = ProviderCapabilities(

@@ -83,10 +83,14 @@ export class BridgeUnavailableError extends Error {
 }
 
 type SlotFn = (payload: string, callback: (response: string) => void) => void;
-type BridgeObject = Record<
-  string,
-  SlotFn | { connect: (cb: (value: string) => void) => void }
->;
+type SignalObject = {
+  connect: (cb: (value: string) => void) => void;
+  // Qt's WebChannel signal proxies expose this; it is typed optional because a
+  // very old qwebchannel.js would not, and losing the disconnect must degrade
+  // to a stale-but-filtered listener rather than a crash.
+  disconnect?: (cb: (value: string) => void) => void;
+};
+type BridgeObject = Record<string, SlotFn | SignalObject>;
 
 interface QWebChannelInstance {
   objects: Record<string, BridgeObject>;
@@ -205,6 +209,9 @@ async function call<T>(
   return envelope.data as T;
 }
 
+/** Undo a subscription. Safe to call more than once, and safe to call late. */
+export type Unsubscribe = () => void;
+
 /**
  * Subscribe to a Qt Signal exposed on a bridge object.
  *
@@ -212,12 +219,17 @@ async function call<T>(
  * request/response. Payloads are strings, and the callers below parse them —
  * there is no channel through which Python can hand the page an object it did not
  * ask for.
+ *
+ * Returns an unsubscribe. A component that mounts more than once — the changes
+ * panel lives in both the inspector and the command stage — would otherwise add
+ * a listener per mount and never drop one, so the connection count climbs for
+ * as long as the session lasts.
  */
 async function subscribe(
   objectName: string,
   signalName: string,
   listener: (payload: string) => void,
-): Promise<void> {
+): Promise<Unsubscribe> {
   const channel = await connect();
   const target = channel.objects[objectName];
   const signal = target?.[signalName];
@@ -231,6 +243,13 @@ async function subscribe(
     );
   }
   signal.connect(listener);
+
+  let live = true;
+  return () => {
+    if (!live) return;
+    live = false;
+    signal.disconnect?.(listener);
+  };
 }
 
 export interface ExportRequest {

@@ -207,9 +207,7 @@ class AppSettings(BaseModel):
                 continue
             hex_value = str(raw_hex).strip()
             if not _HEX6.match(hex_value):
-                raise ValueError(
-                    f"theme_colors.{key} must be a #RRGGBB hex colour"
-                )
+                raise ValueError(f"theme_colors.{key} must be a #RRGGBB hex colour")
             cleaned[key] = hex_value.lower()
         return cleaned
 

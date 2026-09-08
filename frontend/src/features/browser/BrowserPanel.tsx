@@ -87,19 +87,30 @@ export function BrowserPanel(): JSX.Element {
 
   useEffect(() => {
     void refreshStatus();
-    void bridge.browser.onPage((raw) => {
-      const event = JSON.parse(raw) as PageStreamEvent;
-      const pending = pendingRead.current;
-      if (!pending || event.requestId !== pending.requestId) return;
-      pendingRead.current = null;
-      if (event.kind === "error" || !event.page) {
-        pending.reject(event.error ?? "The page could not be read.");
-        return;
-      }
-      pending.resolve(event.page, event.note?.metadata.id ?? "");
-    });
-    // Once, on mount: the panel asks the host what it can do, and subscribes
-    // for the life of the panel.
+    let drop: (() => void) | null = null;
+    let cancelled = false;
+    void bridge.browser
+      .onPage((raw) => {
+        const event = JSON.parse(raw) as PageStreamEvent;
+        const pending = pendingRead.current;
+        if (!pending || event.requestId !== pending.requestId) return;
+        pendingRead.current = null;
+        if (event.kind === "error" || !event.page) {
+          pending.reject(event.error ?? "The page could not be read.");
+          return;
+        }
+        pending.resolve(event.page, event.note?.metadata.id ?? "");
+      })
+      .then((unsubscribe) => {
+        if (cancelled) unsubscribe();
+        else drop = unsubscribe;
+      });
+    return () => {
+      cancelled = true;
+      drop?.();
+    };
+    // Once per mount: the panel asks the host what it can do, and listens for
+    // the reads it starts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

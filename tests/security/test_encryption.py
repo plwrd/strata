@@ -718,3 +718,15 @@ def test_rotation_drops_the_old_recovery_key(tmp_path: Path) -> None:
     service.lock("layer_a")
     service.unlock_with_recovery_key("layer_a", root, reissued)
     assert service.is_unlocked("layer_a")
+
+
+def test_production_kdf_parameters_are_what_we_claim() -> None:
+    """The test suite derives keys with a cheap profile (see `cheap_kdf` in
+    conftest), so the real parameters need an assertion of their own. Without
+    this, weakening the shipped KDF would break no test at all."""
+    from app.infrastructure.encryption import primitives
+
+    assert primitives.ARGON2_TIME_COST == 3
+    assert primitives.ARGON2_MEMORY_KIB == 262_144  # 256 MiB
+    assert primitives.ARGON2_PARALLELISM == 4
+    assert primitives.KDF_VERSION == 1
