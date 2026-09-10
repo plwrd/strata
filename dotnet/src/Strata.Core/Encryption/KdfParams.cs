@@ -22,9 +22,25 @@ public sealed record KdfParams(
 
     public byte[] Salt { get; init; } = Salt ?? [];
 
+    /// <summary>
+    /// The cost profile new layers are created with.
+    /// </summary>
+    /// <remarks>
+    /// Settable for tests only, mirroring the Python suite's <c>cheap_kdf</c>
+    /// fixture: production derives at 256 MiB per hash, and a suite that creates
+    /// dozens of private layers asks for that allocation dozens of times. Only
+    /// <em>new</em> layers are affected — the parameters are written into each layer
+    /// header and read back from it, so unlock always uses whatever the header says.
+    /// <see cref="CryptoConstants"/> holds the production values and is asserted
+    /// directly, so a real weakening cannot hide behind this.
+    /// </remarks>
+    public static KdfParams Defaults { get; set; } = new();
+
     /// <summary>Fresh parameters at the current defaults, with a random salt.</summary>
-    public static KdfParams New() => new(Salt: System.Security.Cryptography.RandomNumberGenerator.GetBytes(
-        CryptoConstants.SaltBytes));
+    public static KdfParams New() => Defaults with
+    {
+        Salt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(CryptoConstants.SaltBytes),
+    };
 
     public JsonObject ToJson() => new()
     {

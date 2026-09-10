@@ -430,6 +430,160 @@ def generate_store_layer() -> None:
     print(f"wrote {(root).relative_to(ROOT)}/ ({len(store.object_ids())} objects)")
 
 
+def generate_public_layer() -> None:
+    """A public Markdown layer plus a ``workspace.json``, written by Python.
+
+    Public layers have no ciphertext to pin, but they have three things a port can
+    get wrong silently: the derived note id, frontmatter parsing, and the
+    descriptor schema. All three are pinned here.
+    """
+    import shutil
+
+    from app.domain.layer import LayerAIPolicy, LayerDescriptor
+    from app.domain.views import ViewConfig, ViewFilter, ViewSort
+    from app.domain.workspace import KnowledgeLens, WorkspaceDescriptor
+    from app.infrastructure.storage.markdown_store import MarkdownLayerStore, note_id_for
+    from app.infrastructure.storage.workspace_store import WorkspaceStore
+
+    root = OUT / "public_workspace"
+    if root.exists():
+        shutil.rmtree(root)
+
+    timestamp = "2020-01-01T00:00:00+00:00"
+    public_id = "layer_public01"
+    private_id = "layer_private1"
+
+    store = WorkspaceStore(root)
+    descriptor = WorkspaceDescriptor(
+        id="ws-kat-0001",
+        name="KAT Workspace",
+        created_at=timestamp,
+        updated_at=timestamp,
+        layer_order=[private_id, public_id],
+        layers=[
+            LayerDescriptor(
+                id=public_id,
+                display_name="Public",
+                created_at=timestamp,
+                updated_at=timestamp,
+            ),
+            LayerDescriptor(
+                id=private_id,
+                display_name="Private",
+                visibility="private",
+                state="locked",
+                storage="encrypted-objects",
+                sharing_mode="shared-password",
+                color="layer-private",
+                created_at=timestamp,
+                updated_at=timestamp,
+                ai_policy=LayerAIPolicy(
+                    access="remote-with-confirmation",
+                    embeddings="disabled",
+                    may_apply_approved_edits=True,
+                ),
+            ),
+        ],
+        lenses=[
+            KnowledgeLens(
+                id="lens-1",
+                name="Deals only",
+                visible_layer_ids=[public_id],
+                tag_filters=["deals"],
+                property_filters={"status": "open"},
+                graph_camera={"x": 1.5, "y": -2.0, "zoom": 0.75},
+                time_range_days=30,
+                is_default=True,
+            )
+        ],
+        saved_views=[
+            ViewConfig(
+                id="view-1",
+                name="Open items",
+                type="kanban",
+                layer_ids=[public_id],
+                filters=[ViewFilter(field="status", operator="not_equals", value="done")],
+                sort=[ViewSort(field="updated", direction="desc")],
+                group_by="status",
+                date_field="updated",
+            )
+        ],
+    )
+    store.initialise(descriptor)
+
+    layer_root = store.layer_root(public_id)
+    markdown = MarkdownLayerStore(public_id, layer_root)
+    markdown.ensure()
+    markdown.write_note(
+        folder_path="",
+        title="Northwind",
+        content=(
+            "Body with #research and a [[Second Note]] link.\n\n"
+            "supports:: [[Evidence]]\n"
+        ),
+        properties={"status": "open", "priority": 2, "draft": False, "tags": ["deals"]},
+    )
+    markdown.write_note(
+        folder_path="Deals",
+        title="Second Note",
+        content="Nested note, no frontmatter of interest.\n",
+        properties={},
+    )
+
+    notes = markdown.list_notes()
+    assert len(notes) == 2, notes
+    first = next(note for note in notes if note.metadata.title == "Northwind")
+    second = next(note for note in notes if note.metadata.title == "Second Note")
+
+    _write_json(
+        "public_workspace.json",
+        {
+            "description": "A public Markdown layer + workspace.json written by Python",
+            "directory": "public_workspace",
+            "workspace_file": WorkspaceStore(root).descriptor_path.name,
+            "workspace_id": descriptor.id,
+            "public_layer_id": public_id,
+            "private_layer_id": private_id,
+            "layer_order": list(descriptor.layer_order),
+            "ordered_layer_ids": [layer.id for layer in descriptor.ordered_layers()],
+            "notes": [
+                {
+                    "id": first.metadata.id,
+                    "relative_path": "Northwind.md",
+                    "title": first.metadata.title,
+                    "folder_path": first.metadata.folder_path,
+                    "content": first.content,
+                    "tags": list(first.metadata.tags),
+                    "properties": dict(first.metadata.properties),
+                    "link_targets": [link.target_title for link in first.metadata.links],
+                    "word_count": first.metadata.word_count,
+                },
+                {
+                    "id": second.metadata.id,
+                    "relative_path": "Deals/Second Note.md",
+                    "title": second.metadata.title,
+                    "folder_path": second.metadata.folder_path,
+                    "content": second.content,
+                    "tags": list(second.metadata.tags),
+                    "properties": dict(second.metadata.properties),
+                    "link_targets": [],
+                    "word_count": second.metadata.word_count,
+                },
+            ],
+            "folders": [
+                {"id": folder.id, "path": folder.path, "name": folder.name}
+                for folder in markdown.list_folders()
+            ],
+            "note_id_recipe": {
+                "layer_id": public_id,
+                "relative_path": "Northwind.md",
+                "expected": note_id_for(public_id, "Northwind.md"),
+            },
+        },
+    )
+    print(f"wrote {root.relative_to(ROOT)}/ ({len(notes)} notes)")
+
+
 def generate_manifest() -> None:
     """Index of all vectors for the C# discovery test."""
     files = sorted(p.name for p in OUT.iterdir() if p.is_file() and p.name != "manifest.json")
@@ -447,9 +601,10 @@ def generate_manifest() -> None:
                 "crdt_update.json",
                 "crdt_update.bin",
                 "store_layer.json",
+                "public_workspace.json",
             ],
             # Vectors that are whole directories, not single files.
-            "directories": ["store_layer"],
+            "directories": ["store_layer", "public_workspace"],
         },
     )
 
@@ -462,6 +617,7 @@ def main() -> None:
     generate_rotation_journal()
     generate_crdt_seal()
     generate_store_layer()
+    generate_public_layer()
     generate_manifest()
     print("done")
 

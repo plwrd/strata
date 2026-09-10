@@ -9,6 +9,9 @@
          app takes no native libsodium dependency; the format KATs pin them. -->
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageReference Include="Konscious.Security.Cryptography.Blake2" Version="1.1.1" />
+    <!-- Frontmatter in public Markdown layers. Used through the plain
+         representation model only — the .NET equivalent of yaml.safe_load. -->
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
   <PropertyGroup>

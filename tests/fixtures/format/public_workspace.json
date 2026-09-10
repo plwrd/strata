@@ -1,0 +1,62 @@
+{
+  "description": "A public Markdown layer + workspace.json written by Python",
+  "directory": "public_workspace",
+  "folders": [
+    {
+      "id": "ae4a8b353fa085858940173034a877ee",
+      "name": "Deals",
+      "path": "Deals"
+    }
+  ],
+  "layer_order": [
+    "layer_private1",
+    "layer_public01"
+  ],
+  "note_id_recipe": {
+    "expected": "a2f8e424e02fc80549142a5ed7966c74",
+    "layer_id": "layer_public01",
+    "relative_path": "Northwind.md"
+  },
+  "notes": [
+    {
+      "content": "Body with #research and a [[Second Note]] link.\n\nsupports:: [[Evidence]]\n",
+      "folder_path": "",
+      "id": "a2f8e424e02fc80549142a5ed7966c74",
+      "link_targets": [
+        "Second Note",
+        "Evidence"
+      ],
+      "properties": {
+        "draft": false,
+        "priority": 2,
+        "status": "open"
+      },
+      "relative_path": "Northwind.md",
+      "tags": [
+        "deals",
+        "research"
+      ],
+      "title": "Northwind",
+      "word_count": 10
+    },
+    {
+      "content": "Nested note, no frontmatter of interest.\n",
+      "folder_path": "Deals",
+      "id": "1813d789fbe949f6c458b1a951149aa5",
+      "link_targets": [],
+      "properties": {},
+      "relative_path": "Deals/Second Note.md",
+      "tags": [],
+      "title": "Second Note",
+      "word_count": 6
+    }
+  ],
+  "ordered_layer_ids": [
+    "layer_private1",
+    "layer_public01"
+  ],
+  "private_layer_id": "layer_private1",
+  "public_layer_id": "layer_public01",
+  "workspace_file": "workspace.json",
+  "workspace_id": "ws-kat-0001"
+}

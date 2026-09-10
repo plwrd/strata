@@ -1,0 +1,119 @@
+{
+  "format_version": 1,
+  "id": "ws-kat-0001",
+  "name": "KAT Workspace",
+  "created_at": "2020-01-01T00:00:00+00:00",
+  "updated_at": "2020-01-01T00:00:00+00:00",
+  "layer_order": [
+    "layer_private1",
+    "layer_public01"
+  ],
+  "layers": [
+    {
+      "id": "layer_public01",
+      "display_name": "Public",
+      "visibility": "public",
+      "state": "mounted",
+      "sharing_mode": "personal",
+      "storage": "markdown",
+      "storage_version": 1,
+      "created_at": "2020-01-01T00:00:00+00:00",
+      "updated_at": "2020-01-01T00:00:00+00:00",
+      "color": "layer-public",
+      "ai_policy": {
+        "access": "local-only",
+        "embeddings": "local-only",
+        "may_read": true,
+        "may_summarize": true,
+        "may_propose_edits": true,
+        "may_apply_approved_edits": false,
+        "may_create_links": false,
+        "may_reorganize_structure": false,
+        "may_process_attachments": false
+      },
+      "password_remembered": false
+    },
+    {
+      "id": "layer_private1",
+      "display_name": "Private",
+      "visibility": "private",
+      "state": "locked",
+      "sharing_mode": "shared-password",
+      "storage": "encrypted-objects",
+      "storage_version": 1,
+      "created_at": "2020-01-01T00:00:00+00:00",
+      "updated_at": "2020-01-01T00:00:00+00:00",
+      "color": "layer-private",
+      "ai_policy": {
+        "access": "remote-with-confirmation",
+        "embeddings": "disabled",
+        "may_read": true,
+        "may_summarize": true,
+        "may_propose_edits": true,
+        "may_apply_approved_edits": true,
+        "may_create_links": false,
+        "may_reorganize_structure": false,
+        "may_process_attachments": false
+      },
+      "password_remembered": false
+    }
+  ],
+  "lenses": [
+    {
+      "id": "lens-1",
+      "name": "Deals only",
+      "visible_layer_ids": [
+        "layer_public01"
+      ],
+      "layer_order": [],
+      "folder_scope": [],
+      "tag_filters": [
+        "deals"
+      ],
+      "property_filters": {
+        "status": "open"
+      },
+      "relationship_filters": [],
+      "node_types": [],
+      "search_query": "",
+      "time_range_days": 30,
+      "graph_layout": "force",
+      "graph_camera": {
+        "x": 1.5,
+        "y": -2.0,
+        "zoom": 0.75
+      },
+      "color_mapping": "layer",
+      "ai_readable_layer_ids": [],
+      "mode": "explore",
+      "is_default": true
+    }
+  ],
+  "saved_views": [
+    {
+      "id": "view-1",
+      "name": "Open items",
+      "type": "kanban",
+      "layer_ids": [
+        "layer_public01"
+      ],
+      "folder_scope": "",
+      "filters": [
+        {
+          "field": "status",
+          "operator": "not_equals",
+          "value": "done"
+        }
+      ],
+      "sort": [
+        {
+          "field": "updated",
+          "direction": "desc"
+        }
+      ],
+      "group_by": "status",
+      "visible_properties": [],
+      "date_field": "updated"
+    }
+  ]
+}

@@ -10,6 +10,14 @@ and the parity ledger — this tree is **not** a full port of the app yet.
   journal, sealed CRDT updates and the encrypted store. Every committed vector in
   `tests/fixtures/format` opens and re-seals byte-for-byte, including a whole
   private layer written by the Python app.
+- **Phase 2 (stores done)** — layer/workspace/view/note domain models, path
+  safety, the Markdown store and the workspace store. Reads a public layer and a
+  `workspace.json` written by Python.
+- **Phase 3 (spine started)** — `Strata.Services`: the encryption service, the key
+  holder, the OS keychain, private-layer access, the workspace/layer lifecycle and
+  the view query engine. A private layer can be created, locked, reopened,
+  unlocked by password or recovery key, rotated, and read and written — all in
+  .NET. 31 of 35 services remain.
 
 ```bash
 dotnet build Strata.sln

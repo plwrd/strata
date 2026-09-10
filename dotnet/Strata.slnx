@@ -3,9 +3,11 @@
     <Project Path="src/Strata.App/Strata.App.csproj" />
     <Project Path="src/Strata.Core/Strata.Core.csproj" />
     <Project Path="src/Strata.Infrastructure/Strata.Infrastructure.csproj" />
+    <Project Path="src/Strata.Services/Strata.Services.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Strata.App.Tests/Strata.App.Tests.csproj" />
     <Project Path="tests/Strata.FormatConformance/Strata.FormatConformance.csproj" />
+    <Project Path="tests/Strata.Services.Tests/Strata.Services.Tests.csproj" />
   </Folder>
 </Solution>

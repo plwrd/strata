@@ -1,6 +1,7 @@
 {
   "directories": [
-    "store_layer"
+    "store_layer",
+    "public_workspace"
   ],
   "files": [
     "container_note.bin",
@@ -9,6 +10,7 @@
     "crdt_update.json",
     "layer_header.json",
     "primitives.json",
+    "public_workspace.json",
     "rotation_journal.json",
     "store_layer.json"
   ],
@@ -21,6 +23,7 @@
     "rotation_journal.json",
     "crdt_update.json",
     "crdt_update.bin",
-    "store_layer.json"
+    "store_layer.json",
+    "public_workspace.json"
   ]
 }
