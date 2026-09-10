@@ -721,6 +721,42 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 }
               />
             </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.browser_blur_media ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    browser_blur_media: event.target.checked,
+                  })
+                }
+              />
+              <span>Blur media by default</span>
+            </label>
+            <label className="composer__field">
+              <span className="label">
+                Blur strength ({settings?.browser_blur_amount ?? 12}px)
+              </span>
+              <input
+                className="input"
+                type="range"
+                min={1}
+                max={40}
+                value={settings?.browser_blur_amount ?? 12}
+                aria-label="Blur strength"
+                onChange={(event) =>
+                  void applySettings({
+                    browser_blur_amount: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <p className="settings-dialog__hint">
+              Blur hides images, video and canvas in the browser pane so a page
+              is safe to have on a shared screen — text stays readable. Toggle
+              it live with <kbd>Ctrl/Cmd+Shift+X</kbd>. The pane only; your own
+              Chrome is not restyled.
+            </p>
           </section>
         </div>
       </div>

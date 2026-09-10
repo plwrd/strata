@@ -48,4 +48,6 @@ class SettingsBridge(QObject):
         apply_tray = getattr(parent, "apply_minimize_to_tray", None)
         if callable(apply_tray):
             apply_tray(settings.minimize_to_tray)
+        # The blur radius is a setting; a live pane must pick up a change to it.
+        self._services.browser.set_blur_amount(settings.browser_blur_amount)
         return SettingsResponse(settings=settings)

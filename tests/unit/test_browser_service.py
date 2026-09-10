@@ -90,6 +90,7 @@ class FakePane:
         self.loaded: list[str] = []
         self.closed = False
         self.reads = 0
+        self.blur: tuple[bool, int] | None = None
 
     def status(self) -> BrowserStatus:
         return BrowserStatus(
@@ -122,6 +123,9 @@ class FakePane:
             char_count=10,
             target_id="pane",
         )
+
+    def apply_blur(self, enabled: bool, amount: int) -> None:
+        self.blur = (enabled, amount)
 
     def close(self) -> None:
         self.closed = True
@@ -404,3 +408,80 @@ def test_closing_terminates_only_a_chrome_strata_started(tmp_path: Path) -> None
     # A browser Strata never started is not ours to kill.
     service._chrome._process = None
     service.close()  # must not raise
+
+
+# -- media blur --------------------------------------------------------------
+
+
+def test_blur_is_off_by_default_and_supported_on_the_pane(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path)
+    enabled, amount = service.blur_state()
+
+    assert enabled is False
+    assert amount == 12
+    assert service.blur_supported is True
+
+
+def test_toggling_blur_applies_it_to_the_pane(tmp_path: Path) -> None:
+    service, pane = _embedded(tmp_path)
+
+    assert service.toggle_blur() is True
+    assert pane.blur == (True, 12)
+
+    assert service.toggle_blur() is False
+    assert pane.blur == (False, 12)
+
+
+def test_blur_change_notifies_the_listener(tmp_path: Path) -> None:
+    """The bridge relies on this to push a hotkey toggle to the panel."""
+    service, _pane = _embedded(tmp_path)
+    seen: list[tuple[bool, int]] = []
+    service.on_blur_changed = lambda: seen.append(service.blur_state())
+
+    service.toggle_blur()
+    service.set_blur_amount(20)
+
+    assert seen and seen[0][0] is True
+
+
+def test_the_amount_comes_from_settings_and_reaches_the_pane(tmp_path: Path) -> None:
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "embedded",
+            "browser_blur_amount": 25,
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    service.set_blur(True)
+
+    assert pane.blur == (True, 25)
+
+
+def test_the_chrome_backend_does_not_support_blur(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+
+    assert service.blur_supported is False
+    # Toggling is a harmless no-op — there is no pane to restyle.
+    assert service.set_blur(True) is True
+
+
+def test_a_freshly_attached_pane_gets_the_starting_blur(tmp_path: Path) -> None:
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "embedded",
+            "browser_blur_media": True,
+            "browser_blur_amount": 8,
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    assert pane.blur == (True, 8)

@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, BridgeCallError } from "../../bridge/client";
 import type {
+  BlurStreamEvent,
   BrowserStatus,
   BrowserTab,
   PageStreamEvent,
@@ -53,6 +54,7 @@ const ENGINE_LABELS: Record<string, string> = {
 export function BrowserPanel(): JSX.Element {
   const state = useStore();
   const [status, setStatus] = useState<BrowserStatus | null>(null);
+  const [blur, setBlur] = useState(false);
   const [engines, setEngines] = useState<string[]>([]);
   const [engine, setEngine] = useState("");
   const [query, setQuery] = useState("");
@@ -105,12 +107,23 @@ export function BrowserPanel(): JSX.Element {
         if (cancelled) unsubscribe();
         else drop = unsubscribe;
       });
+    let dropBlur: (() => void) | null = null;
+    void bridge.browser
+      .onBlur((raw) => {
+        const event = JSON.parse(raw) as BlurStreamEvent;
+        setBlur(event.enabled);
+      })
+      .then((unsubscribe) => {
+        if (cancelled) unsubscribe();
+        else dropBlur = unsubscribe;
+      });
     return () => {
       cancelled = true;
       drop?.();
+      dropBlur?.();
     };
     // Once per mount: the panel asks the host what it can do, and listens for
-    // the reads it starts.
+    // the reads it starts and for blur changes it did not make.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -146,11 +159,22 @@ export function BrowserPanel(): JSX.Element {
     try {
       const result = await bridge.browser.getStatus();
       setStatus(result.status);
+      setBlur(result.status.blur_enabled);
       setEngines(result.engines);
       if (result.status.running) await refreshTabs();
     } catch (caught) {
       setError(describe(caught));
     }
+  };
+
+  const toggleBlur = (): void => {
+    // Optimistic: the button flips at once; `onBlur` confirms, and also catches
+    // the application hotkey, which never comes through this handler.
+    const next = !blur;
+    setBlur(next);
+    void bridge.browser
+      .setBlur(next)
+      .catch((caught) => setError(describe(caught)));
   };
 
   const refreshTabs = async (): Promise<void> => {
@@ -315,7 +339,25 @@ export function BrowserPanel(): JSX.Element {
             {embedded ? "Close pane" : "Close browser"}
           </button>
         )}
+        {running && status?.blur_supported && (
+          <button
+            type="button"
+            className={`button ${blur ? "button--primary" : ""}`}
+            aria-pressed={blur}
+            title="Blur images, video and canvas (Ctrl/Cmd+Shift+X)"
+            onClick={toggleBlur}
+          >
+            {blur ? "Media blurred" : "Blur media"}
+          </button>
+        )}
       </div>
+      {running && status?.blur_supported && (
+        <p className="research__hint">
+          Blur hides images, video and canvas so the page is safe to have on a
+          shared screen; text stays readable. Toggle it anywhere with{" "}
+          <kbd>Ctrl/Cmd+Shift+X</kbd>, and set the strength in Settings.
+        </p>
+      )}
 
       <div className="research__search">
         <label className="composer__field">

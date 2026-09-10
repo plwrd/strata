@@ -422,6 +422,9 @@ export const planListeners: ((value: string) => void)[] = [];
 /** Listeners registered against the `browser.pageEvent` signal. */
 export const pageListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `browser.blurEvent` signal. */
+export const blurListeners: ((value: string) => void)[] = [];
+
 /** Listeners registered against the `collaboration.collabEvent` signal. */
 export const collabListeners: ((value: string) => void)[] = [];
 
@@ -515,6 +518,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   aiListeners.length = 0;
   planListeners.length = 0;
   pageListeners.length = 0;
+  blurListeners.length = 0;
   collabListeners.length = 0;
   _docs.clear();
   // The client memoises its channel, so a fresh fake must invalidate it or the
@@ -635,6 +639,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           browser_profile_path: "",
           browser_debug_port: 9333,
           browser_search_engine: "duckduckgo",
+          browser_blur_media: false,
+          browser_blur_amount: 12,
         },
       }),
       update_settings: (payload) => ({
@@ -672,6 +678,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             browser_profile_path: "",
             browser_debug_port: 9333,
             browser_search_engine: "duckduckgo",
+            browser_blur_media: false,
+            browser_blur_amount: 12,
             ...(payload["values"] as object),
           }),
       }),
@@ -1335,6 +1343,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           executable: "",
           profile_path: "",
           tab_count: 0,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend === "embedded",
           detail: browserEnabled
             ? "The browser pane is closed."
             : "Turn on browser research in Settings to use it.",
@@ -1352,6 +1363,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           executable: "",
           profile_path: "",
           tab_count: 1,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend === "embedded",
           detail: "The browser pane is open on example.com.",
         },
         engines: ["duckduckgo", "google"],
@@ -1367,11 +1381,23 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           executable: "",
           profile_path: "",
           tab_count: 0,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend === "embedded",
           detail: "The browser pane is closed.",
         },
         engines: ["duckduckgo", "google"],
       }),
+      set_blur: (payload) => {
+        captured.push(payload);
+        const enabled = Boolean(payload["enabled"]);
+        for (const listener of blurListeners) {
+          listener(JSON.stringify({ enabled, amount: 12, supported: true }));
+        }
+        return { status: { blur_enabled: enabled }, engines: [] };
+      },
       pageEvent: signal(pageListeners),
+      blurEvent: signal(blurListeners),
       search: (payload) => {
         captured.push(payload);
         return {

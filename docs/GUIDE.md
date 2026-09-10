@@ -253,6 +253,22 @@ Strata owns — and reads the tab you point it at instead. Everything else in
 this section works identically; the panel grows a tab picker, because Chrome
 has real tabs and the pane shows one page.
 
+### Blurring media on a shared screen
+
+The pane can go soft. **Blur media** — the button in the Research panel, or
+`Ctrl/Cmd+Shift+X` from anywhere, including while you are typing in the page —
+blurs every image, video and canvas, and leaves the text sharp. So a page stays
+readable for research while a shoulder-surfer, a recording, or a screen share
+sees nothing worth seeing. The hotkey is application-wide on purpose: the moment
+you need it, the browser usually has the keyboard, where an ordinary web
+shortcut could not reach.
+
+Set the strength (and whether the pane starts blurred) in Settings → Browser
+research. Blur applies to the built-in pane only — Strata does not reach into
+your own Chrome to restyle it. It pairs with *Hidden for sharing* (§17), which
+excludes the whole window from capture pipelines: blur is for a screen someone
+can see, *Hidden for sharing* is for one being captured.
+
 ### Analyse & file
 
 Tick the layers this research concerns — public, private, or both — and Strata
@@ -887,6 +903,7 @@ Strata's shortcuts are scoped to the panel you are in.
 | Anywhere | `Ctrl/Cmd+,` | Open / close Settings |
 | Anywhere | `Ctrl/Cmd+Shift+H` | Toggle **Hidden for sharing** (§17) — the one setting you need *before* you start sharing a screen, not after |
 | Anywhere | `Ctrl/Cmd+Shift+B` | Open / close the research browser pane (§3¾) |
+| Anywhere | `Ctrl/Cmd+Shift+X` | Blur / unblur media in the browser pane (§3¾) |
 | Editor | `Ctrl/Cmd+S` | Save now |
 | Editor | `Ctrl/Cmd+W` | Close the active tab |
 | Editor | `Ctrl/Cmd+Shift+T` | Reopen the last closed tab |

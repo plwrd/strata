@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import quote_plus, urlsplit
@@ -350,6 +351,12 @@ class BrowserService:
         self._settings = settings
         self._chrome = ChromeSource(settings, profile_root)
         self._embedded: PageSource | None = None
+        # Runtime blur state. Amount is a setting; on/off starts from the setting
+        # but is then toggled live (hotkey or panel), so it lives here, not there.
+        self._blur_enabled = settings.settings.browser_blur_media
+        # Notified whenever blur changes by any path, so the panel can reflect a
+        # hotkey toggle it did not make. Set by the bridge.
+        self.on_blur_changed: Callable[[], None] | None = None
 
     def attach(self, source: PageSource) -> None:
         """Register the embedded pane, once the Qt window has built it.
@@ -358,6 +365,7 @@ class BrowserService:
         pane arrives from ``app.desktop`` at startup and is a fake in tests.
         """
         self._embedded = source
+        self._apply_blur()
 
     # -- state ---------------------------------------------------------------
 
@@ -385,6 +393,45 @@ class BrowserService:
                 "Browser research is switched off in this workspace's settings."
             )
 
+    # -- media blur ----------------------------------------------------------
+
+    @property
+    def _blur_amount(self) -> int:
+        return int(self._settings.settings.browser_blur_amount)
+
+    @property
+    def blur_supported(self) -> bool:
+        # The pane can be restyled; a separate real Chrome is not Strata's to
+        # reach into and repaint.
+        return self.backend == "embedded" and self._embedded is not None
+
+    def blur_state(self) -> tuple[bool, int]:
+        return self._blur_enabled, self._blur_amount
+
+    def set_blur(self, enabled: bool) -> bool:
+        self._blur_enabled = bool(enabled)
+        self._apply_blur()
+        self._notify_blur()
+        return self._blur_enabled
+
+    def toggle_blur(self) -> bool:
+        return self.set_blur(not self._blur_enabled)
+
+    def set_blur_amount(self, amount: int) -> None:
+        """The amount lives in settings; this re-applies it to a live pane."""
+        self._apply_blur()
+        self._notify_blur()
+
+    def _apply_blur(self) -> None:
+        embedded = self._embedded
+        apply = getattr(embedded, "apply_blur", None)
+        if self.blur_supported and callable(apply):
+            apply(self._blur_enabled, self._blur_amount)
+
+    def _notify_blur(self) -> None:
+        if self.on_blur_changed is not None:
+            self.on_blur_changed()
+
     def status(self) -> BrowserStatus:
         """Never raises: "can I use this?" is a question, not an operation."""
         enabled = self._settings.settings.browser_control_enabled
@@ -403,7 +450,14 @@ class BrowserService:
                 backend=self.backend,
                 detail=getattr(exc, "message", "The browser is not available."),
             )
-        return status.model_copy(update={"enabled": True})
+        return status.model_copy(
+            update={
+                "enabled": True,
+                "blur_enabled": self._blur_enabled,
+                "blur_amount": self._blur_amount,
+                "blur_supported": self.blur_supported,
+            }
+        )
 
     # -- navigation ----------------------------------------------------------
 

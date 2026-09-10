@@ -140,6 +140,12 @@ class AppSettings(BaseModel):
     browser_profile_path: str = ""
     browser_debug_port: int = 9333
     browser_search_engine: str = "duckduckgo"
+    # Blur images, video and canvas in the browser pane, so a shoulder-surfer or
+    # a screen share sees text but not media. `browser_blur_media` is only the
+    # starting state — the pane is toggled live with a hotkey; the radius is the
+    # adjustable part. Embedded pane only.
+    browser_blur_media: bool = False
+    browser_blur_amount: int = 12
 
     # -- Onboarding ----------------------------------------------------------
     #
@@ -187,6 +193,16 @@ class AppSettings(BaseModel):
         if not 1024 <= port <= 65535:
             raise ValueError("browser_debug_port must be between 1024 and 65535")
         return port
+
+    @field_validator("browser_blur_amount", mode="before")
+    @classmethod
+    def _clamp_blur_amount(cls, value: Any) -> int:
+        try:
+            amount = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("browser_blur_amount must be a number") from exc
+        # Below 1 is not a blur; above 100 is a solid smear with no gain.
+        return max(1, min(100, amount))
 
     @field_validator("browser_search_engine", mode="before")
     @classmethod

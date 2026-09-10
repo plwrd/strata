@@ -55,6 +55,12 @@ class OpenUrlRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
 
 
+class BlurRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
 class ReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -109,6 +115,10 @@ class BrowserBridge(QObject):
     """
 
     pageEvent = Signal(str)
+    # Pushed whenever blur changes by *any* path — including the application
+    # hotkey, which the panel never sees — so a "Blur media" toggle can stay in
+    # step with the real state. Carries no page content, only on/off + radius.
+    blurEvent = Signal(str)
     # Internal hop from the reading thread back to the Qt thread, so the capture
     # (a filesystem write) happens where every other write happens.
     _readFinished = Signal(str)
@@ -118,6 +128,7 @@ class BrowserBridge(QObject):
         self._services = services
         self._pending: dict[str, _PendingRead] = {}
         self._readFinished.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+        self._services.browser.on_blur_changed = self._emit_blur
 
     # -- state ---------------------------------------------------------------
 
@@ -147,6 +158,28 @@ class BrowserBridge(QObject):
         return StatusResponse(
             status=self._services.browser.status(),
             engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(BlurRequest)
+    def set_blur(self, request: BlurRequest) -> StatusResponse:
+        """Blur (or unblur) images, video and canvas in the pane."""
+        self._services.browser.set_blur(request.enabled)
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    def _emit_blur(self) -> None:
+        enabled, amount = self._services.browser.blur_state()
+        self.blurEvent.emit(
+            json.dumps(
+                {
+                    "enabled": enabled,
+                    "amount": amount,
+                    "supported": self._services.browser.blur_supported,
+                }
+            )
         )
 
     # -- navigation ----------------------------------------------------------

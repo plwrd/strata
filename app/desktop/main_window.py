@@ -31,6 +31,9 @@ MINIMUM_SIZE = (1024, 640)
 DEFAULT_SIZE = (1600, 980)
 # Splitter split when the browser pane opens: the workspace keeps the larger half.
 BROWSER_SPLIT = (960, 640)
+# Toggles media blur in the browser pane. Application-scoped, so it fires while
+# the researched page has keyboard focus — where a web-layer shortcut cannot.
+BLUR_HOTKEY = "Ctrl+Shift+X"
 
 
 class MainWindow(QMainWindow):
@@ -124,11 +127,19 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence("F12"), self, self._toggle_devtools)
             QShortcut(QKeySequence("F5"), self, self._view.reload)
 
+        blur_shortcut = QShortcut(QKeySequence(BLUR_HOTKEY), self, self._toggle_blur)
+        blur_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+
         url = QUrl(dev_server) if dev_server else QUrl(APP_URL)
         logger.info("window.loading", dev=bool(dev_server))
         self._view.load(url)
 
         self._build_tray()
+
+    def _toggle_blur(self) -> None:
+        """Flip media blur in the pane. A no-op when there is nothing to blur."""
+        if self._services.browser.blur_supported:
+            self._services.browser.toggle_blur()
 
     def show_browser_pane(self, visible: bool) -> None:
         """Open or close the browser pane. Qt thread only."""

@@ -29,7 +29,12 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
+from PySide6.QtWebEngineCore import (
+    QWebEnginePage,
+    QWebEngineProfile,
+    QWebEngineScript,
+    QWebEngineSettings,
+)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
@@ -45,6 +50,50 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 # The only target the pane ever gets: it shows one page at a time, so the id is
 # a constant rather than something the frontend has to track.
 PANE_TARGET_ID = "pane"
+
+# Blur is selective on purpose: images, video and canvas go soft, text stays
+# readable, so research still works while a shoulder-surfer or a screen share
+# sees nothing worth seeing. The rules match elements added *after* load too —
+# CSS selectors apply to future nodes — so no MutationObserver is needed.
+_BLUR_SELECTOR = "img, video, canvas"
+_BLUR_STYLE_ID = "__strata-blur-style"
+# One script, re-run on every navigation, that writes (or clears) the blur
+# stylesheet. The CSS text is filled in per state; %s is JSON-escaped from Python
+# so a radius can never break out of the string.
+_BLUR_SCRIPT = """
+(() => {
+  const css = %s;
+  const install = () => {
+    let el = document.getElementById(%s);
+    if (!el) {
+      el = document.createElement("style");
+      el.id = %s;
+    }
+    el.textContent = css;
+    (document.head || document.documentElement || document.body || {})
+      .appendChild?.(el);
+  };
+  install();
+  // documentElement may be bare at document-creation; finish once the DOM is up.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", install, { once: true });
+  }
+})();
+""".strip()
+
+
+def _blur_css(enabled: bool, amount: int) -> str:
+    if not enabled:
+        return ""
+    radius = max(1, min(100, int(amount)))
+    return f"{_BLUR_SELECTOR} {{ filter: blur({radius}px) !important; }}"
+
+
+def _blur_source(enabled: bool, amount: int) -> str:
+    import json
+
+    ident = json.dumps(_BLUR_STYLE_ID)
+    return _BLUR_SCRIPT % (json.dumps(_blur_css(enabled, amount)), ident, ident)
 
 
 class BrowserPanePage(QWebEnginePage):
@@ -109,6 +158,14 @@ class BrowserPane(QWidget):
         settings.setAttribute(QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, False)
 
+        # Media blur, off until asked. The script is re-registered whenever the
+        # state changes so every future navigation is blurred from first paint;
+        # the current page is restyled at once by running the same source.
+        self._blur_enabled = False
+        self._blur_amount = 12
+        self._blur_script: QWebEngineScript | None = None
+        self._install_blur_script()
+
         self._address = QLineEdit(self)
         self._address.setPlaceholderText("https://…")
         self._address.returnPressed.connect(self._go)
@@ -162,6 +219,33 @@ class BrowserPane(QWidget):
             url=self._page.url().toString()[:2000],
             active=True,
         )
+
+    # -- media blur ----------------------------------------------------------
+
+    def set_blur(self, enabled: bool, amount: int) -> None:
+        """Blur (or unblur) images, video and canvas. Qt thread only.
+
+        Two effects: re-register the injected script so the *next* page loads
+        already blurred, and restyle the page open *now* so the change is
+        immediate rather than waiting for a navigation.
+        """
+        self._blur_enabled = bool(enabled)
+        self._blur_amount = max(1, min(100, int(amount)))
+        self._install_blur_script()
+        self._page.runJavaScript(_blur_source(self._blur_enabled, self._blur_amount))
+
+    def _install_blur_script(self) -> None:
+        scripts = self._page.scripts()
+        if self._blur_script is not None:
+            scripts.remove(self._blur_script)
+        script = QWebEngineScript()
+        script.setName("strata-blur")
+        script.setSourceCode(_blur_source(self._blur_enabled, self._blur_amount))
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(True)
+        scripts.insert(script)
+        self._blur_script = script
 
     def extract(self, deliver: Any) -> None:
         """Run the shared extraction in the page. Qt thread only."""
@@ -222,6 +306,11 @@ class EmbeddedSource(QObject):
 
     def tabs(self) -> list[BrowserTab]:
         return [self._pane.current()]
+
+    def apply_blur(self, enabled: bool, amount: int) -> None:
+        # Called from the Qt thread (a bridge slot or the window's own shortcut),
+        # never a worker — the read path is the only thing that crosses threads.
+        self._pane.set_blur(enabled, amount)
 
     def read(self, target_id: str) -> ScrapedPage:
         """Blocking, for the worker thread. One read at a time."""

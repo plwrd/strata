@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserPanel } from "../features/browser/BrowserPanel";
 import { useStore } from "../state/store";
 import {
+  blurListeners,
   captured,
   installFakeBridge,
   PUBLIC_LAYER,
@@ -123,6 +124,49 @@ describe("BrowserPanel", () => {
     expect(
       await screen.findByRole("combobox", { name: "Tab to read" }),
     ).toBeInTheDocument();
+  });
+
+  it("blurs media and stays in step with the hotkey", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+
+    const button = await screen.findByRole("button", { name: "Blur media" });
+    await userEvent.click(button);
+
+    // The click asked Python to blur.
+    await waitFor(() => {
+      const payload = captured.find((entry) => "enabled" in entry);
+      expect(payload?.["enabled"]).toBe(true);
+    });
+    expect(
+      await screen.findByRole("button", { name: "Media blurred" }),
+    ).toBeInTheDocument();
+
+    // A hotkey toggle Python pushes over blurEvent flips the button back, even
+    // though this panel never made the change.
+    for (const listener of blurListeners) {
+      listener(JSON.stringify({ enabled: false, amount: 12, supported: true }));
+    }
+    expect(
+      await screen.findByRole("button", { name: "Blur media" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the blur control for the Chrome backend", async () => {
+    installFakeBridge({ browserBackend: "chrome" });
+    seedLayers();
+    render(<BrowserPanel />);
+    const opens = await screen.findAllByRole("button", {
+      name: "Open browser",
+    });
+    await userEvent.click(opens[0]!);
+
+    expect(
+      screen.queryByRole("button", { name: "Blur media" }),
+    ).not.toBeInTheDocument();
   });
 
   it("explains itself instead of failing when the feature is off", async () => {

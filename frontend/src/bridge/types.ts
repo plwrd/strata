@@ -805,6 +805,9 @@ export interface AppSettings {
   browser_profile_path: string;
   browser_debug_port: number;
   browser_search_engine: string;
+  /** Blur images, video and canvas in the browser pane. Amount is the radius. */
+  browser_blur_media: boolean;
+  browser_blur_amount: number;
 }
 
 export interface JobRecord {
@@ -880,7 +883,18 @@ export interface BrowserStatus {
   executable: string;
   profile_path: string;
   tab_count: number;
+  // Media blur (embedded pane only).
+  blur_enabled: boolean;
+  blur_amount: number;
+  blur_supported: boolean;
   detail: string;
+}
+
+/** Pushed when pane blur changes — including from the application hotkey. */
+export interface BlurStreamEvent {
+  enabled: boolean;
+  amount: number;
+  supported: boolean;
 }
 
 export interface BrowserTab {

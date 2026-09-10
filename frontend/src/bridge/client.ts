@@ -717,6 +717,18 @@ export const bridge = {
     }) => call<{ request_id: string }>("browser", "capture_tab", request),
     onPage: (listener: (payload: string) => void) =>
       subscribe("browser", "pageEvent", listener),
+    // Blur images, video and canvas in the pane. The application hotkey does the
+    // same thing; `onBlur` keeps the panel's toggle in step with either.
+    setBlur: (enabled: boolean) =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "set_blur",
+        {
+          enabled,
+        },
+      ),
+    onBlur: (listener: (payload: string) => void) =>
+      subscribe("browser", "blurEvent", listener),
   },
 
   snapshots: {

@@ -64,6 +64,11 @@ class BrowserStatus(BaseModel):
     executable: str = ""
     profile_path: str = ""
     tab_count: int = 0
+    # Media blur (embedded pane only). `blur_supported` is false for the Chrome
+    # backend, which Strata does not reach into to restyle.
+    blur_enabled: bool = False
+    blur_amount: int = 12
+    blur_supported: bool = False
     # One plain sentence for the UI — why it is not running, or what it is.
     detail: str = ""
 

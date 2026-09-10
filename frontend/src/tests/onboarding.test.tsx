@@ -45,6 +45,8 @@ function seedSettings(completed: boolean): void {
       browser_profile_path: "",
       browser_debug_port: 9333,
       browser_search_engine: "duckduckgo",
+      browser_blur_media: false,
+      browser_blur_amount: 12,
     },
     mode: "explore",
     workspace: {
