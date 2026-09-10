@@ -1,0 +1,26 @@
+{
+  "directories": [
+    "store_layer"
+  ],
+  "files": [
+    "container_note.bin",
+    "container_note.json",
+    "crdt_update.bin",
+    "crdt_update.json",
+    "layer_header.json",
+    "primitives.json",
+    "rotation_journal.json",
+    "store_layer.json"
+  ],
+  "format_fixture_version": 1,
+  "required": [
+    "primitives.json",
+    "container_note.json",
+    "container_note.bin",
+    "layer_header.json",
+    "rotation_journal.json",
+    "crdt_update.json",
+    "crdt_update.bin",
+    "store_layer.json"
+  ]
+}

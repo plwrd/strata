@@ -57,6 +57,8 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self._tray: TrayController | None = None
         self._hide_from_taskbar = services.settings.settings.hide_from_taskbar
+        # Whether the app-wide capture event filter is currently installed.
+        self._capture_filter_on = False
         # Re-entrancy guard: hiding the taskbar button cycles the window, which
         # re-fires showEvent; the apply is idempotent, but this stops even the
         # wasted re-entry.
@@ -148,11 +150,10 @@ class MainWindow(QMainWindow):
         # Capture exclusion is per top-level window, so a popup — a native
         # <select> dropdown, a menu, a dialog — appears as its own window and
         # would leak into a recording. Catch each as it is shown.
-        from PySide6.QtWidgets import QApplication
-
-        filter_app = QApplication.instance()
-        assert filter_app is not None
-        filter_app.installEventFilter(self)
+        # The app-wide filter catches popups/menus/dropdowns as they are shown,
+        # but it is only worth its per-event cost while the feature is on; it is
+        # installed and removed as the setting flips.
+        self._sync_capture_filter()
 
     def _toggle_blur(self) -> None:
         """Flip media blur in the pane. A no-op when there is nothing to blur."""
@@ -243,6 +244,7 @@ class MainWindow(QMainWindow):
     def apply_hide_for_sharing(self, enabled: bool) -> None:
         """Signal-style: exclude every Strata window from screen capture."""
         self._hide_for_sharing = enabled
+        self._sync_capture_filter()
         self._reapply_hide_for_sharing()
 
     def _top_level_windows(self) -> list[QWidget]:
@@ -262,6 +264,21 @@ class MainWindow(QMainWindow):
                 seen.add(id(widget))
                 windows.append(widget)
         return windows
+
+    def _sync_capture_filter(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        want = self._hide_for_sharing
+        if want == self._capture_filter_on:
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+        if want:
+            app.installEventFilter(self)
+        else:
+            app.removeEventFilter(self)
+        self._capture_filter_on = want
 
     def _reapply_hide_for_sharing(self) -> None:
         """Re-assert affinity across every window after an HWND / state change.
@@ -287,15 +304,16 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         # Sync from persisted settings and assert affinity now that HWND exists.
         self._hide_for_sharing = self._services.settings.settings.hide_for_sharing
+        self._sync_capture_filter()
         self._reapply_hide_for_sharing()
         self._sync_taskbar()
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() in (
-            QEvent.Type.WindowStateChange,
-            QEvent.Type.ActivationChange,
-        ):
+        # Only a state change (minimize/restore can reset native state) needs a
+        # re-assert; affinity persists across focus changes, so ActivationChange
+        # is deliberately not a trigger — it fires far too often to do work on.
+        if event.type() == QEvent.Type.WindowStateChange:
             self._reapply_hide_for_sharing()
         # A minimize, with the tray on, means "get out of the taskbar" — hide to
         # the tray instead of shrinking to a taskbar button. Deferred a tick so

@@ -1,0 +1,22 @@
+{
+  "format_version": 1,
+  "layer_id": "layer-kat-0001",
+  "created_at": "2020-01-01T00:00:00+00:00",
+  "updated_at": "2020-01-01T00:00:00+00:00",
+  "key_generation": 1,
+  "manifest_object_id": "a1000000000000000000000000000001",
+  "padding_enabled": true,
+  "password": {
+    "kdf": {
+      "version": 1,
+      "algorithm": "argon2id",
+      "time_cost": 1,
+      "memory_kib": 8,
+      "parallelism": 1,
+      "salt": "101112131415161718191a1b1c1d1e1f"
+    },
+    "nonce": "000102030405060708090a0b0c0d0e0f1011121314151617",
+    "ciphertext": "6ba3a941f3e4e8e09a009b28f40a4feec688e3edb998df7665b0bc25b0b412de84e01ddb376407c05c320be4e147919b"
+  },
+  "recovery": null
+}

@@ -1,0 +1,18 @@
+{
+  "blob_file": "container_note.bin",
+  "description": "Sealed TYPE_NOTE object with padding; header is AAD",
+  "header_size": 71,
+  "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "layer_binding_hex": "6444237f5b9048353868807f6b635c57",
+  "layer_id": "layer-kat-0001",
+  "negatives": {
+    "truncated_len": 70,
+    "wrong_layer_id": "layer-other",
+    "wrong_object_id_hex": "ffffffffffffffffffffffffffffffff"
+  },
+  "nonce_hex": "000102030405060708090a0b0c0d0e0f1011121314151617",
+  "object_id_hex": "0123456789abcdef0123456789abcdef",
+  "object_type": 2,
+  "padded_length": 256,
+  "plaintext_hex": "232068656c6c6f2066726f6d20737472617461206b61740a"
+}

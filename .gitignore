@@ -70,6 +70,12 @@ sbom-*.json
 # Hypothesis (property-based testing) example database
 .hypothesis/
 
+# .NET
+dotnet/**/bin/
+dotnet/**/obj/
+*.user
+*.suo
+
 # Humazie Bot local runs, SQLite history, and generated patches
 .humazie/
 humazie/node_modules/

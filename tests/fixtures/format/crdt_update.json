@@ -1,0 +1,15 @@
+{
+  "blob_file": "crdt_update.bin",
+  "description": "Sealed TYPE_CRDT_UPDATE from committed pycrdt/Yjs interop vector",
+  "doc_id": "interop-doc",
+  "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "layer_id": "layer-kat-0001",
+  "negatives": {
+    "wrong_doc_id": "other-doc",
+    "wrong_layer_id": "layer-other"
+  },
+  "nonce_hex": "000102030405060708090a0b0c0d0e0f1011121314151617",
+  "object_id_hex": "04b703e9753fdbe39ccec3e77483a5aa",
+  "object_type": 6,
+  "yjs_update_b64": "ARCzvbTqlKbCBgAnAQR0cmVlBm5vdGUtMQEoALO9tOqUpsIGAAZwYXJlbnQBfigAs7206pSmwgYABG5hbWUBdwVIZWxsbygAs7206pSmwgYABW9yZGVyAXcCYTAoALO9tOqUpsIGAAdpc19ub3RlAXgoALO9tOqUpsIGAAdkZWxldGVkAXknAQZib2RpZXMGbm90ZS0xAgQAs7206pSmwgYGEWhlbGxvIGZyb20gcHljcmR0JwEEbWV0YQZub3RlLTEBJwCzvbTqlKbCBhgEdGFncwAnAQR0cmVlCGZvbGRlci0xASgAs7206pSmwgYaBnBhcmVudAF+KACzvbTqlKbCBhoEbmFtZQF3CFJlc2VhcmNoKACzvbTqlKbCBhoFb3JkZXIBdwJhMCgAs7206pSmwgYaB2lzX25vdGUBeSgAs7206pSmwgYaB2RlbGV0ZWQBeQA="
+}

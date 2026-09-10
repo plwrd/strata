@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Strata.Core\Strata.Core.csproj" />
+    <ProjectReference Include="..\Strata.Infrastructure\Strata.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon />
+    <RootNamespace>Strata.App</RootNamespace>
+    <AssemblyName>Strata</AssemblyName>
+    <!-- Phase 0: WPF host proving the same Win32 privacy APIs WinUI will use.
+         WinUI 3 packaging lands when the Windows App SDK workload is available. -->
+    <Description>Strata native host stub (Phase 0)</Description>
+  </PropertyGroup>
+
+</Project>

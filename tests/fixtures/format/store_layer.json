@@ -1,0 +1,48 @@
+{
+  "attachment": {
+    "data_hex": "0001026174746163686d656e74206279746573ff",
+    "filename": "chart.png",
+    "object_id": "a5000000000000000000000000000005"
+  },
+  "description": "A private layer written by the Python store; open it end to end",
+  "directory": "store_layer",
+  "folder": {
+    "object_id": "a4000000000000000000000000000004",
+    "path": "Deals"
+  },
+  "layer_id": "layer-kat-0001",
+  "layer_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "manifest_object_id": "a1000000000000000000000000000001",
+  "note": {
+    "content": "# Northwind\n\nTagged #research and #deals/q1.\n\nLinks to [[Second Note]] and supports:: [[Evidence]].\n",
+    "expected_link_targets": [
+      "Second Note",
+      "Evidence"
+    ],
+    "expected_tags": [
+      "research",
+      "deals/q1"
+    ],
+    "expected_typed_relationship": {
+      "Evidence": "supports"
+    },
+    "object_id": "a2000000000000000000000000000002",
+    "size_bytes": 100,
+    "title": "Northwind",
+    "word_count": 13
+  },
+  "object_ids": [
+    "a1000000000000000000000000000001",
+    "a2000000000000000000000000000002",
+    "a3000000000000000000000000000003",
+    "a5000000000000000000000000000005"
+  ],
+  "objects_dir": "objects",
+  "password": "correct-horse-battery-staple",
+  "second_note": {
+    "content": "Plain body, no links.\n",
+    "folder_path": "Deals",
+    "object_id": "a3000000000000000000000000000003",
+    "title": "Second Note"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "aad_password_hex": "7374726174613a6c617965722d6b65793a70617373776f72643a7631",
+  "aad_recovery_hex": "7374726174613a6c617965722d6b65793a7265636f766572793a7631",
+  "description": "layer.header wrap KATs (reduced Argon2 costs for CI)",
+  "header": {
+    "created_at": "2020-01-01T00:00:00+00:00",
+    "format_version": 1,
+    "key_generation": 1,
+    "layer_id": "layer-kat-0001",
+    "manifest_object_id": "0123456789abcdef0123456789abcdef",
+    "padding_enabled": true,
+    "password": {
+      "ciphertext": "6ba3a941f3e4e8e09a009b28f40a4feec688e3edb998df7665b0bc25b0b412de84e01ddb376407c05c320be4e147919b",
+      "kdf": {
+        "algorithm": "argon2id",
+        "memory_kib": 8,
+        "parallelism": 1,
+        "salt": "101112131415161718191a1b1c1d1e1f",
+        "time_cost": 1,
+        "version": 1
+      },
+      "nonce": "000102030405060708090a0b0c0d0e0f1011121314151617"
+    },
+    "recovery": {
+      "ciphertext": "3ee21e05f0de50f347cf16d07119fcabc201503f672d21bcd5f43658cb51c8c42d1a2f9d46331e360ddc0e4f46b4c55a",
+      "kdf": {
+        "algorithm": "argon2id",
+        "memory_kib": 8,
+        "parallelism": 1,
+        "salt": "101112131415161718191a1b1c1d1e1f",
+        "time_cost": 1,
+        "version": 1
+      },
+      "nonce": "0102030405060708090a0b0c0d0e0f101112131415161718"
+    },
+    "updated_at": "2020-01-01T00:00:00+00:00"
+  },
+  "layer_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "note": "Production KDF is t=3 m=262144 p=4; this fixture uses t=1 m=8 p=1 with fixed salt.",
+  "password": "correct-horse-battery-staple",
+  "recovery_normalised": "ABCDEFGHJKLMNPQRSTUVWXYZ23456789ABCDEFGHJKLMNPQRST"
+}

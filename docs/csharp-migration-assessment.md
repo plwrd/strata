@@ -146,3 +146,19 @@ Do it as a **strangler**, never a big-bang rewrite:
   tests against the same data.
 
 Expect the two codebases to coexist for the duration, and budget for it.
+
+---
+
+## 7. Decision (2026-09-10): proceed — native UI strangler
+
+Product decision: migrate to a **fully native** host (option B), not
+WebView2+React. Heaviness/flicker are Chromium-bound; only leaving the embedded
+browser for the app UI can address them. Security boundary is rebuilt deliberately
+(host holds keys/FS/network).
+
+Execution plan of record: [csharp-migration-plan.md](csharp-migration-plan.md).
+
+Phase 0 (first deliverable) freezes encryption/CRDT KATs under
+`tests/fixtures/format/` and ships a .NET privacy/tray stub shell under
+`dotnet/`. React is **not** carried as the long-term app UI (supersedes the
+"keep the React frontend" bullet in §6 for this migration path).
