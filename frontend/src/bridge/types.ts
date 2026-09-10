@@ -808,6 +808,7 @@ export interface AppSettings {
   /** Blur images, video and canvas in the browser pane. Amount is the radius. */
   browser_blur_media: boolean;
   browser_blur_amount: number;
+  browser_mobile_mode: boolean;
 }
 
 export interface JobRecord {
@@ -888,6 +889,8 @@ export interface BrowserStatus {
   blur_enabled: boolean;
   blur_amount: number;
   blur_supported: boolean;
+  // Mobile layout (embedded pane serves a mobile user-agent).
+  mobile_mode: boolean;
   detail: string;
 }
 

@@ -276,11 +276,23 @@ sees nothing worth seeing. The hotkey is application-wide on purpose: the moment
 you need it, the browser usually has the keyboard, where an ordinary web
 shortcut could not reach.
 
-Set the strength (and whether the pane starts blurred) in Settings → Browser
-research. Blur applies to the built-in pane only — Strata does not reach into
-your own Chrome to restyle it. It pairs with *Hidden for sharing* (§17), which
-excludes the whole window from capture pipelines: blur is for a screen someone
-can see, *Hidden for sharing* is for one being captured.
+It blurs avatars and background-image thumbnails too, not only `<img>` tags —
+sites like x.com render those as styled `<div>`s — and it holds on pages that
+re-render as you scroll. Set the strength (and whether the pane starts blurred)
+in Settings → Browser research. Blur applies to the built-in pane only — Strata
+does not reach into your own Chrome to restyle it. It pairs with *Hidden for
+sharing* (§17), which excludes the whole window from capture pipelines: blur is
+for a screen someone can see, *Hidden for sharing* is for one being captured.
+
+### Mobile site mode
+
+**Mobile site** (the toggle in the Research panel, or Settings → Browser
+research) serves sites their phone layout: the pane presents a mobile
+user-agent, so a site like x.com renders its mobile view, which suits the narrow
+pane. Toggling it reloads the current page. True touch events (taps and swipes,
+not just a mobile layout) are a process-wide Chromium setting, so that half
+takes effect the next time you start Strata; the layout switches immediately.
+The pane only — your own Chrome is never touched.
 
 ### Analyse & file
 

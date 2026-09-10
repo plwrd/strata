@@ -354,6 +354,8 @@ class BrowserService:
         # Runtime blur state. Amount is a setting; on/off starts from the setting
         # but is then toggled live (hotkey or panel), so it lives here, not there.
         self._blur_enabled = settings.settings.browser_blur_media
+        # Mobile mode (serve a mobile user-agent) starts from its setting too.
+        self._mobile = settings.settings.browser_mobile_mode
         # Notified whenever blur changes by any path, so the panel can reflect a
         # hotkey toggle it did not make. Set by the bridge.
         self.on_blur_changed: Callable[[], None] | None = None
@@ -366,6 +368,7 @@ class BrowserService:
         """
         self._embedded = source
         self._apply_blur()
+        self._apply_mobile()
 
     # -- state ---------------------------------------------------------------
 
@@ -432,6 +435,22 @@ class BrowserService:
         if self.on_blur_changed is not None:
             self.on_blur_changed()
 
+    # -- mobile mode ---------------------------------------------------------
+
+    def mobile_state(self) -> bool:
+        return self._mobile
+
+    def set_mobile(self, enabled: bool) -> bool:
+        self._mobile = bool(enabled)
+        self._apply_mobile()
+        return self._mobile
+
+    def _apply_mobile(self) -> None:
+        embedded = self._embedded
+        apply = getattr(embedded, "apply_mobile", None)
+        if self.blur_supported and callable(apply):
+            apply(self._mobile)
+
     def status(self) -> BrowserStatus:
         """Never raises: "can I use this?" is a question, not an operation."""
         enabled = self._settings.settings.browser_control_enabled
@@ -456,6 +475,7 @@ class BrowserService:
                 "blur_enabled": self._blur_enabled,
                 "blur_amount": self._blur_amount,
                 "blur_supported": self.blur_supported,
+                "mobile_mode": self._mobile,
             }
         )
 

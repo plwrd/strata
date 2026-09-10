@@ -146,6 +146,10 @@ class AppSettings(BaseModel):
     # adjustable part. Embedded pane only.
     browser_blur_media: bool = False
     browser_blur_amount: int = 12
+    # Mobile mode: the browser pane serves a mobile user-agent so sites render
+    # their touch/mobile layout. Synthetic touch events are advertised to pages
+    # from the next launch (a process-global Chromium flag; see application.py).
+    browser_mobile_mode: bool = False
 
     # -- Onboarding ----------------------------------------------------------
     #

@@ -47,6 +47,7 @@ function seedSettings(completed: boolean): void {
       browser_search_engine: "duckduckgo",
       browser_blur_media: false,
       browser_blur_amount: 12,
+      browser_mobile_mode: false,
     },
     mode: "explore",
     workspace: {

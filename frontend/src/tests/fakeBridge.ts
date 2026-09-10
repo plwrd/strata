@@ -641,6 +641,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           browser_search_engine: "duckduckgo",
           browser_blur_media: false,
           browser_blur_amount: 12,
+          browser_mobile_mode: false,
         },
       }),
       update_settings: (payload) => ({
@@ -680,6 +681,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             browser_search_engine: "duckduckgo",
             browser_blur_media: false,
             browser_blur_amount: 12,
+            browser_mobile_mode: false,
             ...(payload["values"] as object),
           }),
       }),
@@ -1346,6 +1348,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           blur_enabled: false,
           blur_amount: 12,
           blur_supported: browserBackend === "embedded",
+          mobile_mode: false,
           detail: browserEnabled
             ? "The browser pane is closed."
             : "Turn on browser research in Settings to use it.",
@@ -1366,6 +1369,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           blur_enabled: false,
           blur_amount: 12,
           blur_supported: browserBackend === "embedded",
+          mobile_mode: false,
           detail: "The browser pane is open on example.com.",
         },
         engines: ["duckduckgo", "google"],
@@ -1384,6 +1388,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           blur_enabled: false,
           blur_amount: 12,
           blur_supported: browserBackend === "embedded",
+          mobile_mode: false,
           detail: "The browser pane is closed.",
         },
         engines: ["duckduckgo", "google"],
@@ -1395,6 +1400,13 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           listener(JSON.stringify({ enabled, amount: 12, supported: true }));
         }
         return { status: { blur_enabled: enabled }, engines: [] };
+      },
+      set_mobile: (payload) => {
+        captured.push(payload);
+        return {
+          status: { mobile_mode: Boolean(payload["enabled"]) },
+          engines: [],
+        };
       },
       pageEvent: signal(pageListeners),
       blurEvent: signal(blurListeners),

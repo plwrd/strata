@@ -189,6 +189,32 @@ describe("BrowserPanel", () => {
     expect(await screen.findByText(/A short brief/)).toBeInTheDocument();
   });
 
+  it("switches the pane to a mobile layout", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Desktop site" }),
+    );
+
+    await waitFor(() => {
+      const payload = captured.find(
+        (entry) => "enabled" in entry && !("amount" in entry),
+      );
+      // set_mobile was asked to turn on.
+      expect(
+        captured.some((e) => "enabled" in e && e["enabled"] === true),
+      ).toBe(true);
+      void payload;
+    });
+    expect(
+      await screen.findByRole("button", { name: "Mobile site" }),
+    ).toBeInTheDocument();
+  });
+
   it("hides the blur control for the Chrome backend", async () => {
     installFakeBridge({ browserBackend: "chrome" });
     seedLayers();

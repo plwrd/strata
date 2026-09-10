@@ -45,6 +45,7 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       browser_search_engine: "duckduckgo",
       browser_blur_media: false,
       browser_blur_amount: 12,
+      browser_mobile_mode: false,
       ...overrides,
     },
     mode: "explore",

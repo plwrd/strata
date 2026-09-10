@@ -62,6 +62,12 @@ class BlurRequest(BaseModel):
     enabled: bool
 
 
+class MobileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
 class ReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -185,6 +191,16 @@ class BrowserBridge(QObject):
     def set_blur(self, request: BlurRequest) -> StatusResponse:
         """Blur (or unblur) images, video and canvas in the pane."""
         self._services.browser.set_blur(request.enabled)
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(MobileRequest)
+    def set_mobile(self, request: MobileRequest) -> StatusResponse:
+        """Serve sites their mobile layout by swapping the pane's user-agent."""
+        self._services.browser.set_mobile(request.enabled)
         return StatusResponse(
             status=self._services.browser.status(),
             engines=sorted(SEARCH_URLS),

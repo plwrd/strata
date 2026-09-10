@@ -17,6 +17,23 @@ from app.services.container import APP_VERSION
 logger = get_logger(__name__)
 
 
+def _touch_requested() -> bool:
+    """Whether mobile mode is on, read before QApplication exists.
+
+    Touch-events are a process-global Chromium flag, so they can only be decided
+    at launch — a runtime mobile-mode toggle swaps the user-agent immediately but
+    its touch half waits for the next start. Read defensively: a missing or
+    corrupt settings file must never stop the app from booting.
+    """
+    try:
+        from app.bootstrap import user_paths
+        from app.services.settings_service import SettingsService
+
+        return SettingsService(user_paths().settings_file).settings.browser_mobile_mode
+    except Exception:  # pragma: no cover - launch must be robust to any settings error
+        return False
+
+
 def _chromium_flags() -> str:
     flags = [
         # No renderer may reach the network; every request goes through Python.
@@ -26,6 +43,10 @@ def _chromium_flags() -> str:
         "--no-first-run",
         "--disable-remote-fonts",
     ]
+    if _touch_requested():
+        # Advertise touch so sites serve their touch/mobile UI. Safe for Strata's
+        # own UI, which has no hover/pointer media queries to flip.
+        flags.append("--touch-events=enabled")
     return " ".join(flags)
 
 

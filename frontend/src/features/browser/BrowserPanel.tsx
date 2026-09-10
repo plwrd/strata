@@ -56,6 +56,7 @@ export function BrowserPanel(): JSX.Element {
   const state = useStore();
   const [status, setStatus] = useState<BrowserStatus | null>(null);
   const [blur, setBlur] = useState(false);
+  const [mobile, setMobile] = useState(false);
   const [engines, setEngines] = useState<string[]>([]);
   const [engine, setEngine] = useState("");
   const [query, setQuery] = useState("");
@@ -164,6 +165,7 @@ export function BrowserPanel(): JSX.Element {
       const result = await bridge.browser.getStatus();
       setStatus(result.status);
       setBlur(result.status.blur_enabled);
+      setMobile(result.status.mobile_mode);
       setEngines(result.engines);
       if (result.status.running) await refreshTabs();
     } catch (caught) {
@@ -178,6 +180,14 @@ export function BrowserPanel(): JSX.Element {
     setBlur(next);
     void bridge.browser
       .setBlur(next)
+      .catch((caught) => setError(describe(caught)));
+  };
+
+  const toggleMobile = (): void => {
+    const next = !mobile;
+    setMobile(next);
+    void bridge.browser
+      .setMobile(next)
       .catch((caught) => setError(describe(caught)));
   };
 
@@ -363,6 +373,17 @@ export function BrowserPanel(): JSX.Element {
             onClick={toggleBlur}
           >
             {blur ? "Media blurred" : "Blur media"}
+          </button>
+        )}
+        {running && embedded && (
+          <button
+            type="button"
+            className={`button ${mobile ? "button--primary" : ""}`}
+            aria-pressed={mobile}
+            title="Serve sites their mobile layout"
+            onClick={toggleMobile}
+          >
+            {mobile ? "Mobile site" : "Desktop site"}
           </button>
         )}
       </div>

@@ -69,6 +69,8 @@ class BrowserStatus(BaseModel):
     blur_enabled: bool = False
     blur_amount: int = 12
     blur_supported: bool = False
+    # Mobile layout (embedded pane only): the pane serves a mobile user-agent.
+    mobile_mode: bool = False
     # One plain sentence for the UI — why it is not running, or what it is.
     detail: str = ""
 

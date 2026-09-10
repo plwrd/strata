@@ -51,49 +51,105 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 # a constant rather than something the frontend has to track.
 PANE_TARGET_ID = "pane"
 
-# Blur is selective on purpose: images, video and canvas go soft, text stays
-# readable, so research still works while a shoulder-surfer or a screen share
-# sees nothing worth seeing. The rules match elements added *after* load too —
-# CSS selectors apply to future nodes — so no MutationObserver is needed.
-_BLUR_SELECTOR = "img, video, canvas"
-_BLUR_STYLE_ID = "__strata-blur-style"
-# One script, re-run on every navigation, that writes (or clears) the blur
-# stylesheet. The CSS text is filled in per state; %s is JSON-escaped from Python
-# so a radius can never break out of the string.
+# Media to blur. Beyond <img>/<video>/<canvas>, sites (x.com among them) render
+# avatars and thumbnails as <div style="background-image:…">, and photos/players
+# as <picture>/<iframe> — all of which the old img-only rule missed. Bare <svg>
+# is left out on purpose: blurring every icon makes a page look broken, and
+# avatars are not SVGs.
+_BLUR_SELECTOR = "img,video,canvas,picture,iframe,[style*='background-image']"
+
+# The blur is applied as an *inline* ``filter`` with ``!important``, set through
+# the CSSOM, rather than as an injected ``<style>``. Two reasons the stylesheet
+# approach failed on real sites:
+#   1. Specificity — a site's own ``img.css-xyz { filter: … !important }`` beats
+#      a bare ``img !important`` rule, so the page's filter won and ours didn't.
+#      An inline ``!important`` declaration beats every stylesheet rule.
+#   2. CSP — a strict ``style-src`` blocks an injected ``<style>`` element
+#      outright, so nothing applied at all. Programmatic CSSOM writes
+#      (``el.style.setProperty``) are not subject to ``style-src``.
+# A MutationObserver re-applies to nodes a single-page app adds after load.
+# ``%s`` placeholders are filled from Python as a bool literal, an int, and a
+# JSON string, so a radius can never break out of the script.
 _BLUR_SCRIPT = """
 (() => {
-  const css = %s;
-  const install = () => {
-    let el = document.getElementById(%s);
-    if (!el) {
-      el = document.createElement("style");
-      el.id = %s;
+  const ON = %s;
+  const RADIUS = %s;
+  const SEL = %s;
+  const MARK = "data-strata-blur";
+  const value = "blur(" + RADIUS + "px)";
+
+  const apply = (el) => {
+    if (!el || el.nodeType !== 1 || typeof el.matches !== "function") return;
+    if (!el.matches(SEL)) return;
+    if (ON) {
+      el.style.setProperty("filter", value, "important");
+      // A blurred <video> fights the GPU video overlay and flickers; promoting
+      // it to its own composited layer settles the repaint.
+      if (el.tagName === "VIDEO" || el.tagName === "CANVAS") {
+        el.style.setProperty("transform", "translateZ(0)", "important");
+      }
+      el.setAttribute(MARK, "1");
+    } else if (el.hasAttribute(MARK)) {
+      el.style.removeProperty("filter");
+      el.style.removeProperty("transform");
+      el.removeAttribute(MARK);
     }
-    el.textContent = css;
-    (document.head || document.documentElement || document.body || {})
-      .appendChild?.(el);
   };
-  install();
-  // documentElement may be bare at document-creation; finish once the DOM is up.
+
+  const sweep = (root) => {
+    try {
+      if (root.nodeType === 1 && root.matches && root.matches(SEL)) apply(root);
+      if (root.querySelectorAll) root.querySelectorAll(SEL).forEach(apply);
+    } catch (e) {}
+  };
+
+  const run = () => {
+    sweep(document);
+    if (window.__strataBlurObs) {
+      window.__strataBlurObs.disconnect();
+      window.__strataBlurObs = null;
+    }
+    if (!ON) return;
+    // childList+subtree only: a single-page app replaces media nodes on render,
+    // and the new node is caught here. We do not observe attributes — our own
+    // inline write would retrigger the observer and loop.
+    const obs = new MutationObserver((muts) => {
+      for (const m of muts) for (const n of m.addedNodes) sweep(n);
+    });
+    const target = document.documentElement || document.body;
+    if (target) {
+      obs.observe(target, { childList: true, subtree: true });
+      window.__strataBlurObs = obs;
+    }
+  };
+
+  run();
+  // documentElement is bare at document-creation; finish once the DOM exists.
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", install, { once: true });
+    document.addEventListener("DOMContentLoaded", run, { once: true });
   }
 })();
 """.strip()
 
-
-def _blur_css(enabled: bool, amount: int) -> str:
-    if not enabled:
-        return ""
-    radius = max(1, min(100, int(amount)))
-    return f"{_BLUR_SELECTOR} {{ filter: blur({radius}px) !important; }}"
+# An Android Chrome user-agent. Setting it on the pane's profile makes sites
+# serve their mobile/touch layout; combined with the narrow pane width that is
+# what "mobile mode" means. True synthetic touch events are a process-global
+# Chromium flag (see app/desktop/application.py), applied from the next launch.
+MOBILE_USER_AGENT = (
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+)
 
 
 def _blur_source(enabled: bool, amount: int) -> str:
     import json
 
-    ident = json.dumps(_BLUR_STYLE_ID)
-    return _BLUR_SCRIPT % (json.dumps(_blur_css(enabled, amount)), ident, ident)
+    radius = max(1, min(100, int(amount)))
+    return _BLUR_SCRIPT % (
+        "true" if enabled else "false",
+        radius,
+        json.dumps(_BLUR_SELECTOR),
+    )
 
 
 class BrowserPanePage(QWebEnginePage):
@@ -166,6 +222,13 @@ class BrowserPane(QWidget):
         self._blur_script: QWebEngineScript | None = None
         self._install_blur_script()
 
+        # Mobile mode swaps the profile's user-agent; remember the default so it
+        # can be restored. The profile is the pane's own, so this affects nothing
+        # else in Strata.
+        self._profile = profile
+        self._default_user_agent = profile.httpUserAgent()
+        self._mobile = False
+
         self._address = QLineEdit(self)
         self._address.setPlaceholderText("https://…")
         self._address.returnPressed.connect(self._go)
@@ -234,6 +297,22 @@ class BrowserPane(QWidget):
         self._install_blur_script()
         self._page.runJavaScript(_blur_source(self._blur_enabled, self._blur_amount))
 
+    def set_mobile(self, enabled: bool) -> None:
+        """Serve sites their mobile layout by swapping the user-agent. Qt thread only.
+
+        Reloads so the open page re-requests under the new UA; a blank pane just
+        adopts it for the next navigation.
+        """
+        self._mobile = bool(enabled)
+        self._profile.setHttpUserAgent(
+            MOBILE_USER_AGENT if self._mobile else self._default_user_agent
+        )
+        if self._page.url().isValid() and not self._page.url().isEmpty():
+            self._view.reload()
+
+    def is_mobile(self) -> bool:
+        return self._mobile
+
     def _install_blur_script(self) -> None:
         scripts = self._page.scripts()
         if self._blur_script is not None:
@@ -283,6 +362,7 @@ class EmbeddedSource(QObject):
             backend="embedded",
             running=showing,
             supports_extensions=False,
+            mobile_mode=self._pane.is_mobile(),
             profile_path="",
             tab_count=1 if tab.url else 0,
             detail=(
@@ -311,6 +391,9 @@ class EmbeddedSource(QObject):
         # Called from the Qt thread (a bridge slot or the window's own shortcut),
         # never a worker — the read path is the only thing that crosses threads.
         self._pane.set_blur(enabled, amount)
+
+    def apply_mobile(self, enabled: bool) -> None:
+        self._pane.set_mobile(enabled)
 
     def read(self, target_id: str) -> ScrapedPage:
         """Blocking, for the worker thread. One read at a time."""

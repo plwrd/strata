@@ -757,6 +757,24 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               it live with <kbd>Ctrl/Cmd+Shift+X</kbd>. The pane only; your own
               Chrome is not restyled.
             </p>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.browser_mobile_mode ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    browser_mobile_mode: event.target.checked,
+                  })
+                }
+              />
+              <span>Mobile site mode</span>
+            </label>
+            <p className="settings-dialog__hint">
+              The pane serves a mobile user-agent, so sites render their
+              touch/mobile layout — you can also toggle it live in the Research
+              panel. Synthetic touch events are advertised to pages from the
+              next launch (a process-wide setting). The pane only.
+            </p>
           </section>
         </div>
       </div>

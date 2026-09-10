@@ -91,12 +91,14 @@ class FakePane:
         self.closed = False
         self.reads = 0
         self.blur: tuple[bool, int] | None = None
+        self.mobile: bool | None = None
 
     def status(self) -> BrowserStatus:
         return BrowserStatus(
             backend="embedded",
             running=self.shown,
             supports_extensions=False,
+            mobile_mode=bool(self.mobile),
             tab_count=1 if self.url else 0,
             detail="The browser pane is open." if self.shown else "The browser pane is closed.",
         )
@@ -126,6 +128,9 @@ class FakePane:
 
     def apply_blur(self, enabled: bool, amount: int) -> None:
         self.blur = (enabled, amount)
+
+    def apply_mobile(self, enabled: bool) -> None:
+        self.mobile = enabled
 
     def close(self) -> None:
         self.closed = True
@@ -485,3 +490,45 @@ def test_a_freshly_attached_pane_gets_the_starting_blur(tmp_path: Path) -> None:
     service.attach(pane)
 
     assert pane.blur == (True, 8)
+
+
+# -- mobile mode -------------------------------------------------------------
+
+
+def test_mobile_is_off_by_default(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path)
+    assert service.mobile_state() is False
+    assert service.status().mobile_mode is False
+
+
+def test_toggling_mobile_applies_it_to_the_pane(tmp_path: Path) -> None:
+    service, pane = _embedded(tmp_path)
+
+    assert service.set_mobile(True) is True
+    assert pane.mobile is True
+    assert service.status().mobile_mode is True
+
+    assert service.set_mobile(False) is False
+    assert pane.mobile is False
+
+
+def test_a_freshly_attached_pane_gets_the_starting_mobile_state(tmp_path: Path) -> None:
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "embedded",
+            "browser_mobile_mode": True,
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    assert pane.mobile is True
+
+
+def test_chrome_backend_ignores_mobile(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+    # No embedded pane to restyle; the call is a harmless no-op.
+    assert service.set_mobile(True) is True

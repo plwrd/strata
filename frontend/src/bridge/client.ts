@@ -736,6 +736,13 @@ export const bridge = {
       ),
     onBlur: (listener: (payload: string) => void) =>
       subscribe("browser", "blurEvent", listener),
+    // Serve sites their mobile layout (mobile user-agent); the pane reloads.
+    setMobile: (enabled: boolean) =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "set_mobile",
+        { enabled },
+      ),
   },
 
   snapshots: {
