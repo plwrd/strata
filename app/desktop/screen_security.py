@@ -14,6 +14,7 @@ only toggles the request.
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from typing import Any, Protocol, cast
 
 from app.infrastructure.logging.logger import get_logger
@@ -58,6 +59,67 @@ def set_window_excluded_from_capture(window: _HasWinId, *, enabled: bool) -> boo
         enabled=enabled,
     )
     return True
+
+
+def set_windows_excluded_from_capture(windows: Iterable[_HasWinId], *, enabled: bool) -> None:
+    """Apply capture exclusion to several windows.
+
+    The affinity is per top-level window, so a popup, menu, native ``<select>``
+    dropdown, tooltip or dialog — each its own OS window — is *not* covered by
+    the main window's exclusion and leaks into a recording unless excluded in its
+    own right. Callers pass every current top-level window here.
+    """
+    for window in windows:
+        set_window_excluded_from_capture(window, enabled=enabled)
+
+
+def set_process_windows_excluded_from_capture(pid: int, *, enabled: bool) -> int:
+    """Exclude every visible top-level window owned by ``pid`` from capture.
+
+    For the Chrome backend: Strata launches a *separate* browser process, whose
+    windows its own per-HWND exclusion cannot reach. This finds the launched
+    process's windows by PID and applies the same affinity, so "Hidden for
+    sharing" covers that Chrome too.
+
+    Best-effort and Windows-only: it covers only the windows of the process
+    Strata started (not other Chrome windows the user opens), and returns the
+    number of windows it touched — 0 on another platform or when the window has
+    not appeared yet.
+    """
+    if not _is_windows() or pid <= 0:
+        return 0
+    return _windows_exclude_by_pid(pid, enabled=enabled)
+
+
+def _windows_exclude_by_pid(pid: int, *, enabled: bool) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
+    touched = 0
+
+    # EnumWindows(callback, lparam): callback returns True to keep enumerating.
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _each(hwnd: int, _lparam: int) -> bool:
+        nonlocal touched
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            if user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), affinity):
+                touched += 1
+            else:
+                # Try the blackout fallback, same as the single-window path.
+                user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), WDA_MONITOR)
+                touched += 1
+        return True
+
+    user32.EnumWindows(enum_proc(_each), 0)
+    logger.info("screen_security.process_windows", pid=pid, enabled=enabled, windows=touched)
+    return touched
 
 
 def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> bool:

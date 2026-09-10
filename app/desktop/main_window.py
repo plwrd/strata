@@ -11,14 +11,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QShowEvent
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QMainWindow, QSplitter
+from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget
 
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
-from app.desktop.screen_security import set_window_excluded_from_capture
+from app.desktop.screen_security import (
+    set_window_excluded_from_capture,
+    set_windows_excluded_from_capture,
+)
 from app.desktop.taskbar import set_window_in_taskbar
 from app.desktop.tray import TrayController, should_hide_to_tray
 from app.desktop.webchannel import build_channel
@@ -142,6 +145,15 @@ class MainWindow(QMainWindow):
 
         self._build_tray()
 
+        # Capture exclusion is per top-level window, so a popup — a native
+        # <select> dropdown, a menu, a dialog — appears as its own window and
+        # would leak into a recording. Catch each as it is shown.
+        from PySide6.QtWidgets import QApplication
+
+        filter_app = QApplication.instance()
+        assert filter_app is not None
+        filter_app.installEventFilter(self)
+
     def _toggle_blur(self) -> None:
         """Flip media blur in the pane. A no-op when there is nothing to blur."""
         if self._services.browser.blur_supported:
@@ -201,6 +213,9 @@ class MainWindow(QMainWindow):
             set_window_in_taskbar(self, shown=not self._hide_from_taskbar)
         finally:
             self._syncing_taskbar = False
+        # Cycling the window to change its taskbar style can drop the capture
+        # affinity; re-assert it so "hidden for sharing" survives the toggle.
+        self._reapply_hide_for_sharing()
 
     def start_hidden(self) -> bool:
         """Whether launch should skip showing the window (start_in_tray).
@@ -226,18 +241,47 @@ class MainWindow(QMainWindow):
         return self._tray is not None and self._tray.enabled
 
     def apply_hide_for_sharing(self, enabled: bool) -> None:
-        """Signal-style: exclude the whole Strata window from screen capture."""
+        """Signal-style: exclude every Strata window from screen capture."""
         self._hide_for_sharing = enabled
-        # winId() materialises the native HWND if needed; affinity needs it.
-        if self.windowHandle() is None and not self.isVisible():
-            return
-        set_window_excluded_from_capture(self, enabled=enabled)
+        self._reapply_hide_for_sharing()
+
+    def _top_level_windows(self) -> list[QWidget]:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        others = app.topLevelWidgets() if isinstance(app, QApplication) else []
+        seen: set[int] = set()
+        windows: list[QWidget] = []
+        for widget in [self, *others]:
+            if (
+                isinstance(widget, QWidget)
+                and widget.isWindow()
+                and id(widget) not in seen
+                and (widget.windowHandle() is not None or widget.isVisible())
+            ):
+                seen.add(id(widget))
+                windows.append(widget)
+        return windows
 
     def _reapply_hide_for_sharing(self) -> None:
-        """Re-assert affinity after HWND / state changes (minimize, restore, …)."""
-        if self.windowHandle() is None and not self.isVisible():
-            return
-        set_window_excluded_from_capture(self, enabled=self._hide_for_sharing)
+        """Re-assert affinity across every window after an HWND / state change.
+
+        Not just the main window: a minimize/restore, the taskbar ex-style cycle,
+        or a newly shown dialog can each leave a surface uncovered, so every
+        current top-level window is re-excluded.
+        """
+        set_windows_excluded_from_capture(self._top_level_windows(), enabled=self._hide_for_sharing)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        # Cheap early-outs first — this runs for every app event.
+        if (
+            self._hide_for_sharing
+            and event.type() == QEvent.Type.Show
+            and isinstance(obj, QWidget)
+            and obj.isWindow()
+        ):
+            set_window_excluded_from_capture(obj, enabled=True)
+        return super().eventFilter(obj, event)
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

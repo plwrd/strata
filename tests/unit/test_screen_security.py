@@ -102,3 +102,34 @@ def test_windows_uses_raw_hwnd_when_get_ancestor_returns_null(
     monkeypatch.setattr(ctypes, "windll", fake_windll)
     assert set_window_excluded_from_capture(window, enabled=True) is True
     assert fake_user32.SetWindowDisplayAffinity.call_args[0][0] == 0x55
+
+
+def test_exclusion_covers_every_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Popups, menus and dropdowns are separate top-level windows; each must be
+    excluded in its own right, not just the main window."""
+    from app.desktop.screen_security import set_windows_excluded_from_capture
+
+    calls: list[tuple[int, bool]] = []
+    monkeypatch.setattr(
+        screen_security,
+        "set_window_excluded_from_capture",
+        lambda window, *, enabled: calls.append((window.winId(), enabled)) or True,
+    )
+    windows = [SimpleNamespace(winId=lambda i=i: i) for i in range(3)]
+
+    set_windows_excluded_from_capture(windows, enabled=True)
+
+    assert calls == [(0, True), (1, True), (2, True)]
+
+
+def test_process_exclusion_is_noop_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    monkeypatch.setattr(screen_security.sys, "platform", "linux")
+    assert set_process_windows_excluded_from_capture(1234, enabled=True) == 0
+
+
+def test_process_exclusion_ignores_a_bad_pid() -> None:
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    assert set_process_windows_excluded_from_capture(0, enabled=True) == 0

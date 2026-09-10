@@ -556,3 +556,52 @@ def test_external_url_is_gated_on_the_feature(tmp_path: Path) -> None:
     service, _pane = _embedded(tmp_path, enabled=False)
     with pytest.raises(PermissionDeniedError):
         service.external_url("https://x.com/")
+
+
+# -- Chrome: keep the session, not the history -------------------------------
+
+
+def _seed_profile(profile: Path) -> None:
+    default = profile / "Default"
+    default.mkdir(parents=True, exist_ok=True)
+    (default / "History").write_text("visits")
+    (default / "Top Sites").write_text("tops")
+    (default / "Cookies").write_text("session=stay")
+
+
+def test_history_is_cleared_but_cookies_are_kept(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+    profile = service._chrome.profile_path
+    _seed_profile(profile)
+
+    service._chrome._clear_history()
+
+    assert not (profile / "Default" / "History").exists()
+    assert not (profile / "Default" / "Top Sites").exists()
+    # The login session survives — that is the whole point of the Chrome backend.
+    assert (profile / "Default" / "Cookies").read_text() == "session=stay"
+
+
+def test_a_user_supplied_profile_history_is_left_alone(tmp_path: Path) -> None:
+    """If the user points at their everyday Chrome profile, it is their data."""
+    own = tmp_path / "mine"
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "chrome",
+            "browser_profile_path": str(own),
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    _seed_profile(own)
+
+    service._chrome._clear_history()
+
+    assert (own / "Default" / "History").exists()  # untouched
+
+
+def test_capture_exclusion_is_a_noop_when_chrome_is_not_running(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+    # Not launched in this test, so there is no process to reach — must not raise.
+    service.apply_capture_exclusion(True)

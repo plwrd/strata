@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import quote_plus, urlsplit
 
+from app.desktop.screen_security import set_process_windows_excluded_from_capture
 from app.domain.browser import (
     SEARCH_URLS,
     BrowserBackend,
@@ -55,6 +56,21 @@ MAX_PAGE_CHARS = 400_000
 MAX_QUERY_CHARS = 500
 LAUNCH_TIMEOUT_SECONDS = 20.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+# Chrome keeps browsing history in these files inside its profile. Removing
+# them (cookies, logins and site data untouched) is how the research browser
+# "keeps the session, not the history". Globs, because names vary by version.
+_HISTORY_GLOBS = (
+    "History",
+    "History-journal",
+    "History-wal",
+    "History-shm",
+    "Archived History",
+    "Archived History-journal",
+    "Visited Links",
+    "Top Sites",
+    "Top Sites-journal",
+)
 
 # Candidate executables, best first, per platform. The setting overrides all of
 # them; this list only exists so the common case needs no configuration.
@@ -224,6 +240,7 @@ class ChromeSource:
         executable = self._resolve_executable()
         profile = self.profile_path
         profile.mkdir(parents=True, exist_ok=True)
+        self._clear_history()  # start each session with no prior browsing history
         arguments = [
             executable,
             f"--remote-debugging-port={self._port}",
@@ -249,6 +266,8 @@ class ChromeSource:
             status = self.status()
             if status.running:
                 logger.info("browser.launched", port=self._port)
+                # The launched window now exists; hide it from capture if asked.
+                self.apply_capture_exclusion(self._settings.settings.hide_for_sharing)
                 return status
             time.sleep(0.25)
         raise ProviderError(
@@ -323,6 +342,38 @@ class ChromeSource:
                 return page
         raise ProviderError("That tab is no longer open.")
 
+    def apply_capture_exclusion(self, enabled: bool) -> None:
+        """Hide (or reveal) the launched Chrome's windows from screen capture.
+
+        Best-effort: covers only the process Strata started, and a window that
+        has not appeared yet is picked up by the next call.
+        """
+        process = self._process
+        if process is None or process.poll() is not None:
+            return
+        set_process_windows_excluded_from_capture(process.pid, enabled=enabled)
+
+    def _clear_history(self) -> None:
+        """Drop browsing history from the Strata-owned profile; keep cookies.
+
+        Only the profile Strata owns — if the user pointed `browser_profile_path`
+        at their everyday Chrome profile, that is their data and is left alone.
+        """
+        if self._settings.settings.browser_profile_path.strip():
+            return
+        default = self.profile_path / "Default"
+        removed = 0
+        for name in _HISTORY_GLOBS:
+            target = default / name
+            try:
+                if target.exists():
+                    target.unlink()
+                    removed += 1
+            except OSError:
+                pass  # locked or gone — best-effort
+        if removed:
+            logger.info("browser.history_cleared", files=removed)
+
     def close(self) -> None:
         """Stop the browser *Strata* started — never one the user launched.
 
@@ -339,6 +390,7 @@ class ChromeSource:
                 process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 process.kill()
+            self._clear_history()  # leave nothing behind once the window is gone
             logger.info("browser.closed")
         except OSError:
             logger.info("browser.close_failed")
@@ -434,6 +486,17 @@ class BrowserService:
     def _notify_blur(self) -> None:
         if self.on_blur_changed is not None:
             self.on_blur_changed()
+
+    # -- capture exclusion (Chrome backend only) -----------------------------
+
+    def apply_capture_exclusion(self, enabled: bool) -> None:
+        """Hide the launched Chrome's windows from capture (Chrome backend only).
+
+        The embedded pane is a Strata window, already covered by the window's own
+        exclusion; this reaches the separate Chrome process Strata started.
+        """
+        if self.backend == "chrome":
+            self._chrome.apply_capture_exclusion(enabled)
 
     # -- mobile mode ---------------------------------------------------------
 

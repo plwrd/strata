@@ -894,8 +894,12 @@ is a Search panel checkbox. Sync relay URL is in the Collaboration panel.
 the *entire* Strata window from screenshots and screen shares. You still see the
 app normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
 do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
-`WDA_MONITOR` on older builds. Turn it off in Settings if you need to demo or
-record Strata itself.
+`WDA_MONITOR` on older builds. Exclusion is per OS window, so Strata applies it
+to *every* window it opens — not only the main one but each popup, menu, native
+dropdown and dialog as it appears, and it re-asserts after a minimize/restore or
+a taskbar-style change. Earlier, those transient windows (a `<select>` dropdown,
+say) could still slip into a recording; now they are covered too. Turn it off in
+Settings if you need to demo or record Strata itself.
 
 **Minimize to tray** (**off by default**) puts a Strata icon in the system tray.
 With it on, closing or minimizing the window *hides* it — it leaves the taskbar,
