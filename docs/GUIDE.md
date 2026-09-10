@@ -897,9 +897,28 @@ do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
 `WDA_MONITOR` on older builds. Exclusion is per OS window, so Strata applies it
 to *every* window it opens — not only the main one but each popup, menu, native
 dropdown and dialog as it appears, and it re-asserts after a minimize/restore or
-a taskbar-style change. Earlier, those transient windows (a `<select>` dropdown,
-say) could still slip into a recording; now they are covered too. Turn it off in
-Settings if you need to demo or record Strata itself.
+a taskbar-style change. Because a window Qt does not model (the bundled Chromium
+makes some of its own) would otherwise be missed, Strata also sweeps every
+top-level window its process owns, including ones created but not yet shown, so
+a popup is covered before it paints its first frame.
+
+The exclusion is enforced by the Windows desktop compositor, which means it can
+only cover what the compositor draws. A video promoted to a *hardware overlay
+plane* is scanned out beside the compositor's output rather than through it, so
+it would escape the exclusion — and the hand-off is what made the window flicker.
+Strata therefore launches its browser engine with video overlays off, and with
+hardware video decode off while *Hidden for sharing* is on. Video costs a little
+more CPU as a result, and it stays inside the exclusion. If you want to measure
+that trade-off, `QTWEBENGINE_CHROMIUM_FLAGS` in the environment overrides the
+whole set.
+
+Turn it off in Settings if you need to demo or record Strata itself.
+
+One honest limit: this covers the windows Strata itself owns. The **Chrome
+backend** (Settings → browser backend) drives a *separate* browser you already
+have installed; Strata excludes the windows of the process it launched, but it
+cannot follow every window that browser goes on to open. If being hidden from a
+recording matters more than in-pane H.264 video, use the embedded pane.
 
 **Minimize to tray** (**off by default**) puts a Strata icon in the system tray.
 With it on, closing or minimizing the window *hides* it — it leaves the taskbar,

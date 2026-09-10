@@ -73,25 +73,52 @@ def set_windows_excluded_from_capture(windows: Iterable[_HasWinId], *, enabled: 
         set_window_excluded_from_capture(window, enabled=enabled)
 
 
-def set_process_windows_excluded_from_capture(pid: int, *, enabled: bool) -> int:
-    """Exclude every visible top-level window owned by ``pid`` from capture.
+def set_process_windows_excluded_from_capture(
+    pid: int, *, enabled: bool, include_hidden: bool = False
+) -> int:
+    """Exclude every top-level window owned by ``pid`` from capture.
 
     For the Chrome backend: Strata launches a *separate* browser process, whose
     windows its own per-HWND exclusion cannot reach. This finds the launched
     process's windows by PID and applies the same affinity, so "Hidden for
     sharing" covers that Chrome too.
 
-    Best-effort and Windows-only: it covers only the windows of the process
-    Strata started (not other Chrome windows the user opens), and returns the
-    number of windows it touched — 0 on another platform or when the window has
-    not appeared yet.
+    ``include_hidden`` also covers windows that exist but are not on screen yet.
+    That matters for our *own* process: a menu or a ``<select>`` dropdown is
+    created first and shown a moment later, so a visible-only sweep can only ever
+    reach it after it has already painted a frame into someone's recording.
+
+    Best-effort and Windows-only: it covers only the windows of that process
+    (not, say, other Chrome windows the user opens), and returns the number of
+    windows it excluded — 0 on another platform or when the window has not been
+    created yet.
     """
     if not _is_windows() or pid <= 0:
         return 0
-    return _windows_exclude_by_pid(pid, enabled=enabled)
+    return _windows_exclude_by_pid(pid, enabled=enabled, include_hidden=include_hidden)
 
 
-def _windows_exclude_by_pid(pid: int, *, enabled: bool) -> int:
+def set_own_windows_excluded_from_capture(*, enabled: bool) -> int:
+    """Apply the affinity to every top-level window *this* process owns.
+
+    The catch-all behind the per-window calls. Qt's own event stream only reaches
+    what Qt models as a ``QWidget``/``QWindow``, and neither covers a raw Win32
+    window that the bundled Chromium creates for itself. Sweeping by PID does not
+    care who created the window or what object wraps it: if it belongs to Strata,
+    it is excluded.
+    """
+    if not _is_windows():
+        return 0
+    import ctypes
+
+    return set_process_windows_excluded_from_capture(
+        int(ctypes.windll.kernel32.GetCurrentProcessId()),
+        enabled=enabled,
+        include_hidden=True,
+    )
+
+
+def _windows_exclude_by_pid(pid: int, *, enabled: bool, include_hidden: bool) -> int:
     import ctypes
     from ctypes import wintypes
 
@@ -104,16 +131,17 @@ def _windows_exclude_by_pid(pid: int, *, enabled: bool) -> int:
 
     def _each(hwnd: int, _lparam: int) -> bool:
         nonlocal touched
-        if not user32.IsWindowVisible(hwnd):
+        if not include_hidden and not user32.IsWindowVisible(hwnd):
             return True
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         if owner.value == pid:
             if user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), affinity):
                 touched += 1
-            else:
-                # Try the blackout fallback, same as the single-window path.
-                user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), WDA_MONITOR)
+            # Try the blackout fallback, same as the single-window path. Only
+            # count a window we actually covered — a silent miss is the one
+            # thing this feature must not report as a success.
+            elif enabled and user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), WDA_MONITOR):
                 touched += 1
         return True
 

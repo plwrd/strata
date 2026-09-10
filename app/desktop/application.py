@@ -34,6 +34,21 @@ def _touch_requested() -> bool:
         return False
 
 
+def _hide_for_sharing_requested() -> bool:
+    """Whether capture exclusion is on, read before QApplication exists.
+
+    Same launch-time constraint as `_touch_requested`: the compositor flags this
+    decides are process-global to Chromium, so they can only be set at start.
+    """
+    try:
+        from app.bootstrap import user_paths
+        from app.services.settings_service import SettingsService
+
+        return SettingsService(user_paths().settings_file).settings.hide_for_sharing
+    except Exception:  # pragma: no cover - launch must be robust to any settings error
+        return True  # the setting's own default; fail towards hiding, not exposing
+
+
 def _chromium_flags() -> str:
     flags = [
         # No renderer may reach the network; every request goes through Python.
@@ -42,7 +57,23 @@ def _chromium_flags() -> str:
         "--disable-speech-api",
         "--no-first-run",
         "--disable-remote-fonts",
+        # Keep video on the composited path instead of a hardware overlay plane.
+        #
+        # `SetWindowDisplayAffinity` is enforced by DWM, which can only exclude
+        # what DWM composes. When Chromium promotes a <video> to a DirectComposition
+        # hardware overlay, that plane is scanned out beside DWM's output rather
+        # than through it — so the video escapes the exclusion and the window
+        # flickers as the overlay is taken and released. Both reported symptoms
+        # have that one cause. Composited video is slightly more expensive and
+        # always covered by the affinity.
+        "--disable-direct-composition-video-overlays",
     ]
+    if _hide_for_sharing_requested():
+        # Belt and braces while hiding: a hardware-decoded frame can still be
+        # handed to a zero-copy presentation path. Software decode keeps every
+        # frame in a surface DWM composes. Only paid when the user asked to be
+        # hidden — it costs CPU on video playback.
+        flags.append("--disable-accelerated-video-decode")
     if _touch_requested():
         # Advertise touch so sites serve their touch/mobile UI. Safe for Strata's
         # own UI, which has no hover/pointer media queries to flip.
@@ -53,6 +84,9 @@ def _chromium_flags() -> str:
 def create_application(argv: list[str] | None = None) -> tuple[QApplication, MainWindow]:
     import os
 
+    # setdefault, not assignment: an explicit QTWEBENGINE_CHROMIUM_FLAGS in the
+    # environment wins, which is how the compositor flags above get A/B tested
+    # against a real recorder without a rebuild.
     os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", _chromium_flags())
 
     # Must happen before QApplication exists.

@@ -12,13 +12,21 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl
-from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QShowEvent
+from PySide6.QtGui import (
+    QCloseEvent,
+    QKeySequence,
+    QPlatformSurfaceEvent,
+    QShortcut,
+    QShowEvent,
+    QWindow,
+)
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget
 
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
 from app.desktop.screen_security import (
+    set_own_windows_excluded_from_capture,
     set_window_excluded_from_capture,
     set_windows_excluded_from_capture,
 )
@@ -38,6 +46,10 @@ BROWSER_SPLIT = (960, 640)
 # Toggles media blur in the browser pane. Application-scoped, so it fires while
 # the researched page has keyboard focus — where a web-layer shortcut cannot.
 BLUR_HOTKEY = "Ctrl+Shift+X"
+# How often to re-sweep every window this process owns while "hidden for
+# sharing" is on. The per-window hooks below are the fast path; this is the net
+# under them, for a window Qt never told us about (see `_sweep_own_windows`).
+CAPTURE_SWEEP_MS = 1500
 
 
 class MainWindow(QMainWindow):
@@ -154,6 +166,11 @@ class MainWindow(QMainWindow):
         assert filter_app is not None
         filter_app.installEventFilter(self)
 
+        self._capture_sweep = QTimer(self)
+        self._capture_sweep.setInterval(CAPTURE_SWEEP_MS)
+        self._capture_sweep.timeout.connect(self._tick_capture_sweep)
+        self._capture_sweep.start()
+
     def _toggle_blur(self) -> None:
         """Flip media blur in the pane. A no-op when there is nothing to blur."""
         if self._services.browser.blur_supported:
@@ -245,13 +262,19 @@ class MainWindow(QMainWindow):
         self._hide_for_sharing = enabled
         self._reapply_hide_for_sharing()
 
-    def _top_level_windows(self) -> list[QWidget]:
+    def _top_level_windows(self) -> list[QWidget | QWindow]:
+        """Every surface Qt currently has a native window for.
+
+        Both lists are needed. ``topLevelWidgets()`` misses anything Qt models as
+        a bare ``QWindow`` — which is what Qt WebEngine uses for some of its own
+        popups — and those were the surfaces still reaching a recording.
+        """
         from PySide6.QtWidgets import QApplication
 
         app = QApplication.instance()
         others = app.topLevelWidgets() if isinstance(app, QApplication) else []
         seen: set[int] = set()
-        windows: list[QWidget] = []
+        windows: list[QWidget | QWindow] = []
         for widget in [self, *others]:
             if (
                 isinstance(widget, QWidget)
@@ -261,6 +284,19 @@ class MainWindow(QMainWindow):
             ):
                 seen.add(id(widget))
                 windows.append(widget)
+        # A widget's own QWindow resolves to the same HWND as the widget, so mark
+        # it seen rather than setting the same affinity twice.
+        for surface in windows:
+            handle = surface.windowHandle() if isinstance(surface, QWidget) else None
+            if handle is not None:
+                seen.add(id(handle))
+        for window in QApplication.topLevelWindows():
+            # Visible only: `winId()` would *create* the native window for one
+            # that has none yet. A popup that exists but has not been shown is
+            # the sweep's job (`_sweep_own_windows`), not this list's.
+            if id(window) not in seen and window.isVisible():
+                seen.add(id(window))
+                windows.append(window)
         return windows
 
     def _reapply_hide_for_sharing(self) -> None:
@@ -271,15 +307,38 @@ class MainWindow(QMainWindow):
         current top-level window is re-excluded.
         """
         set_windows_excluded_from_capture(self._top_level_windows(), enabled=self._hide_for_sharing)
+        self._sweep_own_windows()
+
+    def _sweep_own_windows(self) -> None:
+        """Exclude every window this process owns, whatever created it.
+
+        The Qt-object hooks only see what Qt models. The bundled Chromium makes
+        Win32 windows of its own for menus and dropdowns that never surface as a
+        ``QWidget`` or a ``QWindow``, so they were never excluded and showed up in
+        a recording on their own. A PID sweep does not need to know what a window
+        is, only that it is ours.
+        """
+        set_own_windows_excluded_from_capture(enabled=self._hide_for_sharing)
+
+    def _tick_capture_sweep(self) -> None:
+        """Heartbeat sweep: only while hiding, and only for windows we own."""
+        if self._hide_for_sharing:
+            self._sweep_own_windows()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         # Cheap early-outs first — this runs for every app event.
-        if (
-            self._hide_for_sharing
-            and event.type() == QEvent.Type.Show
-            and isinstance(obj, QWidget)
-            and obj.isWindow()
-        ):
+        if not self._hide_for_sharing:
+            return super().eventFilter(obj, event)
+        kind = event.type()
+        if kind == QEvent.Type.PlatformSurface and isinstance(obj, QWindow):
+            # The earliest possible moment: the native window now exists and has
+            # not been shown, so the affinity is in place before its first frame.
+            # It also covers a bare QWindow — which is what Qt WebEngine uses for
+            # some of its popups — where the QWidget branch below never fires.
+            created = QPlatformSurfaceEvent.SurfaceEventType.SurfaceCreated
+            if isinstance(event, QPlatformSurfaceEvent) and event.surfaceEventType() == created:
+                set_window_excluded_from_capture(obj, enabled=True)
+        elif kind == QEvent.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
             set_window_excluded_from_capture(obj, enabled=True)
         return super().eventFilter(obj, event)
 

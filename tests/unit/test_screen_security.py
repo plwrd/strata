@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -133,3 +134,105 @@ def test_process_exclusion_ignores_a_bad_pid() -> None:
     from app.desktop.screen_security import set_process_windows_excluded_from_capture
 
     assert set_process_windows_excluded_from_capture(0, enabled=True) == 0
+
+
+def test_own_window_exclusion_is_noop_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import set_own_windows_excluded_from_capture
+
+    monkeypatch.setattr(screen_security.sys, "platform", "linux")
+    assert set_own_windows_excluded_from_capture(enabled=True) == 0
+
+
+def _fake_enum(monkeypatch: pytest.MonkeyPatch, windows: dict[int, tuple[int, bool]]) -> MagicMock:
+    """Stand in for EnumWindows over ``{hwnd: (owning_pid, is_visible)}``."""
+    import ctypes
+
+    fake_user32 = MagicMock()
+    fake_user32.IsWindowVisible.side_effect = lambda hwnd: windows[int(hwnd)][1]
+    fake_user32.SetWindowDisplayAffinity.return_value = 1
+
+    def _get_pid(hwnd: object, out: Any) -> int:
+        out._obj.value = windows[int(cast(int, hwnd))][0]
+        return 1
+
+    fake_user32.GetWindowThreadProcessId.side_effect = _get_pid
+
+    def _enum(callback: object, _lparam: int) -> int:
+        for hwnd in windows:
+            callback(hwnd, 0)  # type: ignore[operator]
+        return 1
+
+    fake_user32.EnumWindows.side_effect = _enum
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+    return fake_user32
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
+def test_process_sweep_skips_other_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    user32 = _fake_enum(monkeypatch, {0x10: (42, True), 0x20: (99, True)})
+
+    assert set_process_windows_excluded_from_capture(42, enabled=True) == 1
+    hwnd, affinity = user32.SetWindowDisplayAffinity.call_args[0]
+    assert int(hwnd.value) == 0x10
+    assert affinity == WDA_EXCLUDEFROMCAPTURE
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
+def test_process_sweep_covers_a_window_that_is_not_shown_yet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A popup is created before it is shown.
+
+    A visible-only sweep can only reach a menu or a ``<select>`` dropdown after it
+    has already painted an unprotected frame, which is exactly the leak.
+    """
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    windows = {0x10: (42, True), 0x11: (42, False)}
+
+    _fake_enum(monkeypatch, windows)
+    assert set_process_windows_excluded_from_capture(42, enabled=True) == 1
+
+    _fake_enum(monkeypatch, windows)
+    assert set_process_windows_excluded_from_capture(42, enabled=True, include_hidden=True) == 2
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
+def test_process_sweep_does_not_count_a_window_it_could_not_cover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Neither affinity took. Reporting that as covered would be the one lie
+    this feature cannot afford."""
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    user32 = _fake_enum(monkeypatch, {0x10: (42, True)})
+    user32.SetWindowDisplayAffinity.return_value = 0
+    user32.SetWindowDisplayAffinity.side_effect = None
+
+    assert set_process_windows_excluded_from_capture(42, enabled=True) == 0
+    # Tried the exclude, then the blackout fallback, then gave up.
+    assert user32.SetWindowDisplayAffinity.call_count == 2
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
+def test_own_window_sweep_uses_this_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ctypes
+
+    from app.desktop.screen_security import set_own_windows_excluded_from_capture
+
+    seen: list[tuple[int, bool, bool]] = []
+
+    def _record(pid: int, *, enabled: bool, include_hidden: bool = False) -> int:
+        seen.append((pid, enabled, include_hidden))
+        return 0
+
+    monkeypatch.setattr(screen_security, "set_process_windows_excluded_from_capture", _record)
+    monkeypatch.setattr(
+        ctypes, "windll", MagicMock(kernel32=MagicMock(GetCurrentProcessId=lambda: 4321))
+    )
+
+    set_own_windows_excluded_from_capture(enabled=True)
+
+    assert seen == [(4321, True, True)]
