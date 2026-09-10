@@ -743,6 +743,10 @@ export const bridge = {
         "set_mobile",
         { enabled },
       ),
+    // Hand the page to the user's real browser — the escape hatch for what the
+    // embedded pane cannot do, chiefly H.264 video its Qt build has no codec for.
+    openExternal: (url: string) =>
+      call<{ opened: boolean }>("browser", "open_external", { url }),
   },
 
   snapshots: {

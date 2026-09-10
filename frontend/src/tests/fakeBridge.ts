@@ -1410,6 +1410,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           engines: [],
         };
       },
+      open_external: (payload) => {
+        captured.push(payload);
+        return { opened: true };
+      },
       pageEvent: signal(pageListeners),
       blurEvent: signal(blurListeners),
       search: (payload) => {

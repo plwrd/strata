@@ -28,7 +28,8 @@ import threading
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 
 from app.bridge.envelope import EmptyRequest, bridge_method
 from app.domain.browser import SEARCH_URLS, BrowserStatus, BrowserTab, ScrapedPage
@@ -66,6 +67,12 @@ class MobileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
+
+
+class OpenedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    opened: bool
 
 
 class ReadRequest(BaseModel):
@@ -205,6 +212,19 @@ class BrowserBridge(QObject):
             status=self._services.browser.status(),
             engines=sorted(SEARCH_URLS),
         )
+
+    @Slot(str, result=str)
+    @bridge_method(OpenUrlRequest)
+    def open_external(self, request: OpenUrlRequest) -> OpenedResponse:
+        """Hand a page to the user's real browser.
+
+        The escape hatch for what the embedded pane cannot do — chiefly H.264
+        video, which its Qt build has no codec for. The URL is validated as
+        http(s) first; the OS then opens it in the default browser.
+        """
+        url = self._services.browser.external_url(request.url)
+        QDesktopServices.openUrl(QUrl(url))
+        return OpenedResponse(opened=True)
 
     def _emit_blur(self) -> None:
         enabled, amount = self._services.browser.blur_state()

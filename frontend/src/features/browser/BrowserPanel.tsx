@@ -305,6 +305,14 @@ export function BrowserPanel(): JSX.Element {
       setNotice("Analysing — the proposal will open in Changes for review.");
     });
 
+  const openInRealBrowser = (): void => {
+    const url = page?.url || tabs[0]?.url || "";
+    if (!url) return;
+    void bridge.browser
+      .openExternal(url)
+      .catch((caught) => setError(describe(caught)));
+  };
+
   const toggleScope = (layerId: string): void =>
     setScopeIds((current) =>
       current.includes(layerId)
@@ -341,12 +349,24 @@ export function BrowserPanel(): JSX.Element {
       </p>
 
       {running && embedded && (
-        <p className="research__hint">
-          The built-in browser plays WebM/AV1 video but not H.264 — the format
-          x.com, YouTube and most sites use — so their videos stay blank. For
-          video, switch the browser to <strong>Your own Chrome</strong> in
-          Settings. Images, text and scraping work here regardless.
-        </p>
+        <>
+          <p className="research__hint">
+            The built-in browser plays WebM/AV1 video but not H.264 — the format
+            x.com, YouTube and most sites use — so their videos stay blank. Open
+            the page in your real browser to watch it, or switch the browser to{" "}
+            <strong>Your own Chrome</strong> in Settings. Images, text and
+            scraping work here regardless.
+          </p>
+          <button
+            type="button"
+            className="button"
+            disabled={working || !(page?.url || tabs[0]?.url)}
+            title="Open the current page in your default browser"
+            onClick={openInRealBrowser}
+          >
+            Open in browser
+          </button>
+        </>
       )}
 
       <div className="research__actions">

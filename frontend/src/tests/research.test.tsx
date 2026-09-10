@@ -189,6 +189,30 @@ describe("BrowserPanel", () => {
     expect(await screen.findByText(/A short brief/)).toBeInTheDocument();
   });
 
+  it("opens the current page in the real browser for video", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+    // A scrape gives the panel a current URL to hand off.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Scrape page" }),
+    );
+    await screen.findByText("Scraped body text.");
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open in browser" }),
+    );
+
+    await waitFor(() => {
+      const payload = captured.find(
+        (entry) => "url" in entry && !("layer_id" in entry),
+      );
+      expect(payload?.["url"]).toBe("https://example.com/paper");
+    });
+  });
+
   it("warns that the embedded pane cannot play H.264 video", async () => {
     render(<BrowserPanel />);
     await screen.findByText(/pane is closed/);

@@ -532,3 +532,27 @@ def test_chrome_backend_ignores_mobile(tmp_path: Path) -> None:
     service = _chrome(tmp_path, FakeCDP())
     # No embedded pane to restyle; the call is a harmless no-op.
     assert service.set_mobile(True) is True
+
+
+# -- open in the real browser ------------------------------------------------
+
+
+def test_external_url_accepts_http_and_https(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path)
+    assert service.external_url("https://x.com/i/status/1") == "https://x.com/i/status/1"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["file:///etc/passwd", "javascript:alert(1)", "data:text/html,x", "https://u:p@x.com/"],
+)
+def test_external_url_refuses_non_web_and_credentialed(tmp_path: Path, url: str) -> None:
+    service, _pane = _embedded(tmp_path)
+    with pytest.raises((PermissionDeniedError, InvalidRequestError)):
+        service.external_url(url)
+
+
+def test_external_url_is_gated_on_the_feature(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path, enabled=False)
+    with pytest.raises(PermissionDeniedError):
+        service.external_url("https://x.com/")

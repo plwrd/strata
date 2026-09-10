@@ -500,8 +500,8 @@ class BrowserService:
             raise InvalidRequestError("That search engine is not one Strata knows.")
         return self.open_url(template.format(query=quote_plus(cleaned)))
 
-    def open_url(self, url: str) -> BrowserTab:
-        self.require_enabled()
+    def _validate_web_url(self, url: str) -> str:
+        """A cleaned http(s) URL, or a refusal. Shared by pane-open and hand-off."""
         cleaned = url.strip()
         parts = urlsplit(cleaned)
         if parts.scheme.lower() not in _ALLOWED_SCHEMES:
@@ -510,7 +510,23 @@ class BrowserService:
             raise InvalidRequestError("That is not a valid URL.")
         if parts.username or parts.password:
             raise PermissionDeniedError("URLs with embedded credentials are not opened.")
+        return cleaned
 
+    def external_url(self, url: str) -> str:
+        """Validate a page URL for handing to the OS browser.
+
+        The pane cannot play H.264 video (its Qt build has no such codec), so the
+        escape hatch is to open the page in the user's real browser, which can.
+        The action itself (QDesktopServices) lives in the bridge, on the Qt
+        thread; this just gates and cleans the URL, reusing the pane's own guard.
+        """
+        self.require_enabled()
+        return self._validate_web_url(url)
+
+    def open_url(self, url: str) -> BrowserTab:
+        self.require_enabled()
+        cleaned = self._validate_web_url(url)
+        parts = urlsplit(cleaned)
         source = self._source()
         source.ensure_ready()
         tab = source.open_url(cleaned)
