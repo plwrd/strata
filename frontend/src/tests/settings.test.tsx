@@ -37,6 +37,7 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       hide_for_sharing: true,
       minimize_to_tray: false,
       start_in_tray: false,
+      hide_from_taskbar: false,
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
       browser_executable_path: "",

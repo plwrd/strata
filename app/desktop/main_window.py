@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QMainWindow, QSplitter
 
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
 from app.desktop.screen_security import set_window_excluded_from_capture
+from app.desktop.taskbar import set_window_in_taskbar
 from app.desktop.tray import TrayController, should_hide_to_tray
 from app.desktop.webchannel import build_channel
 from app.desktop.webengine import APP_URL, StrataPage, build_profile
@@ -52,6 +53,11 @@ class MainWindow(QMainWindow):
         # instead when the tray is on, and must never tear the workspace down.
         self._quitting = False
         self._tray: TrayController | None = None
+        self._hide_from_taskbar = services.settings.settings.hide_from_taskbar
+        # Re-entrancy guard: hiding the taskbar button cycles the window, which
+        # re-fires showEvent; the apply is idempotent, but this stops even the
+        # wasted re-entry.
+        self._syncing_taskbar = False
 
         # The window title must never contain a note title: a locked layer's
         # content must not leak through the task bar. It is static by design.
@@ -166,12 +172,35 @@ class MainWindow(QMainWindow):
             on_quit=self.request_quit,
             parent=app,
         )
-        self._tray.set_enabled(settings.minimize_to_tray)
+        self._tray.set_enabled(settings.minimize_to_tray or settings.hide_from_taskbar)
 
     def apply_minimize_to_tray(self, enabled: bool) -> None:
         """Turn the tray behaviour on or off. Called from the settings bridge."""
-        if self._tray is not None:
-            self._tray.set_enabled(enabled)
+        self._refresh_tray_enabled()
+
+    def apply_hide_from_taskbar(self, enabled: bool) -> None:
+        """Show or drop the taskbar button. Called from the settings bridge."""
+        self._hide_from_taskbar = enabled
+        # No taskbar button means the tray is the only way back — keep it up.
+        self._refresh_tray_enabled()
+        self._sync_taskbar()
+
+    def _refresh_tray_enabled(self) -> None:
+        if self._tray is None:
+            return
+        settings = self._services.settings.settings
+        self._tray.set_enabled(settings.minimize_to_tray or settings.hide_from_taskbar)
+
+    def _sync_taskbar(self) -> None:
+        if self._syncing_taskbar:
+            return
+        if self.windowHandle() is None and not self.isVisible():
+            return  # no native window yet; showEvent will apply it
+        self._syncing_taskbar = True
+        try:
+            set_window_in_taskbar(self, shown=not self._hide_from_taskbar)
+        finally:
+            self._syncing_taskbar = False
 
     def start_hidden(self) -> bool:
         """Whether launch should skip showing the window (start_in_tray).
@@ -180,7 +209,7 @@ class MainWindow(QMainWindow):
         launch that hid the window with no way back would be a trap.
         """
         settings = self._services.settings.settings
-        return settings.minimize_to_tray and settings.start_in_tray and self._tray_active()
+        return settings.start_in_tray and self._tray_active()
 
     def show_from_tray(self) -> None:
         """Bring the window back from the tray and give it focus."""
@@ -215,6 +244,7 @@ class MainWindow(QMainWindow):
         # Sync from persisted settings and assert affinity now that HWND exists.
         self._hide_for_sharing = self._services.settings.settings.hide_for_sharing
         self._reapply_hide_for_sharing()
+        self._sync_taskbar()
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)

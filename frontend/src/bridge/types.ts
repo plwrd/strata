@@ -793,6 +793,7 @@ export interface AppSettings {
    */
   minimize_to_tray: boolean;
   start_in_tray: boolean;
+  hide_from_taskbar: boolean;
   /**
    * Off by default: lets Strata launch and read a Chrome window of its own, so
    * research reaches logged-in and JavaScript-rendered pages. Blank executable

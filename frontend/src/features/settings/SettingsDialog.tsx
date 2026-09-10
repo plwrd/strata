@@ -630,10 +630,28 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               />
               <span>Start hidden in the tray</span>
             </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.hide_from_taskbar ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    hide_from_taskbar: event.target.checked,
+                  })
+                }
+              />
+              <span>No taskbar button</span>
+            </label>
             <p className="settings-dialog__hint">
-              This hides the <em>window</em>, never the process. Strata stays
-              listed in Task Manager and every other process tool — that is by
-              design, and any app that hid its own process would be malware.
+              Removes Strata's taskbar button entirely (Windows), even while the
+              window is open — it lives in the tray instead, so the tray icon
+              stays on and minimizing sends it there. Your way back is the tray.
+            </p>
+            <p className="settings-dialog__hint">
+              All of this hides the <em>window</em>, never the process. Strata
+              stays listed in Task Manager and every other process tool — that
+              is by design, and any app that hid its own process would be
+              malware.
             </p>
           </section>
 

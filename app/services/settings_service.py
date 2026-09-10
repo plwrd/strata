@@ -176,6 +176,10 @@ class AppSettings(BaseModel):
     # Task Manager and every other process tool by design — see app/desktop/tray.py.
     minimize_to_tray: bool = False
     start_in_tray: bool = False
+    # Drop the taskbar button entirely (Windows), even while the window is open.
+    # Pairs with the tray, which is the way back to a window that has no taskbar
+    # button — so turning this on keeps the tray icon up and sends minimize to it.
+    hide_from_taskbar: bool = False
 
     @field_validator("browser_backend", mode="before")
     @classmethod

@@ -48,6 +48,9 @@ class SettingsBridge(QObject):
         apply_tray = getattr(parent, "apply_minimize_to_tray", None)
         if callable(apply_tray):
             apply_tray(settings.minimize_to_tray)
+        apply_taskbar = getattr(parent, "apply_hide_from_taskbar", None)
+        if callable(apply_taskbar):
+            apply_taskbar(settings.hide_from_taskbar)
         # The blur radius is a setting; a live pane must pick up a change to it.
         self._services.browser.set_blur_amount(settings.browser_blur_amount)
         return SettingsResponse(settings=settings)

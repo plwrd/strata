@@ -340,6 +340,15 @@ export function BrowserPanel(): JSX.Element {
         {status?.detail ?? "Checking the browser…"}
       </p>
 
+      {running && embedded && (
+        <p className="research__hint">
+          The built-in browser plays WebM/AV1 video but not H.264 — the format
+          x.com, YouTube and most sites use — so their videos stay blank. For
+          video, switch the browser to <strong>Your own Chrome</strong> in
+          Settings. Images, text and scraping work here regardless.
+        </p>
+      )}
+
       <div className="research__actions">
         {!running ? (
           <button

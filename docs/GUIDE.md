@@ -260,6 +260,12 @@ The pane cannot load Chrome extensions. That is not a setting we forgot: Qt
 ships Chromium without the extensions subsystem, so there is nothing to switch
 on. A few sign-in pages also refuse embedded browsers outright.
 
+It also cannot play **H.264 video** — the format x.com, YouTube and most of the
+web use. Qt's bundled browser omits the patent-encumbered H.264/AAC codecs, so
+those videos stay blank (WebM/VP9 and AV1 do play). This is a property of the
+engine, not a bug: there is no flag that adds a codec that was never compiled
+in. Images, text and scraping are unaffected.
+
 For those, Settings → Browser research → **Browser** offers *Your own Chrome*.
 Strata then launches the Chrome you already have — your extensions, a profile
 Strata owns — and reads the tab you point it at instead. Everything else in
@@ -874,6 +880,7 @@ Settings exposed in the UI via **Command bar → More → Settings**:
 | Particles / Bloom | Graph chrome toggles |
 | **Hidden for sharing** | Screen-capture exclusion (see below) |
 | **Minimize to tray** | Close/minimize hides the window to a tray icon (see below) |
+| **No taskbar button** | Drop the taskbar button entirely; live in the tray (see below) |
 
 Choosing a **template** resets custom colours to that pack (fonts and UI scale
 stay). Colour overrides — including **connected** and **idle** graph edges —
@@ -897,7 +904,14 @@ the icon to bring the window back; quit deliberately from the icon's **Quit
 Strata** menu. **Start hidden in the tray** launches straight to the icon, for a
 start that does not announce itself on the taskbar.
 
-This hides the **window**, not the **process**. Strata stays listed in Task
+**No taskbar button** (**off by default**, Windows) goes further: it removes
+Strata's taskbar button altogether, even while the window is open — so Strata
+does not appear in the taskbar or Alt-Tab. Because that leaves the tray as the
+only way back, turning it on keeps the tray icon up and sends a minimize there;
+you summon the window from the icon. The ordinary window frame and its buttons
+are untouched.
+
+This — all of it — hides the **window**, not the **process**. Strata stays listed in Task
 Manager, `tasklist`, Process Explorer and every other process tool, on purpose:
 the only ways to hide a process from the OS are kernel rootkit techniques, an
 app that used them would be malware, and Strata will not ship one. If your goal

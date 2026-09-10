@@ -189,6 +189,26 @@ describe("BrowserPanel", () => {
     expect(await screen.findByText(/A short brief/)).toBeInTheDocument();
   });
 
+  it("warns that the embedded pane cannot play H.264 video", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+    expect(await screen.findByText(/not H\.264/)).toBeInTheDocument();
+  });
+
+  it("does not show the H.264 warning for the Chrome backend", async () => {
+    installFakeBridge({ browserBackend: "chrome" });
+    seedLayers();
+    render(<BrowserPanel />);
+    const opens = await screen.findAllByRole("button", {
+      name: "Open browser",
+    });
+    await userEvent.click(opens[0]!);
+    expect(screen.queryByText(/not H\.264/)).not.toBeInTheDocument();
+  });
+
   it("switches the pane to a mobile layout", async () => {
     render(<BrowserPanel />);
     await screen.findByText(/pane is closed/);
