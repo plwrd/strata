@@ -67,7 +67,16 @@ _BLUR_SELECTOR = "img,video,canvas,picture,iframe,[style*='background-image']"
 #   2. CSP — a strict ``style-src`` blocks an injected ``<style>`` element
 #      outright, so nothing applied at all. Programmatic CSSOM writes
 #      (``el.style.setProperty``) are not subject to ``style-src``.
-# A MutationObserver re-applies to nodes a single-page app adds after load.
+# The observer must do more than watch for *added* nodes. On a timeline like
+# x.com, media arrives three ways the old childList-only watcher missed:
+#   - an avatar/thumbnail <div> is inserted first and its ``background-image`` is
+#     set a tick later (an attribute change, not a child addition);
+#   - an <img>/<video> is inserted empty and lazy-loads via a later ``src``;
+#   - the video player re-renders the <video> and strips our inline filter.
+# So we also observe ``style``/``src``/``srcset``/``poster`` and *re-assert* the
+# blur whenever it is missing — self-healing rather than one-shot. ``consider``
+# writes only when something is actually absent, so our own writes settle in one
+# cycle instead of looping (we observe the style attribute, not our marker).
 # ``%s`` placeholders are filled from Python as a bool literal, an int, and a
 # JSON string, so a radius can never break out of the script.
 _BLUR_SCRIPT = """
@@ -78,55 +87,93 @@ _BLUR_SCRIPT = """
   const MARK = "data-strata-blur";
   const value = "blur(" + RADIUS + "px)";
 
-  const apply = (el) => {
+  const consider = (el) => {
     if (!el || el.nodeType !== 1 || typeof el.matches !== "function") return;
-    if (!el.matches(SEL)) return;
-    if (ON) {
-      el.style.setProperty("filter", value, "important");
-      // A blurred <video> fights the GPU video overlay and flickers; promoting
-      // it to its own composited layer settles the repaint.
-      if (el.tagName === "VIDEO" || el.tagName === "CANVAS") {
-        el.style.setProperty("transform", "translateZ(0)", "important");
+    let hit = false;
+    try { hit = el.matches(SEL); } catch (e) { return; }
+    if (!ON) {
+      if (el.hasAttribute(MARK)) {
+        el.style.removeProperty("filter");
+        el.style.removeProperty("transform");
+        el.removeAttribute(MARK);
       }
-      el.setAttribute(MARK, "1");
-    } else if (el.hasAttribute(MARK)) {
-      el.style.removeProperty("filter");
-      el.style.removeProperty("transform");
-      el.removeAttribute(MARK);
+      return;
     }
+    if (!hit) return;
+    // Only write what is missing; if everything is already set we return without
+    // touching the DOM, so the style mutation we would have caused never fires.
+    const needsFilter = el.style.getPropertyValue("filter").indexOf("blur(") === -1;
+    const layered = el.tagName === "VIDEO" || el.tagName === "CANVAS";
+    const needsLayer =
+      layered && el.style.getPropertyValue("transform").indexOf("translateZ") === -1;
+    if (!needsFilter && !needsLayer) return;
+    if (needsFilter) el.style.setProperty("filter", value, "important");
+    // A blurred <video> fights the GPU video overlay and flickers; promoting it
+    // to its own composited layer settles the repaint, and re-asserting it heals
+    // the case where the player rewrote the element's transform.
+    if (needsLayer) el.style.setProperty("transform", "translateZ(0)", "important");
+    el.setAttribute(MARK, "1");
   };
 
   const sweep = (root) => {
     try {
-      if (root.nodeType === 1 && root.matches && root.matches(SEL)) apply(root);
-      if (root.querySelectorAll) root.querySelectorAll(SEL).forEach(apply);
+      consider(root);
+      if (root.querySelectorAll) root.querySelectorAll(SEL).forEach(consider);
+      if (!ON && root.querySelectorAll) {
+        root.querySelectorAll("[" + MARK + "]").forEach(consider);
+      }
     } catch (e) {}
   };
 
-  const run = () => {
-    sweep(document);
-    if (window.__strataBlurObs) {
-      window.__strataBlurObs.disconnect();
-      window.__strataBlurObs = null;
-    }
-    if (!ON) return;
-    // childList+subtree only: a single-page app replaces media nodes on render,
-    // and the new node is caught here. We do not observe attributes — our own
-    // inline write would retrigger the observer and loop.
-    const obs = new MutationObserver((muts) => {
-      for (const m of muts) for (const n of m.addedNodes) sweep(n);
-    });
-    const target = document.documentElement || document.body;
-    if (target) {
-      obs.observe(target, { childList: true, subtree: true });
-      window.__strataBlurObs = obs;
-    }
+  let scheduled = false;
+  const soon = () => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => { scheduled = false; sweep(document); }, 120);
   };
 
-  run();
+  const prev = window.__strataBlur;
+  if (prev) prev.stop();
+
+  const onScroll = () => soon();
+  const obs = new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === "childList") {
+        for (const n of m.addedNodes) sweep(n);
+      } else {
+        consider(m.target);
+      }
+    }
+  });
+
+  const start = () => {
+    sweep(document);
+    if (!ON) return;
+    const target = document.documentElement || document.body;
+    if (target) {
+      obs.observe(target, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["style", "src", "srcset", "poster"],
+      });
+    }
+    // Infinite scroll that recycles nodes may not fire a useful mutation for
+    // every new card; a throttled sweep on scroll is the safety net.
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+  };
+
+  window.__strataBlur = {
+    stop: () => {
+      obs.disconnect();
+      window.removeEventListener("scroll", onScroll, { capture: true });
+    },
+  };
+
+  start();
   // documentElement is bare at document-creation; finish once the DOM exists.
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", run, { once: true });
+    document.addEventListener("DOMContentLoaded", () => sweep(document), { once: true });
   }
 })();
 """.strip()

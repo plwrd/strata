@@ -54,7 +54,29 @@ def test_video_is_promoted_to_its_own_layer() -> None:
 
 def test_dynamic_media_is_caught_after_load() -> None:
     # Single-page apps add media nodes after first paint; an observer re-applies.
-    assert "MutationObserver" in _blur_source(True, 16)
+    source = _blur_source(True, 16)
+    assert "MutationObserver" in source
+
+
+def test_late_attributes_are_observed_not_just_added_nodes() -> None:
+    # x.com inserts an avatar <div> first and sets its background-image a tick
+    # later, and lazy-loads <img>/<video> via a later src — attribute changes,
+    # not child additions. The observer must watch those attributes.
+    source = _blur_source(True, 16)
+    assert "attributes: true" in source
+    assert '"style", "src", "srcset", "poster"' in source
+
+
+def test_scroll_triggers_a_sweep_for_recycled_content() -> None:
+    # Infinite scroll recycles nodes and may not fire a useful mutation per card;
+    # a throttled sweep on scroll is the safety net.
+    assert 'addEventListener("scroll"' in _blur_source(True, 16)
+
+
+def test_a_reinjection_tears_down_the_previous_run() -> None:
+    # Re-running (toggle, or a fresh navigation) must not stack observers and
+    # scroll listeners; the previous run is stopped first.
+    assert "prev.stop()" in _blur_source(True, 16)
 
 
 @pytest.mark.parametrize(
