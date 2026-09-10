@@ -870,6 +870,7 @@ export interface CollaborationState {
 // is untrusted data and is rendered as text, never as markup.
 
 export type BrowserBackend = "embedded" | "chrome";
+export type DigestMode = "full" | "brief" | "outline";
 
 export interface BrowserStatus {
   enabled: boolean;

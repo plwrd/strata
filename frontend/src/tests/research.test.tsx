@@ -155,6 +155,40 @@ describe("BrowserPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("digests the page instead of saving it whole when asked", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+
+    // Pick a brief, add a focus and tags — the "manage and sort" controls.
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Capture mode" }),
+      "brief",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Digest focus" }),
+      "pricing",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Capture tags" }),
+      "vectors, pricing",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Digest & capture" }),
+    );
+
+    await waitFor(() => {
+      const payload = captured.find((entry) => "mode" in entry);
+      expect(payload?.["mode"]).toBe("brief");
+      expect(payload?.["instruction"]).toBe("pricing");
+      expect(payload?.["tags"]).toEqual(["vectors", "pricing"]);
+    });
+    // The preview shows the digest that was kept, not the whole page.
+    expect(await screen.findByText(/A short brief/)).toBeInTheDocument();
+  });
+
   it("hides the blur control for the Chrome backend", async () => {
     installFakeBridge({ browserBackend: "chrome" });
     seedLayers();

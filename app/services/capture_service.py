@@ -71,8 +71,15 @@ class CaptureService:
         source_author: str = "",
         capture_reason: str = "",
         tags: list[str] | None = None,
+        extra_properties: dict[str, str] | None = None,
     ) -> Note:
-        """Create a raw capture in the layer's Inbox. Fast path, no questions."""
+        """Create a capture in the layer's Inbox.
+
+        ``extra_properties`` lets a caller stamp provenance on a capture that is
+        not raw page text — an AI digest carries ``review_status: ai-inferred``,
+        the execution that made it, and its ``digest_mode`` — without every
+        caller having to know the capture schema.
+        """
         text = content.strip()
         if not text and not title.strip():
             raise InvalidRequestError("There is nothing to capture.")
@@ -93,6 +100,9 @@ class CaptureService:
             properties["capture_reason"] = capture_reason
         if tags:
             properties["tags"] = [tag.strip() for tag in tags if tag.strip()][:20]
+        if extra_properties:
+            # A digest is not raw material — it has already been processed.
+            properties.update(extra_properties)
 
         note = self._notes.create_note(
             layer_id=target_layer,

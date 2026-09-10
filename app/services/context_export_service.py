@@ -253,6 +253,20 @@ class ContextExportService:
         """
         return self._render_source(source, "claude")
 
+    def render_raw_source(self, *, title: str, content: str, source_url: str = "") -> str:
+        """Wrap arbitrary untrusted text (a scraped page) in the same boundary.
+
+        A digest runs before the page is a note, so there is no ``ExportSource``
+        to render — but the security requirement is identical: the page body must
+        arrive inside a neutralised data boundary, never as instruction text. The
+        boundary tags in the body are defanged exactly as they are for a note.
+        """
+        head = (
+            f'<source id="STRATA-SOURCE-WEB" title="{_escape(title)}" url="{_escape(source_url)}">'
+        )
+        body = _neutralise_delimiters(content.strip()) or "_(no content)_"
+        return f"{head}\n{body}\n</source>\n"
+
     def render(self, plan: ContextPlan) -> ExportResult:
         if plan.shape == "package":
             parts = self._render_package(plan)

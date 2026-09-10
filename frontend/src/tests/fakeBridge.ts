@@ -1439,8 +1439,16 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       },
       capture_tab: (payload) => {
         captured.push(payload);
+        // A brief/outline capture keeps only a digest; the delivered "page"
+        // carries the digest text, exactly as Python does.
+        const digested = payload["mode"] && payload["mode"] !== "full";
+        const page = scrapedPage("note_capture_1");
+        if (digested) {
+          page["text"] = "## Summary\n\nA short brief.";
+          page["char_count"] = 24;
+        }
         emitPage("req_read_2", {
-          page: scrapedPage("note_capture_1"),
+          page,
           note: {
             metadata: {
               id: "note_capture_1",

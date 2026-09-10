@@ -714,6 +714,13 @@ export const bridge = {
       target_id?: string;
       layer_id?: string;
       capture_reason?: string;
+      tags?: string[];
+      // "full" saves the page verbatim; "brief"/"outline" save only an AI digest.
+      mode?: "full" | "brief" | "outline";
+      instruction?: string;
+      provider_id?: string;
+      model?: string;
+      confirmed_remote?: boolean;
     }) => call<{ request_id: string }>("browser", "capture_tab", request),
     onPage: (listener: (payload: string) => void) =>
       subscribe("browser", "pageEvent", listener),

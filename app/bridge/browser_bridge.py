@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import json
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from app.bridge.envelope import EmptyRequest, bridge_method
 from app.domain.browser import SEARCH_URLS, BrowserStatus, BrowserTab, ScrapedPage
+from app.domain.digest import DigestMode
 from app.domain.errors import StrataError
 from app.domain.ids import new_request_id
 from app.infrastructure.logging.logger import get_logger
@@ -65,9 +66,17 @@ class ReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_id: str = Field(default="", max_length=256)
-    # Capture only. Ignored by `scrape_tab`, which never writes.
+    # Everything below is capture-only; `scrape_tab` never writes and ignores it.
     layer_id: str = Field(default="", max_length=128)
     capture_reason: str = Field(default="", max_length=500)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    # "full" keeps the page verbatim; "brief"/"outline" run a model first and
+    # keep only the digest — the page itself is never saved.
+    mode: DigestMode = "full"
+    instruction: str = Field(default="", max_length=500)
+    provider_id: str = Field(default="", max_length=64)
+    model: str = Field(default="", max_length=128)
+    confirmed_remote: bool = False
 
 
 class StatusResponse(BaseModel):
@@ -103,7 +112,18 @@ class _PendingRead:
     capture: bool
     layer_id: str = ""
     capture_reason: str = ""
+    tags: list[str] = field(default_factory=list)
+    mode: DigestMode = "full"
+    instruction: str = ""
+    provider_id: str = ""
+    model: str = ""
+    confirmed_remote: bool = False
     page: ScrapedPage | None = None
+    # A digest replaces the page text before it is saved; these carry it from the
+    # worker thread (where the model runs) to the Qt thread (where the note is
+    # written). None means "save the page as-is".
+    content_override: str | None = None
+    extra_properties: dict[str, str] = field(default_factory=dict)
     error: str = ""
 
 
@@ -227,6 +247,12 @@ class BrowserBridge(QObject):
             capture=capture,
             layer_id=request.layer_id,
             capture_reason=request.capture_reason,
+            tags=request.tags,
+            mode=request.mode if capture else "full",
+            instruction=request.instruction,
+            provider_id=request.provider_id,
+            model=request.model,
+            confirmed_remote=request.confirmed_remote,
         )
         thread = threading.Thread(target=self._read, args=(request_id,), daemon=True)
         thread.start()
@@ -239,12 +265,47 @@ class BrowserBridge(QObject):
             return
         try:
             pending.page = self._services.browser.read_page(pending.target_id)
+            if pending.capture and pending.mode != "full":
+                self._digest(pending)
         except StrataError as exc:
             pending.error = exc.message
         except Exception:  # a bug here must not strand the caller in silence
             logger.info("browser.read_failed")
             pending.error = "The page could not be read."
         self._readFinished.emit(request_id)
+
+    def _digest(self, pending: _PendingRead) -> None:
+        """Condense the page into a brief. Worker thread only — it calls a model."""
+        page = pending.page
+        if page is None:
+            return
+        digest, execution_id = self._services.digest.digest_sync(
+            text=page.text,
+            url=page.url,
+            title=page.title,
+            mode=pending.mode,
+            instruction=pending.instruction,
+            provider_id=pending.provider_id or "ollama",
+            model=pending.model or "default",
+            confirmed_remote=pending.confirmed_remote,
+        )
+        content = self._services.digest.render(
+            digest, mode=pending.mode, title=page.title, url=page.url
+        )
+        pending.content_override = content
+        pending.extra_properties = {
+            "review_status": "ai-inferred",
+            "generated_by": execution_id,
+            "digest_mode": pending.mode,
+            "processing_status": "processed",
+        }
+        pending.tags = list(
+            dict.fromkeys([*pending.tags, *self._services.digest.clean_tags(digest)])
+        )
+        # Show the user what was actually kept, not the discarded page.
+        pending.page = page.model_copy(
+            update={"text": content, "char_count": len(content), "truncated": False}
+        )
 
     @Slot(str)
     def _deliver(self, request_id: str) -> None:
@@ -263,11 +324,13 @@ class BrowserBridge(QObject):
 
         try:
             note = self._services.capture.capture(
-                content=page.text,
+                content=pending.content_override or page.text,
                 title=page.title[:MAX_CAPTURE_TITLE],
                 layer_id=pending.layer_id,
                 source_url=page.url,
                 capture_reason=pending.capture_reason,
+                tags=pending.tags or None,
+                extra_properties=pending.extra_properties or None,
             )
         except StrataError as exc:
             self._emit(request_id, {"kind": "error", "error": exc.message})

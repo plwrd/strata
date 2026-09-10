@@ -237,9 +237,22 @@ The loop:
    type straight into the pane's address bar.
 3. **Scrape page** reads what the pane is showing and gives you the text. It
    writes nothing — this is a look, not a save.
-4. **Capture only** files that text into the Inbox as a raw, untrusted capture,
-   with its source URL, exactly like URL import.
-5. **Analyse & file** does the interesting part, described below.
+4. **Capture** files the page into the Inbox — but *how much* is yours to
+   choose with **Capture as**, and that is the point: a scrape is mostly
+   navigation and boilerplate you never want back.
+   - **Full text** keeps the page verbatim (the old behaviour), as a raw,
+     untrusted capture with its source URL, exactly like URL import.
+   - **Brief** runs your AI model over the page and saves only a short summary
+     plus the key points. The page itself is thrown away — never written.
+   - **Key points** saves a structured pull instead: points, named entities,
+     concrete data points (figures, dates, versions), and claims to verify.
+   A **Focus** box steers the digest ("pricing and limits", "the API
+   endpoints"), and **Tags** sort the capture as it lands. A digest is stamped
+   `ai-inferred` with the execution that made it, so a brief is never mistaken
+   for the page or for something you wrote.
+5. **Analyse & file** does the interesting part, described below — and it
+   honours the same **Capture as** choice, so you can file a brief straight
+   into the graph without ever storing the page.
 
 ### When the pane is not enough
 

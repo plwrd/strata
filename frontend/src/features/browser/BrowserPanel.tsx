@@ -26,6 +26,7 @@ import type {
   BlurStreamEvent,
   BrowserStatus,
   BrowserTab,
+  DigestMode,
   PageStreamEvent,
   ScrapedPage,
 } from "../../bridge/types";
@@ -63,6 +64,9 @@ export function BrowserPanel(): JSX.Element {
   const [page, setPage] = useState<ScrapedPage | null>(null);
   const [captureNoteId, setCaptureNoteId] = useState("");
   const [reason, setReason] = useState("");
+  const [mode, setMode] = useState<DigestMode>("full");
+  const [instruction, setInstruction] = useState("");
+  const [tagsText, setTagsText] = useState("");
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [fileLayerId, setFileLayerId] = useState("");
   const [busy, setBusy] = useState<Busy>("idle");
@@ -235,18 +239,33 @@ export function BrowserPanel(): JSX.Element {
       setNotice("");
     });
 
+  const captureRequest = () => ({
+    target_id: targetId,
+    layer_id: fileLayerId,
+    capture_reason: reason,
+    tags: tagsText
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    mode,
+    instruction,
+    provider_id: state.providerId,
+    model: state.model || "default",
+    confirmed_remote: false,
+  });
+
   const capture = (): Promise<void> =>
     run("capturing", async () => {
       const result = await awaitRead(() =>
-        bridge.browser.captureTab({
-          target_id: targetId,
-          layer_id: fileLayerId,
-          capture_reason: reason,
-        }),
+        bridge.browser.captureTab(captureRequest()),
       );
       setPage(result.page);
       setCaptureNoteId(result.noteId);
-      setNotice(`Captured “${result.page.title}” into the Inbox.`);
+      setNotice(
+        mode === "full"
+          ? `Captured “${result.page.title}” into the Inbox.`
+          : `Saved a ${mode === "outline" ? "key-points" : "brief"} digest into the Inbox.`,
+      );
       await state.reloadTree();
     });
 
@@ -257,11 +276,7 @@ export function BrowserPanel(): JSX.Element {
       let noteId = captureNoteId;
       if (!noteId) {
         const result = await awaitRead(() =>
-          bridge.browser.captureTab({
-            target_id: targetId,
-            layer_id: fileLayerId,
-            capture_reason: reason,
-          }),
+          bridge.browser.captureTab(captureRequest()),
         );
         setPage(result.page);
         noteId = result.noteId;
@@ -438,6 +453,44 @@ export function BrowserPanel(): JSX.Element {
         </div>
       )}
 
+      {/* Capture mode: how much of the page to keep. Brief and Key points run a
+          model over the page and save only the digest — the page is discarded. */}
+      <label className="composer__field">
+        <span className="label">Capture as</span>
+        <select
+          className="select"
+          value={mode}
+          aria-label="Capture mode"
+          onChange={(event) => setMode(event.target.value as DigestMode)}
+        >
+          <option value="full">Full text — keep the whole page</option>
+          <option value="brief">Brief — AI summary + key points</option>
+          <option value="outline">Key points — AI structured extract</option>
+        </select>
+      </label>
+      {mode !== "full" && (
+        <label className="composer__field">
+          <span className="label">Focus (optional)</span>
+          <input
+            className="input"
+            value={instruction}
+            placeholder="e.g. pricing and limits, or the API endpoints"
+            aria-label="Digest focus"
+            onChange={(event) => setInstruction(event.target.value)}
+          />
+        </label>
+      )}
+      <label className="composer__field">
+        <span className="label">Tags (optional, comma-separated)</span>
+        <input
+          className="input"
+          value={tagsText}
+          placeholder="e.g. vector-search, benchmarks"
+          aria-label="Capture tags"
+          onChange={(event) => setTagsText(event.target.value)}
+        />
+      </label>
+
       <div className="research__actions">
         <button
           type="button"
@@ -453,9 +506,22 @@ export function BrowserPanel(): JSX.Element {
           disabled={working || !running}
           onClick={() => void capture()}
         >
-          {busy === "capturing" ? "Capturing…" : "Capture only"}
+          {busy === "capturing"
+            ? mode === "full"
+              ? "Capturing…"
+              : "Digesting…"
+            : mode === "full"
+              ? "Capture only"
+              : "Digest & capture"}
         </button>
       </div>
+      {mode !== "full" && (
+        <p className="research__hint">
+          The page is run through your AI model and only the digest is kept —
+          the full text is never saved. Uses{" "}
+          {state.model || "the default model"}.
+        </p>
+      )}
 
       {page && (
         <div className="research__preview">
