@@ -253,7 +253,8 @@ function ColorRow(props: {
 }
 
 export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
-  const { settings, applySettings, chooseBrowserExtension } = useStore();
+  const { settings, applySettings, chooseBrowserExtension, chooseUserScript } =
+    useStore();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -712,6 +713,77 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               sign in to an embedded browser — it is the one option Strata
               cannot keep out of a screen recording.
             </p>
+            {settings?.browser_backend === "embedded" && (
+              <div className="composer__field">
+                <span className="label">User scripts</span>
+                <ul className="settings-dialog__list">
+                  {(settings?.browser_user_scripts ?? []).map((file) => (
+                    <li key={file} className="settings-dialog__row">
+                      <code title={file}>{file.split(/[\\/]/).pop()}</code>
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        aria-label={`Remove user script ${file}`}
+                        onClick={() =>
+                          void applySettings({
+                            browser_user_scripts: (
+                              settings?.browser_user_scripts ?? []
+                            ).filter((kept) => kept !== file),
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void chooseUserScript()}
+                >
+                  Add a user script…
+                </button>
+                <p className="settings-dialog__hint">
+                  The built-in pane cannot load extensions at all — Qt ships
+                  Chromium without the extensions subsystem. A user script is
+                  the closest thing it has: a <code>.js</code> file injected
+                  into every page, the same shape Greasemonkey and Tampermonkey
+                  scripts are written in. <code>@run-at document-start</code> is
+                  honoured; without it a script runs once the page is there. It
+                  runs with the page's own privileges and sees everything on it,
+                  so add only scripts you have read or trust.
+                </p>
+              </div>
+            )}
+            {settings?.browser_backend === "embedded" && (
+              <label className="composer__field">
+                <span className="label">Blocked hosts</span>
+                <textarea
+                  className="input"
+                  rows={4}
+                  aria-label="Blocked hosts"
+                  placeholder={"ads.example.com\ntracker.net"}
+                  value={(settings?.browser_blocked_hosts ?? []).join("\n")}
+                  onChange={(event) =>
+                    void applySettings({
+                      browser_blocked_hosts: event.target.value
+                        .split("\n")
+                        .map((line) => line.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+                <p className="settings-dialog__hint">
+                  One host per line. The pane refuses requests to these and
+                  their subdomains, so an ad or tracker never loads, never runs
+                  and never sets a cookie — the half of an ad blocker Qt can
+                  actually do. It is not a filter list: no cosmetic rules, no
+                  path patterns. Pages you navigate to yourself are never
+                  blocked, only what they load.
+                </p>
+              </label>
+            )}
             {settings?.browser_backend === "webview2" && (
               <div className="composer__field">
                 <span className="label">Extensions</span>

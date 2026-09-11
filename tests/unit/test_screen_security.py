@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import sys
 from types import SimpleNamespace
 from typing import Any, cast
@@ -236,3 +237,102 @@ def test_own_window_sweep_uses_this_process(monkeypatch: pytest.MonkeyPatch) -> 
     set_own_windows_excluded_from_capture(enabled=True)
 
     assert seen == [(4321, True, True)]
+
+
+# -- catching a window as it appears -------------------------------------------
+
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
+
+
+def test_guard_does_nothing_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import CaptureGuard
+
+    monkeypatch.setattr(screen_security.sys, "platform", "linux")
+    guard = CaptureGuard()
+
+    assert guard.watch(1234) is False
+    assert guard.watched_pids == ()
+
+
+def test_guard_refuses_a_bad_pid() -> None:
+    from app.desktop.screen_security import CaptureGuard
+
+    assert CaptureGuard().watch(0) is False
+
+
+@windows_only
+def test_guard_hooks_a_process_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Watching twice must not stack hooks; the sweep calls it every tick."""
+    from app.desktop.screen_security import CaptureGuard
+
+    fake_user32 = MagicMock()
+    fake_user32.SetWinEventHook.return_value = 0xABC
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+    guard = CaptureGuard()
+
+    assert guard.watch(42) is True
+    assert guard.watch(42) is False
+
+    assert guard.watched_pids == (42,)
+    assert fake_user32.SetWinEventHook.call_count == 1
+
+
+@windows_only
+def test_guard_watches_the_engine_process_as_well(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WebView2's popups are its browser process's windows, not ours."""
+    from app.desktop.screen_security import CaptureGuard
+
+    fake_user32 = MagicMock()
+    fake_user32.SetWinEventHook.return_value = 0xABC
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+    guard = CaptureGuard()
+
+    guard.watch(42)
+    guard.watch(99)
+
+    assert guard.watched_pids == (42, 99)
+
+
+@windows_only
+def test_guard_reports_a_hook_it_could_not_install(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import CaptureGuard
+
+    fake_user32 = MagicMock()
+    fake_user32.SetWinEventHook.return_value = 0
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+
+    assert CaptureGuard().watch(42) is False
+
+
+@windows_only
+def test_guard_unhooks_on_dispose(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hook outliving the window it protects is a callback into a dead object."""
+    from app.desktop.screen_security import CaptureGuard
+
+    fake_user32 = MagicMock()
+    fake_user32.SetWinEventHook.return_value = 0xABC
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+    guard = CaptureGuard()
+    guard.watch(42)
+    guard.watch(99)
+
+    guard.dispose()
+
+    assert guard.watched_pids == ()
+    assert fake_user32.UnhookWinEvent.call_count == 2
+
+
+@windows_only
+def test_a_hooked_window_is_excluded_at_its_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child HWND's affinity has to be set on the top-level that owns it."""
+    from app.desktop.screen_security import _apply_affinity_to_hwnd
+
+    fake_user32 = MagicMock()
+    fake_user32.GetAncestor.return_value = 0xF00
+    fake_user32.SetWindowDisplayAffinity.return_value = 1
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+
+    assert _apply_affinity_to_hwnd(0x123, enabled=True) is True
+    hwnd, affinity = fake_user32.SetWindowDisplayAffinity.call_args[0]
+    assert int(hwnd.value) == 0xF00
+    assert affinity == WDA_EXCLUDEFROMCAPTURE

@@ -22,6 +22,32 @@ from app.infrastructure.storage.paths import replace_atomic
 # is a sign the setting is being used as one, and each is third-party code with
 # sight of every page the pane visits.
 MAX_BROWSER_EXTENSIONS = 10
+MAX_BROWSER_USER_SCRIPTS = 20
+# Generous, because a blocklist is the one of these three that people paste in
+# bulk — but still a list a human curated, not a subscribed filter feed.
+MAX_BROWSER_BLOCKED_HOSTS = 2000
+
+
+def _clean_paths(value: Any, field: str, limit: int) -> list[str]:
+    """Strip, drop blanks and duplicates, cap. Order and case preserved.
+
+    Existence is deliberately not checked: a settings file has to load on a
+    machine where a path has since moved, and the pane reports what it could
+    not find when it tries. Refusing to start the app over it is the wrong trade.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str) or not isinstance(value, Iterable):
+        raise ValueError(f"{field} must be a list")
+    cleaned: list[str] = []
+    for entry in value:
+        text = str(entry).strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    if len(cleaned) > limit:
+        raise ValueError(f"{field} holds at most {limit} entries")
+    return cleaned
+
 
 logger = get_logger(__name__)
 
@@ -159,6 +185,14 @@ class AppSettings(BaseModel):
     # opt-in per extension — an extension reads every page the pane visits, so
     # this is the user adding third-party code to their own research session.
     browser_extensions: list[str] = Field(default_factory=list)
+    # The Qt pane's two stand-ins for extensions, which it cannot load at all
+    # (Chromium's extensions subsystem is not compiled into Qt WebEngine, and
+    # no flag adds it). Between them they cover what people install extensions
+    # *for*: `browser_user_scripts` are Tampermonkey-style `.js` files injected
+    # at document-creation, and `browser_blocked_hosts` are domains whose
+    # requests the pane refuses — a hosts-file ad blocker, in effect.
+    browser_user_scripts: list[str] = Field(default_factory=list)
+    browser_blocked_hosts: list[str] = Field(default_factory=list)
     # Mobile mode: the browser pane serves a mobile user-agent so sites render
     # their touch/mobile layout. Synthetic touch events are advertised to pages
     # from the next launch (a process-global Chromium flag; see application.py).
@@ -225,18 +259,32 @@ class AppSettings(BaseModel):
         which one is missing when it tries — refusing to start the app over it
         would be the wrong trade.
         """
-        if value is None:
-            return []
-        if isinstance(value, str) or not isinstance(value, Iterable):
-            raise ValueError("browser_extensions must be a list of folder paths")
-        cleaned: list[str] = []
-        for entry in value:
-            path = str(entry).strip()
-            if path and path not in cleaned:
-                cleaned.append(path)
-        if len(cleaned) > MAX_BROWSER_EXTENSIONS:
-            raise ValueError(f"browser_extensions holds at most {MAX_BROWSER_EXTENSIONS} folders")
-        return cleaned
+        return _clean_paths(value, "browser_extensions", MAX_BROWSER_EXTENSIONS)
+
+    @field_validator("browser_user_scripts", mode="before")
+    @classmethod
+    def _clean_user_scripts(cls, value: Any) -> list[str]:
+        return _clean_paths(value, "browser_user_scripts", MAX_BROWSER_USER_SCRIPTS)
+
+    @field_validator("browser_blocked_hosts", mode="before")
+    @classmethod
+    def _clean_blocked_hosts(cls, value: Any) -> list[str]:
+        """Hostnames, lower-cased, without scheme or path.
+
+        People paste `https://ads.example.com/tag.js` into a blocklist box, and
+        a list that silently keeps that entry blocks nothing while looking as
+        though it works. Reduce each entry to its host and drop what has none.
+        """
+        raw = _clean_paths(value, "browser_blocked_hosts", MAX_BROWSER_BLOCKED_HOSTS)
+        hosts: list[str] = []
+        for entry in raw:
+            host = entry.lower()
+            if "//" in host:
+                host = host.split("//", 1)[1]
+            host = host.split("/", 1)[0].split("@")[-1].split(":")[0].strip(".")
+            if host and " " not in host and host not in hosts:
+                hosts.append(host)
+        return hosts
 
     @field_validator("browser_blur_amount", mode="before")
     @classmethod

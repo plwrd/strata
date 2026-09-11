@@ -210,3 +210,145 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> bool:
         fallback=True,
     )
     return True
+
+
+# --- catching a window the moment it appears ---------------------------------
+
+# Win32 accessibility events. A window appearing is an event the OS will tell us
+# about; polling for it is what leaves a gap.
+EVENT_OBJECT_CREATE = 0x8000
+EVENT_OBJECT_SHOW = 0x8002
+OBJID_WINDOW = 0
+CHILDID_SELF = 0
+WINEVENT_OUTOFCONTEXT = 0x0000
+
+
+class CaptureGuard:
+    """Excludes each new window as it is created, rather than on a timer.
+
+    The per-window Qt hooks cover what Qt models, and a periodic PID sweep
+    covers the rest — but "the rest" is the important part and a sweep is,
+    by construction, late. The bundled Chromium (and WebView2's browser
+    process) create raw Win32 windows for menus, ``<select>`` dropdowns and
+    autofill popups; none of them is a ``QWidget`` or a ``QWindow``, so until
+    the next tick of the sweep they are on screen and in the recording. A
+    dropdown opened and dismissed inside one interval was never covered at all.
+
+    ``SetWinEventHook`` closes that gap: the OS calls us when a window in a
+    named process is created or shown, so the affinity is set on the same
+    message-loop turn rather than up to a poll interval later. Hooks are
+    ``WINEVENT_OUTOFCONTEXT``, so the callback arrives on this thread's message
+    queue — which Qt pumps — and nothing is injected into the other process.
+
+    The sweep stays as a backstop for windows that existed before we started
+    watching, and for anything a hook misses.
+    """
+
+    def __init__(self) -> None:
+        self._enabled = False
+        self._hooks: dict[int, Any] = {}
+        # ctypes callbacks must outlive the hook; a collected thunk would be a
+        # jump into freed memory on the next window that opens anywhere.
+        self._proc: Any = None
+
+    @property
+    def watched_pids(self) -> tuple[int, ...]:
+        return tuple(sorted(self._hooks))
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Turn hiding on or off. Hooks stay installed either way.
+
+        Keeping them lets "off" still be authoritative: a window that opens
+        while hiding is off gets ``WDA_NONE`` set explicitly rather than
+        inheriting whatever it happened to have.
+        """
+        self._enabled = enabled
+
+    def watch(self, pid: int) -> bool:
+        """Start catching new windows in ``pid``. Idempotent per process."""
+        if not _is_windows() or pid <= 0 or pid in self._hooks:
+            return False
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        if self._proc is None:
+            self._proc = self._make_callback()
+        user32.SetWinEventHook.restype = wintypes.HANDLE
+        hook = user32.SetWinEventHook(
+            EVENT_OBJECT_CREATE,
+            EVENT_OBJECT_SHOW,
+            None,
+            self._proc,
+            pid,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        )
+        if not hook:
+            logger.warning("screen_security.hook_failed", pid=pid)
+            return False
+        self._hooks[pid] = hook
+        logger.info("screen_security.hook_installed", pid=pid)
+        return True
+
+    def forget(self, pid: int) -> None:
+        """Drop the hook for a process that has gone."""
+        hook = self._hooks.pop(pid, None)
+        if hook is None or not _is_windows():
+            return
+        import ctypes
+
+        ctypes.windll.user32.UnhookWinEvent(hook)
+
+    def dispose(self) -> None:
+        for pid in list(self._hooks):
+            self.forget(pid)
+
+    def _make_callback(self) -> Any:
+        import ctypes
+        from ctypes import wintypes
+
+        proto = ctypes.WINFUNCTYPE(
+            None,
+            wintypes.HANDLE,  # hWinEventHook
+            wintypes.DWORD,  # event
+            wintypes.HWND,
+            wintypes.LONG,  # idObject
+            wintypes.LONG,  # idChild
+            wintypes.DWORD,  # idEventThread
+            wintypes.DWORD,  # dwmsEventTime
+        )
+
+        def _on_event(
+            _hook: int,
+            _event: int,
+            hwnd: int,
+            id_object: int,
+            id_child: int,
+            _thread: int,
+            _time: int,
+        ) -> None:
+            # The hook fires for every accessible object, not only windows.
+            if id_object != OBJID_WINDOW or id_child != CHILDID_SELF or not hwnd:
+                return
+            try:
+                _apply_affinity_to_hwnd(int(hwnd), enabled=self._enabled)
+            except Exception:  # pragma: no cover - a callback must never raise
+                return
+
+        return proto(_on_event)
+
+
+def _apply_affinity_to_hwnd(hwnd: int, *, enabled: bool) -> bool:
+    """Set the affinity on ``hwnd``'s top-level window."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    root = int(user32.GetAncestor(wintypes.HWND(hwnd), GA_ROOT) or 0) or hwnd
+    affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
+    if user32.SetWindowDisplayAffinity(wintypes.HWND(root), affinity):
+        return True
+    if not enabled:
+        return False
+    return bool(user32.SetWindowDisplayAffinity(wintypes.HWND(root), WDA_MONITOR))

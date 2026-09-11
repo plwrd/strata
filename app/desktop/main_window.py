@@ -9,6 +9,7 @@ no bridge at all (see ``app.desktop.browser_pane``).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget
 from app.bootstrap import resource_root
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
 from app.desktop.screen_security import (
+    CaptureGuard,
     set_own_windows_excluded_from_capture,
     set_window_excluded_from_capture,
     set_windows_excluded_from_capture,
@@ -57,6 +59,10 @@ BLUR_HOTKEY = "Ctrl+Shift+X"
 # How often to re-sweep every window this process owns while "hidden for
 # sharing" is on. The per-window hooks below are the fast path; this is the net
 # under them, for a window Qt never told us about (see `_sweep_own_windows`).
+# It is a backstop, not the mechanism: `CaptureGuard` catches a new window on
+# the message-loop turn it appears, because anything on a timer is late by up
+# to its interval — which is how a dropdown opened and dismissed between ticks
+# used to reach a recording.
 CAPTURE_SWEEP_MS = 1500
 
 
@@ -72,6 +78,11 @@ class MainWindow(QMainWindow):
         self._services = services
         # Last value passed to the OS; settings toggle and window events share it.
         self._hide_for_sharing = services.settings.settings.hide_for_sharing
+        # Installed here, before anything below can open a window: building the
+        # tray can show the window, which re-enters the capture path.
+        self._capture_guard = CaptureGuard()
+        self._capture_guard.set_enabled(self._hide_for_sharing)
+        self._capture_guard.watch(os.getpid())
         # Set true only when the user chooses Quit; a plain close hides to tray
         # instead when the tray is on, and must never tear the workspace down.
         self._quitting = False
@@ -195,7 +206,15 @@ class MainWindow(QMainWindow):
             services.paths.data_dir / "browser-pane",
             parent=QApplication.instance(),
         )
-        return BrowserPane(self._browser_profile, self)
+        settings = services.settings.settings
+        return BrowserPane(
+            self._browser_profile,
+            self,
+            # Qt cannot load an extension at all, so these are what it has
+            # instead: injected user scripts and a host blocklist.
+            user_scripts=tuple(Path(script) for script in settings.browser_user_scripts),
+            blocked_hosts=tuple(settings.browser_blocked_hosts),
+        )
 
     def _try_webview2_pane(self, services: Services) -> WebView2Pane | None:
         """Build the WebView2 pane, or None with the reason logged.
@@ -363,6 +382,18 @@ class MainWindow(QMainWindow):
         set_windows_excluded_from_capture(self._top_level_windows(), enabled=self._hide_for_sharing)
         self._sweep_own_windows()
 
+    def _watch_engine_process(self) -> None:
+        """Hook the research engine's process once it has one.
+
+        WebView2 renders in a browser process of its own, and its menus and
+        dropdowns are that process's windows — the hook on ours cannot see
+        them. The PID is not known until the engine is up, so this is checked
+        as part of the sweep rather than at construction.
+        """
+        pid = getattr(self._browser_pane, "browser_process_id", 0)
+        if isinstance(pid, int) and pid > 0:
+            self._capture_guard.watch(pid)
+
     def _sweep_own_windows(self) -> None:
         """Exclude every window this process owns, whatever created it.
 
@@ -372,6 +403,8 @@ class MainWindow(QMainWindow):
         a recording on their own. A PID sweep does not need to know what a window
         is, only that it is ours.
         """
+        self._capture_guard.set_enabled(self._hide_for_sharing)
+        self._watch_engine_process()
         set_own_windows_excluded_from_capture(enabled=self._hide_for_sharing)
         # The research engine may render in a process of its own — WebView2's
         # browser process, or a launched Chrome. Its menus and dropdowns are
@@ -452,6 +485,7 @@ class MainWindow(QMainWindow):
             self._tray.dispose()
         # The WebView2 controller has to be closed while its host window still
         # exists; leaving it to teardown means closing it against a dead HWND.
+        self._capture_guard.dispose()
         shutdown = getattr(self._browser_pane, "shutdown", None)
         if callable(shutdown):
             shutdown()

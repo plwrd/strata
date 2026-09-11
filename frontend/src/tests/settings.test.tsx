@@ -41,6 +41,8 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
       browser_extensions: [] as string[],
+      browser_user_scripts: [] as string[],
+      browser_blocked_hosts: [] as string[],
       browser_executable_path: "",
       browser_profile_path: "",
       browser_debug_port: 9333,
@@ -227,6 +229,74 @@ describe("SettingsDialog", () => {
       expect(
         screen.getByRole("button", { name: /Add an extension folder/ }),
       ).toBeInTheDocument(),
+    );
+  });
+  it("offers user scripts and a blocklist only for the built-in pane", () => {
+    // The Edge pane loads real extensions; these are what Qt has instead, and
+    // showing both sets at once would imply they stack.
+    seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(
+      screen.getByRole("button", { name: /Add a user script/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Blocked hosts" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Add an extension folder/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the Qt stand-ins when the Edge engine is chosen", () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "webview2" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(
+      screen.queryByRole("button", { name: /Add a user script/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Blocked hosts" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("turns the blocklist box into one host per line", async () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    const box = screen.getByRole("textbox", { name: "Blocked hosts" });
+    await userEvent.click(box);
+    await userEvent.paste("ads.example.com\n\n  tracker.net  \n");
+
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        browser_blocked_hosts: ["ads.example.com", "tracker.net"],
+      }),
+    );
+  });
+
+  it("shows a user script by file name and can remove it", async () => {
+    seedReady({
+      browser_control_enabled: true,
+      browser_backend: "embedded",
+      browser_user_scripts: ["C:/scripts/dark-mode.js", "C:/scripts/reader.js"],
+    });
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(screen.getByText("dark-mode.js")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Remove user script C:/scripts/dark-mode.js",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        browser_user_scripts: ["C:/scripts/reader.js"],
+      }),
     );
   });
 });

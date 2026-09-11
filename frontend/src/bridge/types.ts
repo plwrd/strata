@@ -803,6 +803,8 @@ export interface AppSettings {
   browser_control_enabled: boolean;
   browser_backend: BrowserBackend;
   browser_extensions: string[];
+  browser_user_scripts: string[];
+  browser_blocked_hosts: string[];
   browser_executable_path: string;
   browser_profile_path: string;
   browser_debug_port: number;

@@ -57,6 +57,35 @@ class SettingsBridge(QObject):
 
     @Slot(str, result=str)
     @bridge_method(EmptyRequest)
+    def choose_user_script(self, _request: EmptyRequest) -> SettingsResponse:
+        """Pick a ``.js`` userscript for the built-in pane, and remember it.
+
+        The Qt pane's stand-in for an extension, so it goes through the same
+        deliberate native-dialog choice: a path typed into a settings box is a
+        typo waiting to look like a broken feature.
+        """
+        from PySide6.QtWidgets import QFileDialog
+
+        from app.domain.errors import CancelledError
+
+        chosen, _filter = QFileDialog.getOpenFileName(
+            None,
+            "Choose a user script",
+            "",
+            "JavaScript (*.js *.user.js)",
+        )
+        if not chosen:
+            raise CancelledError("No script was chosen.")
+
+        current = list(self._services.settings.settings.browser_user_scripts)
+        if chosen not in current:
+            current.append(chosen)
+        return SettingsResponse(
+            settings=self._services.settings.update({"browser_user_scripts": current})
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
     def choose_browser_extension(self, _request: EmptyRequest) -> SettingsResponse:
         """Let the *user* pick an unpacked extension folder, and remember it.
 

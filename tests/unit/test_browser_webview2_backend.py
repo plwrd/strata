@@ -223,8 +223,8 @@ class FakeWidgetPane:
     def __init__(self, backend: str) -> None:
         self.backend = backend
         self.failure_reason = ""
-        self.loaded_extensions: list[str] = []
-        self.extension_errors: list[str] = []
+        self.loaded_addons: list[str] = []
+        self.addon_errors: list[str] = []
 
     def current(self) -> BrowserTab:
         return BrowserTab(target_id="pane", title="A page", url="https://example.com/", active=True)
@@ -334,7 +334,7 @@ def test_loaded_extensions_are_named_in_the_status() -> None:
     from app.desktop.browser_pane import EmbeddedSource
 
     pane = FakeWidgetPane("webview2")
-    pane.loaded_extensions = ["uBlock Origin"]
+    pane.loaded_addons = ["uBlock Origin"]
 
     status = EmbeddedSource(pane, lambda visible: None).status()
 
@@ -348,7 +348,7 @@ def test_an_extension_that_did_not_load_is_not_passed_over() -> None:
     from app.desktop.browser_pane import EmbeddedSource
 
     pane = FakeWidgetPane("webview2")
-    pane.extension_errors = ["C:/gone is not a folder."]
+    pane.addon_errors = ["C:/gone is not a folder."]
 
     status = EmbeddedSource(pane, lambda visible: None).status()
 

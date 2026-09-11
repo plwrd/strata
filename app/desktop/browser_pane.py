@@ -24,7 +24,10 @@ never the editor.
 
 from __future__ import annotations
 
+import re
 import threading
+from collections.abc import Iterable
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
@@ -34,6 +37,8 @@ from PySide6.QtWebEngineCore import (
     QWebEngineProfile,
     QWebEngineScript,
     QWebEngineSettings,
+    QWebEngineUrlRequestInfo,
+    QWebEngineUrlRequestInterceptor,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
@@ -58,27 +63,43 @@ PANE_TARGET_ID = "pane"
 # avatars are not SVGs.
 _BLUR_SELECTOR = "img,video,canvas,picture,iframe,[style*='background-image']"
 
-# The blur is applied as an *inline* ``filter`` with ``!important``, set through
-# the CSSOM, rather than as an injected ``<style>``. Two reasons the stylesheet
-# approach failed on real sites:
-#   1. Specificity — a site's own ``img.css-xyz { filter: … !important }`` beats
-#      a bare ``img !important`` rule, so the page's filter won and ours didn't.
-#      An inline ``!important`` declaration beats every stylesheet rule.
-#   2. CSP — a strict ``style-src`` blocks an injected ``<style>`` element
-#      outright, so nothing applied at all. Programmatic CSSOM writes
-#      (``el.style.setProperty``) are not subject to ``style-src``.
-# The observer must do more than watch for *added* nodes. On a timeline like
-# x.com, media arrives three ways the old childList-only watcher missed:
-#   - an avatar/thumbnail <div> is inserted first and its ``background-image`` is
+# Blur is applied twice over, because neither mechanism alone is enough.
+#
+# **A constructed stylesheet, adopted at document-creation.** This is the half
+# that makes media blurred *before it is ever painted*: the rule is in the
+# document before the parser has produced a single element, so there is no
+# first frame where a photo is sharp and no flash when a lazy image loads. It
+# is `new CSSStyleSheet()` + `adoptedStyleSheets` rather than an injected
+# `<style>` because a strict `style-src` CSP blocks the element and does not
+# block CSSOM.
+#
+# **Inline `filter` with `!important`, written through the CSSOM.** The
+# stylesheet loses one specific fight: a site's own `img.css-xyz { filter: …
+# !important }` is author-origin `!important` too, and beats us. An inline
+# `!important` declaration beats every stylesheet rule there is. So the sheet
+# gives instant, universal coverage and the inline pass wins where a page
+# fights back.
+#
+# The observer has to watch more than added nodes. On a timeline like x.com,
+# media arrives three ways a childList-only watcher misses:
+#   - an avatar/thumbnail <div> is inserted first and its `background-image` is
 #     set a tick later (an attribute change, not a child addition);
-#   - an <img>/<video> is inserted empty and lazy-loads via a later ``src``;
+#   - an <img>/<video> is inserted empty and lazy-loads via a later `src`;
 #   - the video player re-renders the <video> and strips our inline filter.
-# So we also observe ``style``/``src``/``srcset``/``poster`` and *re-assert* the
-# blur whenever it is missing — self-healing rather than one-shot. ``consider``
-# writes only when something is actually absent, so our own writes settle in one
-# cycle instead of looping (we observe the style attribute, not our marker).
-# ``%s`` placeholders are filled from Python as a bool literal, an int, and a
-# JSON string, so a radius can never break out of the script.
+# So we also observe `style`/`src`/`srcset`/`poster` and *re-assert* the blur
+# whenever it is missing — self-healing rather than one-shot. `consider` writes
+# only when something is actually absent, so our own writes settle in one cycle
+# instead of looping (we observe the style attribute, not our marker).
+#
+# It observes `document`, not `document.documentElement`. At document-creation
+# there is no `<html>` yet, so the old code resolved its target to `null`, never
+# attached, and left the throttled scroll handler as the only thing that ever
+# swept — which is exactly why blur used to appear only once you scrolled.
+# `document` exists from the first instruction and its subtree covers everything
+# the parser goes on to build.
+#
+# `%s` placeholders are filled from Python as a bool literal, an int, and a JSON
+# string, so a radius can never break out of the script.
 _BLUR_SCRIPT = """
 (() => {
   const ON = %s;
@@ -87,6 +108,39 @@ _BLUR_SCRIPT = """
   const MARK = "data-strata-blur";
   const value = "blur(" + RADIUS + "px)";
 
+  // -- the pre-paint half --------------------------------------------------
+  // Adopted before the parser has built anything, so the rule is already in
+  // force for the first element it creates. No JavaScript is in the loop here:
+  // no observer latency, no lazy-load flash, nothing sharp waiting on a
+  // callback.
+  const sheetFor = () => {
+    if (typeof CSSStyleSheet !== "function") return null;
+    if (!("adoptedStyleSheets" in document)) return null;
+    let sheet = window.__strataBlurSheet;
+    if (!sheet) {
+      try { sheet = new CSSStyleSheet(); } catch (e) { return null; }
+      window.__strataBlurSheet = sheet;
+    }
+    return sheet;
+  };
+
+  const applySheet = () => {
+    const sheet = sheetFor();
+    if (!sheet) return;
+    try {
+      // Emptied rather than un-adopted when off: replacing the text is one
+      // call and cannot leave a stale rule behind on a re-entry.
+      sheet.replaceSync(ON ? SEL + "{filter:" + value + " !important}" : "");
+    } catch (e) { return; }
+    try {
+      const adopted = document.adoptedStyleSheets || [];
+      if (Array.prototype.indexOf.call(adopted, sheet) === -1) {
+        document.adoptedStyleSheets = Array.prototype.concat.call([], adopted, sheet);
+      }
+    } catch (e) { /* older engine: the inline pass below still covers it */ }
+  };
+
+  // -- the specificity half ------------------------------------------------
   const consider = (el) => {
     if (!el || el.nodeType !== 1 || typeof el.matches !== "function") return;
     let hit = false;
@@ -147,17 +201,18 @@ _BLUR_SCRIPT = """
   });
 
   const start = () => {
+    applySheet();
     sweep(document);
     if (!ON) return;
-    const target = document.documentElement || document.body;
-    if (target) {
-      obs.observe(target, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["style", "src", "srcset", "poster"],
-      });
-    }
+    // `document`, not `document.documentElement`: at document-creation there is
+    // no <html> to observe yet, and a subtree observer on the document sees it
+    // being created along with everything under it.
+    obs.observe(document, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "src", "srcset", "poster"],
+    });
     // Infinite scroll that recycles nodes may not fire a useful mutation for
     // every new card; a throttled sweep on scroll is the safety net.
     window.addEventListener("scroll", onScroll, { passive: true, capture: true });
@@ -171,9 +226,12 @@ _BLUR_SCRIPT = """
   };
 
   start();
-  // documentElement is bare at document-creation; finish once the DOM exists.
+  // A same-document navigation can swap the adopted sheets out from under us,
+  // and a page that rewrote its own <html> would lose the first sweep; both are
+  // cheap to re-assert once the DOM is there.
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => sweep(document), { once: true });
+    document.addEventListener("DOMContentLoaded", () => { applySheet(); sweep(document); },
+      { once: true });
   }
 })();
 """.strip()
@@ -186,6 +244,32 @@ MOBILE_USER_AGENT = (
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
 )
+
+
+# Userscripts are written against Greasemonkey/Tampermonkey conventions, and
+# the one that matters here is `@run-at`. Its default is `document-idle` — the
+# DOM exists and the page has settled — which is what almost every script in
+# the wild assumes. Injecting everything at document-creation instead would
+# break the naive majority on its first line (`document.documentElement` is
+# null that early) while helping only the few that deliberately patch globals
+# before the page's own scripts run. So: honour what the file asks for, and
+# default to what its author expected.
+_RUN_AT = {
+    "document-start": QWebEngineScript.InjectionPoint.DocumentCreation,
+    "document-end": QWebEngineScript.InjectionPoint.DocumentReady,
+    "document-idle": QWebEngineScript.InjectionPoint.Deferred,
+}
+
+
+def _run_at(source: str) -> QWebEngineScript.InjectionPoint:
+    """Read ``// @run-at`` out of a userscript's metadata block."""
+    # Only the head of the file: the metadata block is at the top by
+    # convention, and a later mention is a comment about it, not a directive.
+    head = source[:4096]
+    match = re.search(r"@run-at\s+(document-start|document-end|document-idle)", head)
+    if match is None:
+        return QWebEngineScript.InjectionPoint.Deferred
+    return _RUN_AT[match.group(1)]
 
 
 def blur_source(enabled: bool, amount: int) -> str:
@@ -236,6 +320,53 @@ def build_browser_profile(storage_path: Any, parent: QObject | None = None) -> Q
     return profile
 
 
+class HostBlockInterceptor(QWebEngineUrlRequestInterceptor):
+    """Refuses requests to named hosts — a hosts-file ad blocker for the pane.
+
+    This exists because Qt WebEngine cannot load an extension at any price:
+    Chromium's extensions subsystem is not compiled into it and no flag adds
+    it. Blocking at the network layer is the part of an ad blocker Qt *can*
+    do, and it is the part that matters most — a tracker that never loads
+    cannot run, cannot set a cookie and cannot see the page.
+
+    Matching is by host suffix, so ``example.com`` also covers
+    ``ads.example.com``. It is not EasyList: there are no cosmetic rules and no
+    path patterns, and saying so is better than implying a completeness this
+    does not have.
+
+    The main frame is deliberately exempt. Blocking a navigation the user typed
+    produces a blank pane with no explanation, which reads as a broken browser
+    rather than as a blocklist doing its job; sub-resources are where ads and
+    trackers actually live.
+    """
+
+    def __init__(self, hosts: Iterable[str], parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._hosts = frozenset(host.lower().strip(".") for host in hosts if host.strip())
+        self.blocked = 0
+
+    @property
+    def host_count(self) -> int:
+        return len(self._hosts)
+
+    def _is_blocked(self, host: str) -> bool:
+        if not self._hosts or not host:
+            return False
+        host = host.lower().strip(".")
+        if host in self._hosts:
+            return True
+        # Suffix match on a label boundary — `notevil.com` must not be caught
+        # by a rule for `evil.com`.
+        return any(host.endswith("." + blocked) for blocked in self._hosts)
+
+    def interceptRequest(self, info: QWebEngineUrlRequestInfo) -> None:  # Qt override
+        if info.resourceType() == QWebEngineUrlRequestInfo.ResourceType.ResourceTypeMainFrame:
+            return
+        if self._is_blocked(info.requestUrl().host()):
+            info.block(True)
+            self.blocked += 1
+
+
 class BrowserPane(QWidget):
     """Toolbar plus view. Owns the page; knows nothing about research."""
 
@@ -245,8 +376,20 @@ class BrowserPane(QWidget):
     # to the user, because it decides whether video plays (see ADR-0012).
     backend: BrowserBackend = "embedded"
 
-    def __init__(self, profile: QWebEngineProfile, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        profile: QWebEngineProfile,
+        parent: QWidget | None = None,
+        *,
+        user_scripts: tuple[Path, ...] = (),
+        blocked_hosts: tuple[str, ...] = (),
+    ) -> None:
         super().__init__(parent)
+        # What loaded and what did not, read by `EmbeddedSource.status` so the
+        # Research panel can say so. A userscript that silently failed to load
+        # looks exactly like one that is working.
+        self.loaded_addons: list[str] = []
+        self.addon_errors: list[str] = []
         self._page = BrowserPanePage(profile, self)
         self._view = QWebEngineView(self)
         self._view.setPage(self._page)
@@ -306,6 +449,60 @@ class BrowserPane(QWidget):
         layout.addWidget(self._view, 1)
 
         self._page.urlChanged.connect(self._on_url_changed)
+
+        self._install_user_scripts(user_scripts)
+        self._install_block_list(blocked_hosts)
+
+    # -- extensions, as far as Qt can go --------------------------------------
+
+    def _install_user_scripts(self, paths: tuple[Path, ...]) -> None:
+        """Inject the user's ``.js`` files, honouring their ``@run-at``.
+
+        The nearest thing Qt WebEngine has to an extension: a userscript runs
+        in the page and can do most of what a content script does. What it
+        cannot do is anything needing the ``chrome.*`` APIs — no background
+        worker, no toolbar UI, no declarative blocking (see
+        :class:`HostBlockInterceptor` for that half).
+
+        Main world on purpose: a userscript that cannot see the page's own
+        globals is not a userscript. That is the same trust decision the user
+        makes by choosing the file.
+        """
+        for path in paths:
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                self.addon_errors.append(f"{path.name} could not be read ({exc.strerror}).")
+                logger.warning("browser_pane.user_script_failed", path=str(path))
+                continue
+            script = QWebEngineScript()
+            script.setName(f"strata-user-{path.stem}")
+            script.setSourceCode(source)
+            script.setInjectionPoint(_run_at(source))
+            script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+            script.setRunsOnSubFrames(False)
+            self._page.scripts().insert(script)
+            self.loaded_addons.append(path.name)
+            logger.info("browser_pane.user_script_loaded", name=path.name)
+
+    def _install_block_list(self, hosts: tuple[str, ...]) -> None:
+        """Refuse sub-resource requests to these hosts, for this pane only."""
+        if not hosts:
+            self._interceptor = None
+            return
+        self._interceptor = HostBlockInterceptor(hosts, self)
+        # Set on the *page*, not the profile: the app's own view shares neither
+        # and must never have its requests filtered by a research setting.
+        self._page.setUrlRequestInterceptor(self._interceptor)
+        logger.info("browser_pane.block_list", hosts=len(hosts))
+
+    @property
+    def blocked_host_count(self) -> int:
+        return self._interceptor.host_count if self._interceptor is not None else 0
+
+    @property
+    def blocked_request_count(self) -> int:
+        return self._interceptor.blocked if self._interceptor is not None else 0
 
     # -- driving -------------------------------------------------------------
 
@@ -436,8 +633,12 @@ class EmbeddedSource(QObject):
         # so here is the difference between a pane that looks merely empty and
         # one the user knows to switch away from.
         failure = str(getattr(self._pane, "failure_reason", "") or "")
-        loaded: list[str] = list(getattr(self._pane, "loaded_extensions", []))
-        problems: list[str] = list(getattr(self._pane, "extension_errors", []))
+        # "Add-ons" covers both shapes: real extensions in the Edge pane, and
+        # the userscripts the Qt pane uses in their place. The status line says
+        # what actually loaded either way.
+        loaded: list[str] = list(getattr(self._pane, "loaded_addons", []))
+        problems: list[str] = list(getattr(self._pane, "addon_errors", []))
+        blocked_hosts = int(getattr(self._pane, "blocked_host_count", 0) or 0)
         if failure:
             detail = f"The browser pane could not start its engine. {failure}"
         elif showing:
@@ -445,7 +646,10 @@ class EmbeddedSource(QObject):
         else:
             detail = "The browser pane is closed."
         if loaded:
-            detail += f" Extensions: {', '.join(loaded)}."
+            label = "Extensions" if self.backend == "webview2" else "User scripts"
+            detail += f" {label}: {', '.join(loaded)}."
+        if blocked_hosts:
+            detail += f" Blocking {blocked_hosts} host(s)."
         # An extension the user added and that did not load is the case worth
         # being loud about — silence here reads as "it is working".
         if problems:
@@ -453,7 +657,10 @@ class EmbeddedSource(QObject):
         return BrowserStatus(
             backend=self.backend,
             running=showing and not failure,
-            supports_extensions=bool(loaded),
+            # Only the Edge pane loads real extensions. A userscript is not
+            # one, and claiming otherwise is how a user ends up wondering why
+            # their extension's toolbar button never appeared.
+            supports_extensions=self.backend == "webview2" and bool(loaded),
             mobile_mode=self._pane.is_mobile(),
             profile_path="",
             tab_count=1 if tab.url else 0,

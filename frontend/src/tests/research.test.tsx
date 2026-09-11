@@ -83,14 +83,23 @@ describe("BrowserPanel", () => {
     await userEvent.click(
       screen.getByRole("checkbox", { name: /Deals \(private\)/ }),
     );
+    // Two steps on purpose: the first click opens the options, the second runs.
     await userEvent.click(
-      await screen.findByRole("button", { name: "Analyse & file" }),
+      await screen.findByRole("button", { name: /Analyse & file/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Analysis focus" }),
+      "pricing and limits",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Start analysis" }),
     );
 
     await waitFor(() => {
       const payload = captured.find((entry) => "layer_ids" in entry);
       expect(payload?.["layer_ids"]).toEqual([PUBLIC_LAYER.id]);
       expect(payload?.["note_ids"]).toEqual(["note_capture_1"]);
+      expect(payload?.["focus"]).toBe("pricing and limits");
     });
     // The plan is reviewed in Changes, never applied from this panel.
     await waitFor(() =>
@@ -282,7 +291,33 @@ describe("BrowserPanel", () => {
       await screen.findByText(/Browser research is off/),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Analyse & file" }),
+      screen.queryByRole("button", { name: /Analyse & file/ }),
     ).not.toBeInTheDocument();
+  });
+  it("asks before it analyses, instead of starting on the first click", async () => {
+    // Analysing costs a model call and a review; the click used to start one
+    // with no chance to steer it.
+    installFakeBridge();
+    seedLayers();
+    render(<BrowserPanel />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Analyse & file/ }),
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Analysis focus" }),
+    ).toBeInTheDocument();
+    expect(captured.find((entry) => "layer_ids" in entry)).toBeUndefined();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(
+      screen.queryByRole("textbox", { name: "Analysis focus" }),
+    ).not.toBeInTheDocument();
+    expect(captured.find((entry) => "layer_ids" in entry)).toBeUndefined();
   });
 });

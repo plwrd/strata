@@ -91,8 +91,8 @@ class WebView2Pane(QWidget):
         # an extension folder can be moved or deleted between sessions, and a
         # user who thinks their ad blocker is running when it is not is worse
         # off than one who is told.
-        self.loaded_extensions: list[str] = []
-        self.extension_errors: list[str] = []
+        self.loaded_addons: list[str] = []
+        self.addon_errors: list[str] = []
         self._pending_url = ""
         self._failure = ""
         self._blur_enabled = False
@@ -208,9 +208,7 @@ class WebView2Pane(QWidget):
             return
         profile = self._controller.webview.profile()
         if profile is None:
-            self.extension_errors.append(
-                "This WebView2 runtime is too old to load browser extensions."
-            )
+            self.addon_errors.append("This WebView2 runtime is too old to load browser extensions.")
             logger.warning("webview2.extensions_unsupported")
             return
         self._profile = profile
@@ -222,16 +220,16 @@ class WebView2Pane(QWidget):
             # An unpacked extension is a directory with a manifest. Saying which
             # path is missing is the difference between a fixable message and
             # "extensions do not work".
-            self.extension_errors.append(f"{folder} is not a folder.")
+            self.addon_errors.append(f"{folder} is not a folder.")
             logger.warning("webview2.extension_missing", path=str(folder))
             return
 
         def done(name: str, error: str) -> None:
             if error:
-                self.extension_errors.append(f"{folder.name} did not load ({error}).")
+                self.addon_errors.append(f"{folder.name} did not load ({error}).")
                 logger.warning("webview2.extension_failed", path=str(folder), error=error)
                 return
-            self.loaded_extensions.append(name or folder.name)
+            self.loaded_addons.append(name or folder.name)
             logger.info("webview2.extension_loaded", name=name or folder.name)
 
         profile.add_extension(folder, done)

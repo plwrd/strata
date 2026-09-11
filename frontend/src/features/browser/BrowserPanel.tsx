@@ -65,6 +65,11 @@ export function BrowserPanel(): JSX.Element {
   const [page, setPage] = useState<ScrapedPage | null>(null);
   const [captureNoteId, setCaptureNoteId] = useState("");
   const [reason, setReason] = useState("");
+  // Analyse is deliberately two steps: the first click opens the options, the
+  // second runs. It used to fire on the first click, which gave no chance to
+  // steer a run that then costs a model call and a review.
+  const [analysing, setAnalysing] = useState(false);
+  const [focus, setFocus] = useState("");
   const [mode, setMode] = useState<DigestMode>("full");
   const [instruction, setInstruction] = useState("");
   const [tagsText, setTagsText] = useState("");
@@ -299,9 +304,11 @@ export function BrowserPanel(): JSX.Element {
         note_ids: [noteId],
         layer_ids: scopeIds,
         target_layer_id: fileLayerId,
+        focus: focus.trim(),
         confirmed_remote: false,
       });
       state.handOffPlanRequest(request_id, scopeIds);
+      setAnalysing(false);
       setNotice("Analysing — the proposal will open in Changes for review.");
     });
 
@@ -641,14 +648,51 @@ export function BrowserPanel(): JSX.Element {
         />
       </label>
 
-      <button
-        type="button"
-        className="button button--primary"
-        disabled={working || !canFile}
-        onClick={() => void analyseAndFile()}
-      >
-        {busy === "filing" ? "Analysing…" : "Analyse & file"}
-      </button>
+      {!analysing ? (
+        <button
+          type="button"
+          className="button button--primary"
+          disabled={working || !canFile}
+          onClick={() => setAnalysing(true)}
+        >
+          Analyse &amp; file…
+        </button>
+      ) : (
+        <div className="research__options">
+          <label className="composer__field">
+            <span className="label">Focus (optional)</span>
+            <input
+              className="input"
+              value={focus}
+              placeholder="e.g. pricing and limits, or just the API surface"
+              aria-label="Analysis focus"
+              onChange={(event) => setFocus(event.target.value)}
+            />
+          </label>
+          <p className="research__hint">
+            Steers this run only — it is not saved. Leave it empty to let the
+            model decide what matters.
+          </p>
+          <div className="research__actions">
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={working || !canFile}
+              onClick={() => void analyseAndFile()}
+            >
+              {busy === "filing" ? "Analysing…" : "Start analysis"}
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={working}
+              onClick={() => setAnalysing(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <p className="research__hint">
         Finds the nodes this page belongs to in the ticked layers, then proposes
         subnodes and added context. Nothing is written until you approve it in

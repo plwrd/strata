@@ -133,6 +133,7 @@ class ResearchService:
         provider_id: str,
         model: str,
         target_layer_id: str = "",
+        focus: str = "",
         confirmed_remote: bool = False,
     ) -> ResearchProposal:
         if not note_ids:
@@ -154,9 +155,18 @@ class ResearchService:
         if not plan.sources:
             raise InvalidRequestError("None of the selected captures are readable.")
         blocks = "\n\n".join(self._exports.render_source_block(source) for source in plan.sources)
+        # The user's steer goes *after* the instructions, where a later line
+        # carries more weight, and is labelled as theirs so the model treats it
+        # as direction rather than as more material to file. Trimmed and capped
+        # by the bridge before it ever reaches here.
+        steer = (
+            f"\n\nThe person filing this asked you to focus on: {focus.strip()}"
+            if focus.strip()
+            else ""
+        )
         context = (
             f"{self._render_candidates(candidates)}\n\n"
-            f"Research material to file:\n\n{blocks}\n\n{RESEARCH_INSTRUCTIONS}"
+            f"Research material to file:\n\n{blocks}\n\n{RESEARCH_INSTRUCTIONS}{steer}"
         )
         execution_id = new_execution_id()
 

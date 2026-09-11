@@ -97,3 +97,39 @@ def test_the_selector_is_embedded_as_a_json_string() -> None:
     source = blur_source(True, 16)
     # The selector is a JSON string literal, not spliced in raw.
     assert "\"img,video,canvas,picture,iframe,[style*='background-image']\"" in source
+
+
+def test_media_is_blurred_before_it_is_painted() -> None:
+    """A rule adopted at document-creation, not a filter applied afterwards.
+
+    The inline pass can only run once an element exists, which leaves a frame
+    where a photo is sharp — and a lazily-loaded one is sharp until the
+    observer next runs. A constructed stylesheet is in force before the parser
+    produces anything, so the first paint is already blurred. CSSOM rather than
+    an injected <style> for the same reason as the inline pass: a strict
+    style-src CSP blocks the element, not this.
+    """
+    source = blur_source(True, 16)
+    assert "new CSSStyleSheet()" in source
+    assert "adoptedStyleSheets" in source
+    assert "replaceSync" in source
+
+
+def test_the_observer_attaches_to_the_document_itself() -> None:
+    """Regression: the blur used to appear only once the user scrolled.
+
+    The observer targeted ``document.documentElement``, which is null at
+    document-creation — so it never attached, and the throttled scroll handler
+    was left as the only thing that ever swept. ``document`` exists from the
+    first instruction and its subtree covers everything the parser builds.
+    """
+    source = blur_source(True, 16)
+    assert "obs.observe(document," in source
+    assert "document.documentElement ||" not in source
+
+
+def test_turning_blur_off_empties_the_rule() -> None:
+    """A stale rule left in an adopted sheet would blur a pane that is off."""
+    source = blur_source(False, 16)
+    assert "const ON = false" in source
+    assert "sheet.replaceSync(ON ?" in source

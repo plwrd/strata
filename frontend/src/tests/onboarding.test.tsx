@@ -43,6 +43,8 @@ function seedSettings(completed: boolean): void {
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
       browser_extensions: [] as string[],
+      browser_user_scripts: [] as string[],
+      browser_blocked_hosts: [] as string[],
       browser_executable_path: "",
       browser_profile_path: "",
       browser_debug_port: 9333,

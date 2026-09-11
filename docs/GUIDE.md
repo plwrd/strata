@@ -262,9 +262,11 @@ those videos stay blank (WebM/VP9 and AV1 do play). This is a property of the
 engine, not a bug: there is no flag that adds a codec that was never compiled
 in. Images, text and scraping are unaffected.
 
-It also cannot load Chrome extensions. That is not a setting we forgot: Qt
-ships Chromium without the extensions subsystem, so there is nothing to switch
-on. A few sign-in pages also refuse embedded browsers outright.
+It also cannot load Chrome extensions. That is not a setting we forgot and not
+something a rebuild would fix: Qt ships Chromium with the extensions subsystem
+compiled out, so there is nothing to switch on. It does have two stand-ins that
+cover most of what people install extensions *for* — see **User scripts and
+blocking** below. A few sign-in pages also refuse embedded browsers outright.
 
 Settings → Browser research → **Browser** offers two answers, and they are not
 equivalent where privacy is concerned.
@@ -319,6 +321,33 @@ it, and adding each one is a deliberate act.
 
 Extensions load when the engine's browser process starts, so a change here
 takes effect the next time you start Strata.
+
+### User scripts and blocking (built-in pane)
+
+The built-in pane cannot run extensions, so it has the two pieces of one that
+Qt can actually do. Both live in Settings → Browser research, and both apply to
+the pane only — never to your own Chrome, and never to Strata's own window.
+
+**User scripts** are `.js` files injected into every page, the same shape
+Greasemonkey and Tampermonkey scripts are written in. *Add a user script…* takes
+a file. Strata honours `// @run-at document-start` from the metadata block for
+the scripts that need to patch the page before its own code runs; without it a
+script runs once the DOM is there, which is what almost every script expects.
+A script that has moved or cannot be read is named in the Research panel rather
+than skipped quietly. What a user script cannot do is anything needing the
+`chrome.*` APIs — no background worker, no toolbar button, no options page.
+
+**Blocked hosts** is one hostname per line. The pane refuses requests to those
+hosts and their subdomains, so an ad or tracker never loads, never runs and
+never sets a cookie. That is the load-bearing half of an ad blocker, and the
+half that does not need extensions at all. It is not a filter list: there are
+no cosmetic rules and no path patterns, so it will not hide an empty ad slot,
+only stop the ad. Pages you navigate to yourself are never blocked — only what
+they load — because a blank pane with no explanation reads as a broken browser.
+
+Both take effect when the pane is built, so a change applies the next time you
+start Strata. And both run code or rules you chose: a user script sees
+everything on every page the pane opens, exactly as an extension would.
 
 ### Blurring media on a shared screen
 

@@ -616,6 +616,8 @@ export const bridge = {
     // CancelledError when the user closes the dialog, which callers ignore.
     chooseExtension: () =>
       call<{ settings: AppSettings }>("settings", "choose_browser_extension"),
+    chooseUserScript: () =>
+      call<{ settings: AppSettings }>("settings", "choose_user_script"),
   },
 
   operations: {
@@ -642,6 +644,8 @@ export const bridge = {
       note_ids: string[];
       layer_ids: string[];
       target_layer_id?: string;
+      // A steer for this run only, not a stored setting.
+      focus?: string;
       confirmed_remote?: boolean;
     }) => call<{ request_id: string }>("operations", "file_research", request),
     synthesizeNotes: (request: {

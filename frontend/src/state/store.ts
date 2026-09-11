@@ -207,6 +207,7 @@ export interface StrataState {
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
   chooseBrowserExtension: () => Promise<void>;
+  chooseUserScript: () => Promise<void>;
 
   reloadGraph: () => Promise<void>;
   reloadTree: () => Promise<void>;
@@ -562,6 +563,16 @@ export const useStore = create<StrataState>((set, get) => ({
     const settings = (await bridge.settings.update(values)).settings;
     set({ settings });
     applyDocumentSettings(settings);
+  },
+
+  async chooseUserScript() {
+    try {
+      const settings = (await bridge.settings.chooseUserScript()).settings;
+      set({ settings });
+      applyDocumentSettings(settings);
+    } catch {
+      return;
+    }
   },
 
   async chooseBrowserExtension() {
