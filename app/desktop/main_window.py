@@ -30,9 +30,11 @@ from app.bootstrap import resource_root
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
 from app.desktop.screen_security import (
     CaptureGuard,
+    CaptureState,
     set_own_windows_excluded_from_capture,
     set_window_excluded_from_capture,
     set_windows_excluded_from_capture,
+    weakest,
 )
 from app.desktop.taskbar import set_window_in_taskbar
 from app.desktop.tray import TrayController, should_hide_to_tray
@@ -83,6 +85,13 @@ class MainWindow(QMainWindow):
         self._capture_guard = CaptureGuard()
         self._capture_guard.set_enabled(self._hide_for_sharing)
         self._capture_guard.watch(os.getpid())
+        # What the OS last granted, as opposed to what the user asked for. The
+        # settings bridge reports this so the dialog can say "hidden" only when
+        # the window actually is — a privacy control that overstates itself is
+        # worse than one that is missing, because the user acts on it.
+        self._capture_state: CaptureState = (
+            CaptureState.OFF if not self._hide_for_sharing else CaptureState.UNSUPPORTED
+        )
         # Set true only when the user chooses Quit; a plain close hides to tray
         # instead when the tray is on, and must never tear the workspace down.
         self._quitting = False
@@ -372,6 +381,10 @@ class MainWindow(QMainWindow):
                 windows.append(window)
         return windows
 
+    def capture_state(self) -> CaptureState:
+        """What screen-capture protection this window actually has right now."""
+        return self._capture_state
+
     def _reapply_hide_for_sharing(self) -> None:
         """Re-assert affinity across every window after an HWND / state change.
 
@@ -379,20 +392,53 @@ class MainWindow(QMainWindow):
         or a newly shown dialog can each leave a surface uncovered, so every
         current top-level window is re-excluded.
         """
-        set_windows_excluded_from_capture(self._top_level_windows(), enabled=self._hide_for_sharing)
+        state = set_windows_excluded_from_capture(
+            self._top_level_windows(), enabled=self._hide_for_sharing
+        )
+        self._set_capture_state(CaptureState.OFF if not self._hide_for_sharing else state)
         self._sweep_own_windows()
+
+    def _set_capture_state(self, state: CaptureState) -> None:
+        """Record the state, logging only when it actually changes.
+
+        The affinity is re-asserted on every activation change and on a 1.5 s
+        heartbeat; logging each assertion buried the one line that matters —
+        the moment protection was lost — under thousands that said it was fine.
+        """
+        if state is self._capture_state:
+            return
+        self._capture_state = state
+        if state in (CaptureState.FAILED, CaptureState.UNSUPPORTED):
+            logger.warning("window.capture_protection_lost", state=state.value)
+        else:
+            logger.info("window.capture_protection", state=state.value)
 
     def _watch_engine_process(self) -> None:
         """Hook the research engine's process once it has one.
 
-        WebView2 renders in a browser process of its own, and its menus and
-        dropdowns are that process's windows — the hook on ours cannot see
-        them. The PID is not known until the engine is up, so this is checked
-        as part of the sweep rather than at construction.
+        WebView2 renders in a browser process of its own, and the Chrome backend
+        is a whole separate browser; in both cases the menus and dropdowns are
+        that process's windows, which the hook on ours cannot see. Asking the
+        browser service rather than the pane means the Chrome backend gets the
+        same instant coverage the embedded engines get — before, it had only
+        the 1.5 s sweep, so a menu opened and dismissed between ticks was never
+        covered at all.
+
+        The pid is not known until the engine is up, so this is checked as part
+        of the sweep rather than at construction.
         """
-        pid = getattr(self._browser_pane, "browser_process_id", 0)
-        if isinstance(pid, int) and pid > 0:
+        pid = self._services.browser.engine_process_id
+        if pid > 0:
             self._capture_guard.watch(pid)
+
+    def _prune_dead_engines(self) -> None:
+        """Unhook engine processes that have exited.
+
+        Process ids are reused. A hook left on a dead WebView2 or Chrome would
+        eventually fire for whatever inherits the number, and Strata would then
+        be setting a capture affinity on another application's windows.
+        """
+        self._capture_guard.drop_dead_processes(keep=os.getpid())
 
     def _sweep_own_windows(self) -> None:
         """Exclude every window this process owns, whatever created it.
@@ -404,6 +450,7 @@ class MainWindow(QMainWindow):
         is, only that it is ours.
         """
         self._capture_guard.set_enabled(self._hide_for_sharing)
+        self._prune_dead_engines()
         self._watch_engine_process()
         set_own_windows_excluded_from_capture(enabled=self._hide_for_sharing)
         # The research engine may render in a process of its own — WebView2's
@@ -428,10 +475,19 @@ class MainWindow(QMainWindow):
             # some of its popups — where the QWidget branch below never fires.
             created = QPlatformSurfaceEvent.SurfaceEventType.SurfaceCreated
             if isinstance(event, QPlatformSurfaceEvent) and event.surfaceEventType() == created:
-                set_window_excluded_from_capture(obj, enabled=True)
+                self._note_capture_state(set_window_excluded_from_capture(obj, enabled=True))
         elif kind == QEvent.Type.Show and isinstance(obj, QWidget) and obj.isWindow():
-            set_window_excluded_from_capture(obj, enabled=True)
+            self._note_capture_state(set_window_excluded_from_capture(obj, enabled=True))
         return super().eventFilter(obj, event)
+
+    def _note_capture_state(self, state: CaptureState) -> None:
+        """Fold one window's result into the reported state.
+
+        A new surface that could not be covered downgrades the answer: the
+        status has to describe the weakest window on screen, not the last one
+        that happened to succeed.
+        """
+        self._set_capture_state(weakest([self._capture_state, state]))
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

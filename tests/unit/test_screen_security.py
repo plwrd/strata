@@ -16,6 +16,7 @@ from app.desktop.screen_security import (
     WDA_EXCLUDEFROMCAPTURE,
     WDA_MONITOR,
     WDA_NONE,
+    CaptureState,
     set_window_excluded_from_capture,
 )
 from app.services.settings_service import AppSettings
@@ -25,10 +26,20 @@ def test_hide_for_sharing_defaults_on() -> None:
     assert AppSettings().hide_for_sharing is True
 
 
-def test_unsupported_platform_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unsupported_platform_says_so_rather_than_claiming_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This used to return True — the value the UI reads to say "hidden".
+
+    A macOS or Linux user was shown a window that was in every recording,
+    over a tick that said it was not.
+    """
     monkeypatch.setattr(screen_security.sys, "platform", "linux")
     window = SimpleNamespace(winId=lambda: 1)
-    assert set_window_excluded_from_capture(window, enabled=True) is True
+
+    assert set_window_excluded_from_capture(window, enabled=True) is CaptureState.UNSUPPORTED
+    # Asking to *stop* hiding, on a platform that never hid anything, is honest.
+    assert set_window_excluded_from_capture(window, enabled=False) is CaptureState.OFF
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
@@ -42,7 +53,7 @@ def test_windows_sets_exclude_from_capture(monkeypatch: pytest.MonkeyPatch) -> N
     import ctypes
 
     monkeypatch.setattr(ctypes, "windll", fake_windll)
-    assert set_window_excluded_from_capture(window, enabled=True) is True
+    assert set_window_excluded_from_capture(window, enabled=True) is CaptureState.EXCLUDED
 
     fake_user32.GetAncestor.assert_called_once()
     assert fake_user32.GetAncestor.call_args[0][0] == 0x1234
@@ -67,7 +78,9 @@ def test_windows_falls_back_to_monitor_when_exclude_fails(
     import ctypes
 
     monkeypatch.setattr(ctypes, "windll", fake_windll)
-    assert set_window_excluded_from_capture(window, enabled=True) is True
+    # The blackout fallback is protection, but it is not the same protection,
+    # and the status says which one the user actually has.
+    assert set_window_excluded_from_capture(window, enabled=True) is CaptureState.BLACKED_OUT
 
     assert fake_user32.SetWindowDisplayAffinity.call_count == 2
     assert fake_user32.SetWindowDisplayAffinity.call_args_list[0][0][1] == WDA_EXCLUDEFROMCAPTURE
@@ -85,7 +98,7 @@ def test_windows_clears_affinity_when_disabled(monkeypatch: pytest.MonkeyPatch) 
     import ctypes
 
     monkeypatch.setattr(ctypes, "windll", fake_windll)
-    assert set_window_excluded_from_capture(window, enabled=False) is True
+    assert set_window_excluded_from_capture(window, enabled=False) is CaptureState.OFF
     assert fake_user32.SetWindowDisplayAffinity.call_args[0][1] == WDA_NONE
 
 
@@ -102,7 +115,7 @@ def test_windows_uses_raw_hwnd_when_get_ancestor_returns_null(
     import ctypes
 
     monkeypatch.setattr(ctypes, "windll", fake_windll)
-    assert set_window_excluded_from_capture(window, enabled=True) is True
+    assert set_window_excluded_from_capture(window, enabled=True) is CaptureState.EXCLUDED
     assert fake_user32.SetWindowDisplayAffinity.call_args[0][0] == 0x55
 
 
@@ -112,16 +125,38 @@ def test_exclusion_covers_every_window(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.desktop.screen_security import set_windows_excluded_from_capture
 
     calls: list[tuple[int, bool]] = []
+
+    def _record(window: Any, *, enabled: bool) -> CaptureState:
+        calls.append((window.winId(), enabled))
+        return CaptureState.EXCLUDED
+
+    monkeypatch.setattr(screen_security, "set_window_excluded_from_capture", _record)
+    windows = [SimpleNamespace(winId=lambda i=i: i) for i in range(3)]
+
+    assert set_windows_excluded_from_capture(windows, enabled=True) is CaptureState.EXCLUDED
+
+    assert calls == [(0, True), (1, True), (2, True)]
+
+
+def test_one_uncovered_window_decides_the_reported_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The aggregate is the weakest window, not the most common one.
+
+    Three excluded surfaces and one that refused is not "excluded" — the one
+    that refused is the one in the recording.
+    """
+    from app.desktop.screen_security import set_windows_excluded_from_capture
+
+    results = iter([CaptureState.EXCLUDED, CaptureState.FAILED, CaptureState.EXCLUDED])
     monkeypatch.setattr(
         screen_security,
         "set_window_excluded_from_capture",
-        lambda window, *, enabled: calls.append((window.winId(), enabled)) or True,
+        lambda _window, *, enabled: next(results),
     )
     windows = [SimpleNamespace(winId=lambda i=i: i) for i in range(3)]
 
-    set_windows_excluded_from_capture(windows, enabled=True)
-
-    assert calls == [(0, True), (1, True), (2, True)]
+    assert set_windows_excluded_from_capture(windows, enabled=True) is CaptureState.FAILED
 
 
 def test_process_exclusion_is_noop_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,7 +211,7 @@ def test_process_sweep_skips_other_processes(monkeypatch: pytest.MonkeyPatch) ->
 
     assert set_process_windows_excluded_from_capture(42, enabled=True) == 1
     hwnd, affinity = user32.SetWindowDisplayAffinity.call_args[0]
-    assert int(hwnd.value) == 0x10
+    assert hwnd == 0x10
     assert affinity == WDA_EXCLUDEFROMCAPTURE
 
 
@@ -334,5 +369,119 @@ def test_a_hooked_window_is_excluded_at_its_root(monkeypatch: pytest.MonkeyPatch
 
     assert _apply_affinity_to_hwnd(0x123, enabled=True) is True
     hwnd, affinity = fake_user32.SetWindowDisplayAffinity.call_args[0]
-    assert int(hwnd.value) == 0xF00
+    assert hwnd == 0xF00
     assert affinity == WDA_EXCLUDEFROMCAPTURE
+
+
+# -- the Win32 prototypes ------------------------------------------------------
+#
+# `ctypes` assumes a C `int` for anything it has not been told about. On a
+# 64-bit build that silently truncates an HWND, and the affinity then lands on
+# a window that does not exist — the feature reports success and protects
+# nothing. These pin the declarations rather than the behaviour they prevent,
+# because the behaviour they prevent is unobservable until it is too late.
+
+
+@windows_only
+def test_every_prototype_this_module_uses_is_declared() -> None:
+    from ctypes import wintypes
+
+    from app.desktop.screen_security import _user32
+
+    user32 = _user32()
+
+    # The return type that matters most: a truncated ancestor is a different
+    # window, and GetAncestor defaults to a 32-bit signed int.
+    assert user32.GetAncestor.restype is wintypes.HWND
+    assert user32.GetAncestor.argtypes[0] is wintypes.HWND
+    assert user32.SetWindowDisplayAffinity.argtypes[0] is wintypes.HWND
+    assert user32.IsWindowVisible.argtypes[0] is wintypes.HWND
+    assert user32.GetWindowThreadProcessId.argtypes[0] is wintypes.HWND
+    assert user32.SetWinEventHook.restype is wintypes.HANDLE
+
+
+@windows_only
+def test_a_64_bit_window_handle_does_not_raise() -> None:
+    """An HWND above 2^32 is an ``ArgumentError`` against an undeclared prototype.
+
+    These are the calls the per-process sweep makes for every window on the
+    desktop, and it makes them from inside an ``EnumWindows`` callback — where
+    an exception ends the enumeration and silently skips every window after it.
+    """
+    from ctypes import byref, wintypes
+
+    from app.desktop.screen_security import _apply_affinity_to_hwnd, _user32
+
+    user32 = _user32()
+    big = 0x0000_0007_DEAD_BEEF  # not a real window; the point is the argument
+
+    user32.IsWindowVisible(big)
+    owner = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(big, byref(owner))
+    # And the whole path: a bogus handle must fail as a *result*, not an
+    # exception.
+    assert _apply_affinity_to_hwnd(big, enabled=True) is False
+
+
+@windows_only
+def test_the_sweep_finishes_even_when_one_window_misbehaves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising callback aborts EnumWindows, silently skipping the rest."""
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    user32 = _fake_enum(monkeypatch, {0x10: (42, True), 0x20: (42, True), 0x30: (42, True)})
+
+    def _sometimes_explodes(hwnd: object) -> bool:
+        if int(cast(int, hwnd)) == 0x20:
+            raise OSError("this window is having a bad day")
+        return True
+
+    user32.IsWindowVisible.side_effect = _sometimes_explodes
+
+    # The two healthy windows are still covered — the bad one does not take
+    # the windows enumerated after it down with it.
+    assert set_process_windows_excluded_from_capture(42, enabled=True) == 2
+
+
+# -- hooks on processes that have gone -----------------------------------------
+
+
+@windows_only
+def test_a_hook_is_dropped_when_its_process_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows reuses process ids.
+
+    A hook left on a dead engine would eventually fire for whatever inherits
+    the number, and Strata would set a capture affinity on another
+    application's windows.
+    """
+    from app.desktop.screen_security import CaptureGuard
+
+    fake_user32 = MagicMock()
+    fake_user32.SetWinEventHook.return_value = 0xABC
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+    guard = CaptureGuard()
+    guard.watch(42)  # us
+    guard.watch(99)  # an engine process that is about to exit
+
+    monkeypatch.setattr(screen_security, "process_is_running", lambda pid: pid != 99)
+    assert guard.drop_dead_processes(keep=42) == 1
+
+    assert guard.watched_pids == (42,)
+    fake_user32.UnhookWinEvent.assert_called_once()
+
+
+@windows_only
+def test_our_own_process_is_never_probed_away(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import CaptureGuard
+
+    fake_user32 = MagicMock()
+    fake_user32.SetWinEventHook.return_value = 0xABC
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
+    guard = CaptureGuard()
+    guard.watch(42)
+
+    monkeypatch.setattr(screen_security, "process_is_running", lambda _pid: False)
+
+    assert guard.drop_dead_processes(keep=42) == 0
+    assert guard.watched_pids == (42,)

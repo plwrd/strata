@@ -7,14 +7,33 @@ Windows Recall, etc.). If that fails (older builds), fall back to
 ``WDA_MONITOR`` which blacks the window out in captures — still
 privacy-preserving.
 
-Other platforms: best-effort or no-op. Capture exclusion is OS-enforced; the UI
-only toggles the request.
+Other platforms: no-op, and *reported* as one. Capture exclusion is OS-enforced;
+the UI only asks for it.
+
+Two rules govern everything in this module, and both were learned the hard way:
+
+**Every ``ctypes`` prototype is declared before use.** ``ctypes`` assumes a C
+``int`` for anything it has not been told about, so an unconfigured
+``GetAncestor`` returns a *32-bit* value — a top-level ``HWND`` above 2^31 comes
+back sign-extended, and the affinity is then set on a window that does not
+exist. The same default turns an ``HWND`` argument above 2^32 into an
+``ArgumentError`` raised *inside* an ``EnumWindows`` callback, which ends the
+enumeration early and silently leaves every remaining window unprotected.
+Declaring the prototypes in one place (:func:`_user32`) is what makes the
+result independent of which function happened to run first.
+
+**Nothing here reports a success it did not get.** A window that could not be
+excluded is not counted, an unsupported platform says ``UNSUPPORTED`` rather
+than ``True``, and the aggregate of several windows is the *weakest* of them.
+A screen-privacy control that overstates itself is worse than one that is
+absent: the user acts on it.
 """
 
 from __future__ import annotations
 
 import sys
 from collections.abc import Iterable
+from enum import Enum
 from typing import Any, Protocol, cast
 
 from app.infrastructure.logging.logger import get_logger
@@ -26,6 +45,36 @@ WDA_NONE = 0x00000000
 WDA_MONITOR = 0x00000001
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
 GA_ROOT = 2
+
+
+class CaptureState(str, Enum):
+    """What the OS actually granted — not what the user asked for.
+
+    The distinction is the whole point. ``hide_for_sharing`` is a *request*;
+    this is the answer, and the UI must render the answer.
+    """
+
+    EXCLUDED = "excluded"  # WDA_EXCLUDEFROMCAPTURE: invisible to capture
+    BLACKED_OUT = "blacked-out"  # WDA_MONITOR fallback: a black rectangle
+    OFF = "off"  # not hiding, by the user's choice
+    FAILED = "failed"  # asked to hide; the OS refused
+    UNSUPPORTED = "unsupported"  # this platform has no such control
+
+
+# Worst first. `_weakest` reports the lowest rank present, so one uncovered
+# window cannot be averaged away by several covered ones.
+_RANK: dict[CaptureState, int] = {
+    CaptureState.FAILED: 0,
+    CaptureState.UNSUPPORTED: 1,
+    CaptureState.BLACKED_OUT: 2,
+    CaptureState.EXCLUDED: 3,
+    CaptureState.OFF: 4,
+}
+
+
+def weakest(states: Iterable[CaptureState]) -> CaptureState:
+    """The least-protected state in ``states`` (``OFF`` when there are none)."""
+    return min(states, key=lambda state: _RANK[state], default=CaptureState.OFF)
 
 
 class _HasWinId(Protocol):
@@ -41,36 +90,74 @@ def _is_windows() -> bool:
     return sys.platform == "win32"
 
 
-def set_window_excluded_from_capture(window: _HasWinId, *, enabled: bool) -> bool:
+def _user32() -> Any:
+    """``user32`` with every prototype this module uses declared.
+
+    Fetched (and re-declared) per call rather than cached at import: the
+    declarations are a handful of attribute writes, and binding them here means
+    no function in this module depends on another having run first to make its
+    own call 64-bit-correct. See the module docstring for what that costs when
+    it is not done.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    try:
+        user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        # HWND, not the default c_int: a truncated ancestor is a different
+        # window, and setting an affinity on it protects nothing.
+        user32.GetAncestor.restype = wintypes.HWND
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.SetWinEventHook.restype = wintypes.HANDLE
+        user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
+        user32.UnhookWinEvent.restype = wintypes.BOOL
+    except (AttributeError, TypeError):  # pragma: no cover - a stand-in library in tests
+        pass
+    return user32
+
+
+def set_window_excluded_from_capture(window: _HasWinId, *, enabled: bool) -> CaptureState:
     """Ask the OS to hide ``window`` from screen capture when ``enabled``.
 
-    Returns True when the platform call succeeded (or was a deliberate no-op on
-    an unsupported OS). Returns False when the call was attempted and failed.
+    Returns what the OS granted. ``UNSUPPORTED`` on a platform with no such
+    control is deliberately **not** a success: this used to return True there,
+    which meant a macOS or Linux user saw "Hidden for sharing ✓" over a window
+    that was in every recording.
     """
     if _is_windows():
         return _windows_set_display_affinity(window, enabled=enabled)
-    # macOS has NSWindow.sharingType = .none; Qt's winId is an NSView and the
-    # Cocoa bridge is fragile without PyObjC. Leave a clear log rather than a
-    # half-working path — Windows (Signal's primary desktop capture block) is
-    # fully supported.
-    logger.info(
+    logger.debug(
         "screen_security.unsupported_platform",
         platform=sys.platform,
         enabled=enabled,
     )
-    return True
+    # macOS has NSWindow.sharingType = .none; Qt's winId is an NSView and the
+    # Cocoa bridge is fragile without PyObjC. Leave a clear log and an honest
+    # status rather than a half-working path — Windows (Signal's primary
+    # desktop capture block) is fully supported.
+    return CaptureState.UNSUPPORTED if enabled else CaptureState.OFF
 
 
-def set_windows_excluded_from_capture(windows: Iterable[_HasWinId], *, enabled: bool) -> None:
-    """Apply capture exclusion to several windows.
+def set_windows_excluded_from_capture(
+    windows: Iterable[_HasWinId], *, enabled: bool
+) -> CaptureState:
+    """Apply capture exclusion to several windows; report the weakest result.
 
     The affinity is per top-level window, so a popup, menu, native ``<select>``
     dropdown, tooltip or dialog — each its own OS window — is *not* covered by
     the main window's exclusion and leaks into a recording unless excluded in its
     own right. Callers pass every current top-level window here.
     """
-    for window in windows:
-        set_window_excluded_from_capture(window, enabled=enabled)
+    return weakest(
+        [set_window_excluded_from_capture(window, enabled=enabled) for window in windows]
+    )
 
 
 def set_process_windows_excluded_from_capture(
@@ -109,20 +196,51 @@ def set_own_windows_excluded_from_capture(*, enabled: bool) -> int:
     """
     if not _is_windows():
         return 0
-    import ctypes
-
     return set_process_windows_excluded_from_capture(
-        int(ctypes.windll.kernel32.GetCurrentProcessId()),
+        current_process_id(),
         enabled=enabled,
         include_hidden=True,
     )
+
+
+def current_process_id() -> int:
+    import ctypes
+
+    return int(ctypes.windll.kernel32.GetCurrentProcessId())
+
+
+def process_is_running(pid: int) -> bool:
+    """Whether ``pid`` still names a live process.
+
+    Used to drop a hook on a process that has exited. Windows reuses process
+    ids, and a hook left on a dead one would eventually fire for whatever
+    inherits the number — at which point Strata would be setting a
+    capture affinity on *another application's* windows.
+    """
+    if not _is_windows() or pid <= 0:
+        return False
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    # PROCESS_QUERY_LIMITED_INFORMATION: enough to ask whether it is alive,
+    # and grantable for a process we did not create.
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _windows_exclude_by_pid(pid: int, *, enabled: bool, include_hidden: bool) -> int:
     import ctypes
     from ctypes import wintypes
 
-    user32 = ctypes.windll.user32
+    user32 = _user32()
     affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
     touched = 0
 
@@ -131,34 +249,35 @@ def _windows_exclude_by_pid(pid: int, *, enabled: bool, include_hidden: bool) ->
 
     def _each(hwnd: int, _lparam: int) -> bool:
         nonlocal touched
-        if not include_hidden and not user32.IsWindowVisible(hwnd):
-            return True
-        owner = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid:
-            if user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), affinity):
+        # Nothing in here may raise. An exception out of a ctypes callback
+        # aborts the enumeration, so one odd window would leave every window
+        # after it unprotected — and the sweep would still look like it ran.
+        try:
+            if not include_hidden and not user32.IsWindowVisible(hwnd):
+                return True
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value != pid:
+                return True
+            if user32.SetWindowDisplayAffinity(hwnd, affinity):
                 touched += 1
             # Try the blackout fallback, same as the single-window path. Only
             # count a window we actually covered — a silent miss is the one
             # thing this feature must not report as a success.
-            elif enabled and user32.SetWindowDisplayAffinity(wintypes.HWND(hwnd), WDA_MONITOR):
+            elif enabled and user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR):
                 touched += 1
+        except Exception:  # pragma: no cover - defensive; see above
+            logger.warning("screen_security.sweep_window_failed")
         return True
 
     user32.EnumWindows(enum_proc(_each), 0)
-    logger.info("screen_security.process_windows", pid=pid, enabled=enabled, windows=touched)
     return touched
 
 
-def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> bool:
+def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> CaptureState:
     import ctypes
-    from ctypes import wintypes
 
-    user32 = ctypes.windll.user32
-    user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
-    user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
-    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
-    user32.GetAncestor.restype = wintypes.HWND
+    user32 = _user32()
 
     # winId() is a sip.voidptr on Qt; the Protocol types it as `object`
     # because this module must not import Qt just to name it.
@@ -166,50 +285,48 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> bool:
     hwnd = int(user32.GetAncestor(raw, GA_ROOT) or 0) or raw
 
     if not enabled:
-        ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_NONE))
-        if not ok:
-            err = ctypes.GetLastError()
-            logger.warning(
-                "screen_security.windows_affinity_failed",
-                enabled=False,
-                affinity=WDA_NONE,
-                win_error=err,
-            )
-            return False
-        logger.info("screen_security.windows_affinity", enabled=False, affinity=WDA_NONE)
-        return True
+        if user32.SetWindowDisplayAffinity(hwnd, WDA_NONE):
+            logger.debug("screen_security.windows_affinity", enabled=False, affinity=WDA_NONE)
+            return CaptureState.OFF
+        logger.warning(
+            "screen_security.windows_affinity_failed",
+            enabled=False,
+            affinity=WDA_NONE,
+            win_error=ctypes.GetLastError(),
+        )
+        return CaptureState.FAILED
 
-    ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE))
-    if ok:
-        logger.info(
+    if user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+        # Debug, not info: this is re-asserted across every window on every
+        # activation change, and a heartbeat in the log buries the failures
+        # that matter. The *transitions* are logged once, by the window.
+        logger.debug(
             "screen_security.windows_affinity",
             enabled=True,
             affinity=WDA_EXCLUDEFROMCAPTURE,
         )
-        return True
+        return CaptureState.EXCLUDED
 
-    exclude_err = ctypes.GetLastError()
     logger.warning(
         "screen_security.windows_exclude_failed_trying_monitor",
-        win_error=exclude_err,
+        win_error=ctypes.GetLastError(),
     )
-    ok = bool(user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR))
-    if not ok:
-        err = ctypes.GetLastError()
-        logger.warning(
-            "screen_security.windows_affinity_failed",
+    if user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR):
+        logger.debug(
+            "screen_security.windows_affinity",
             enabled=True,
             affinity=WDA_MONITOR,
-            win_error=err,
+            fallback=True,
         )
-        return False
-    logger.info(
-        "screen_security.windows_affinity",
+        return CaptureState.BLACKED_OUT
+
+    logger.warning(
+        "screen_security.windows_affinity_failed",
         enabled=True,
         affinity=WDA_MONITOR,
-        fallback=True,
+        win_error=ctypes.GetLastError(),
     )
-    return True
+    return CaptureState.FAILED
 
 
 # --- catching a window the moment it appears ---------------------------------
@@ -268,13 +385,9 @@ class CaptureGuard:
         """Start catching new windows in ``pid``. Idempotent per process."""
         if not _is_windows() or pid <= 0 or pid in self._hooks:
             return False
-        import ctypes
-        from ctypes import wintypes
-
-        user32 = ctypes.windll.user32
+        user32 = _user32()
         if self._proc is None:
             self._proc = self._make_callback()
-        user32.SetWinEventHook.restype = wintypes.HANDLE
         hook = user32.SetWinEventHook(
             EVENT_OBJECT_CREATE,
             EVENT_OBJECT_SHOW,
@@ -291,14 +404,30 @@ class CaptureGuard:
         logger.info("screen_security.hook_installed", pid=pid)
         return True
 
+    def drop_dead_processes(self, *, keep: int) -> int:
+        """Unhook every watched process that has exited. Returns how many.
+
+        ``keep`` is this process, which is always alive and must never be
+        probed away. The rest are engine processes that come and go — and a
+        hook outliving one is not merely useless: process ids are reused, so it
+        would eventually fire for an unrelated application and Strata would set
+        a capture affinity on windows that are not its own.
+        """
+        dropped = 0
+        for pid in [p for p in self._hooks if p != keep]:
+            if not process_is_running(pid):
+                self.forget(pid)
+                dropped += 1
+        if dropped:
+            logger.info("screen_security.hooks_dropped", count=dropped)
+        return dropped
+
     def forget(self, pid: int) -> None:
         """Drop the hook for a process that has gone."""
         hook = self._hooks.pop(pid, None)
         if hook is None or not _is_windows():
             return
-        import ctypes
-
-        ctypes.windll.user32.UnhookWinEvent(hook)
+        _user32().UnhookWinEvent(hook)
 
     def dispose(self) -> None:
         for pid in list(self._hooks):
@@ -341,14 +470,11 @@ class CaptureGuard:
 
 def _apply_affinity_to_hwnd(hwnd: int, *, enabled: bool) -> bool:
     """Set the affinity on ``hwnd``'s top-level window."""
-    import ctypes
-    from ctypes import wintypes
-
-    user32 = ctypes.windll.user32
-    root = int(user32.GetAncestor(wintypes.HWND(hwnd), GA_ROOT) or 0) or hwnd
+    user32 = _user32()
+    root = int(user32.GetAncestor(hwnd, GA_ROOT) or 0) or hwnd
     affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
-    if user32.SetWindowDisplayAffinity(wintypes.HWND(root), affinity):
+    if user32.SetWindowDisplayAffinity(root, affinity):
         return True
     if not enabled:
         return False
-    return bool(user32.SetWindowDisplayAffinity(wintypes.HWND(root), WDA_MONITOR))
+    return bool(user32.SetWindowDisplayAffinity(root, WDA_MONITOR))

@@ -161,6 +161,59 @@ describe("SettingsDialog", () => {
     );
   });
 
+  // --- screen protection: the status is the OS's answer, not the toggle ------
+  //
+  // "Hidden for sharing" is a request. Rendering it as though it were the
+  // outcome is how a user ends up screen-sharing a window they were told was
+  // hidden, so each state gets its own sentence and a refusal is an alert.
+
+  it("says the window is hidden only when the system actually hid it", () => {
+    useStore.setState({ captureProtection: "excluded" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(screen.getByTestId("capture-protection")).toHaveTextContent(
+      /screenshots and screen shares do not/i,
+    );
+  });
+
+  it("warns when the platform has no capture control at all", () => {
+    useStore.setState({ captureProtection: "unsupported" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    const status = screen.getByTestId("capture-protection");
+    expect(status).toHaveTextContent(/not available on this platform/i);
+    expect(status).toHaveTextContent(/still visible/i);
+    expect(status).toHaveAttribute("role", "alert");
+  });
+
+  it("warns when the system refused to hide the window", () => {
+    useStore.setState({ captureProtection: "failed" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    const status = screen.getByTestId("capture-protection");
+    expect(status).toHaveTextContent(/refused/i);
+    expect(status).toHaveAttribute("role", "alert");
+  });
+
+  it("names the blackout fallback rather than calling it the same thing", () => {
+    useStore.setState({ captureProtection: "blacked-out" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(screen.getByTestId("capture-protection")).toHaveTextContent(
+      /black rectangle/i,
+    );
+  });
+
+  it("does not claim protection while hiding is switched off", () => {
+    seedReady({ hide_for_sharing: false });
+    useStore.setState({ captureProtection: "off" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(screen.getByTestId("capture-protection")).toHaveTextContent(
+      /appears in screenshots/i,
+    );
+  });
+
   it("toggles battery saver through applySettings", async () => {
     const applySettings = vi.spyOn(useStore.getState(), "applySettings");
     render(<SettingsDialog onClose={() => undefined} />);

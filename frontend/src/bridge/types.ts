@@ -784,6 +784,10 @@ export interface AppSettings {
   /**
    * Signal-style (on by default): exclude the whole Strata window from
    * screenshots / screen shares. Enforced by the native shell, not the web UI.
+   *
+   * This is the *request*. What the OS granted comes back separately as
+   * `CaptureProtection` — the two are not the same, and the UI must show the
+   * second one.
    */
   hide_for_sharing: boolean;
   /**
@@ -930,3 +934,22 @@ export interface ScrapedPage {
   target_id: string;
   note_id: string;
 }
+
+/**
+ * What the OS actually granted for "Hidden for sharing".
+ *
+ * `excluded` — the window is omitted from capture entirely.
+ * `blacked-out` — the older `WDA_MONITOR` fallback: it appears as a black
+ *   rectangle in a recording, which is still private but looks different.
+ * `off` — not hiding, by the user's choice.
+ * `failed` — hiding was requested and the OS refused.
+ * `unsupported` — this platform has no per-window capture control at all.
+ * `unknown` — asked before the native window existed.
+ */
+export type CaptureProtection =
+  | "excluded"
+  | "blacked-out"
+  | "off"
+  | "failed"
+  | "unsupported"
+  | "unknown";

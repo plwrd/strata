@@ -343,16 +343,23 @@ class ChromeSource:
                 return page
         raise ProviderError("That tab is no longer open.")
 
+    @property
+    def process_id(self) -> int:
+        """The launched browser's pid, or 0 when nothing of ours is running."""
+        process = self._process
+        if process is None or process.poll() is not None:
+            return 0
+        return int(process.pid)
+
     def apply_capture_exclusion(self, enabled: bool) -> None:
         """Hide (or reveal) the launched Chrome's windows from screen capture.
 
         Best-effort: covers only the process Strata started, and a window that
         has not appeared yet is picked up by the next call.
         """
-        process = self._process
-        if process is None or process.poll() is not None:
-            return
-        set_process_windows_excluded_from_capture(process.pid, enabled=enabled)
+        pid = self.process_id
+        if pid:
+            set_process_windows_excluded_from_capture(pid, enabled=enabled)
 
     def _clear_history(self) -> None:
         """Drop browsing history from the Strata-owned profile; keep cookies.
@@ -516,13 +523,29 @@ class BrowserService:
         if self.backend == "chrome":
             self._chrome.apply_capture_exclusion(enabled)
             return
+        pid = self.engine_process_id
+        if pid:
+            set_process_windows_excluded_from_capture(pid, enabled=enabled, include_hidden=True)
+
+    @property
+    def engine_process_id(self) -> int:
+        """The pid of the browser process behind the current backend, or 0.
+
+        The window hooks it to catch a new popup *as it appears*; the periodic
+        sweep is the backstop under that. Both need to know which process is
+        actually rendering, and that differs per backend — which is why this
+        answers for all of them rather than each caller reaching for whichever
+        attribute its backend happens to have.
+        """
+        if self.backend == "chrome":
+            return self._chrome.process_id
         pid = getattr(self._embedded, "browser_process_id", 0)
         if callable(pid):  # pragma: no cover - defensive against a property/method mix-up
             pid = pid()
-        if pid:
-            set_process_windows_excluded_from_capture(
-                int(pid), enabled=enabled, include_hidden=True
-            )
+        try:
+            return int(pid or 0)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            return 0
 
     # -- mobile mode ---------------------------------------------------------
 

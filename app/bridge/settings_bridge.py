@@ -16,6 +16,14 @@ class SettingsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     settings: AppSettings
+    # What the OS actually granted for "Hidden for sharing", which is not the
+    # same thing as the setting. The setting is a request; this is the answer,
+    # and the dialog has to show the answer — a privacy control that claims a
+    # protection the platform refused is worse than no control at all.
+    #
+    # "unknown" is used before the window exists (a headless bridge in tests,
+    # or a call that arrives before the first show).
+    capture_protection: str = "unknown"
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -29,10 +37,23 @@ class SettingsBridge(QObject):
         super().__init__(parent)
         self._services = services
 
+    def _capture_protection(self) -> str:
+        """Ask the window what protection it actually has. Never guess."""
+        state = getattr(self.parent(), "capture_state", None)
+        if not callable(state):
+            return "unknown"
+        try:
+            return str(state().value)
+        except Exception:  # pragma: no cover - a status must not break settings
+            return "unknown"
+
+    def _response(self, settings: AppSettings) -> SettingsResponse:
+        return SettingsResponse(settings=settings, capture_protection=self._capture_protection())
+
     @Slot(str, result=str)
     @bridge_method(EmptyRequest)
     def get_settings(self, _request: EmptyRequest) -> SettingsResponse:
-        return SettingsResponse(settings=self._services.settings.settings)
+        return self._response(self._services.settings.settings)
 
     @Slot(str, result=str)
     @bridge_method(UpdateSettingsRequest)
@@ -53,7 +74,8 @@ class SettingsBridge(QObject):
             apply_taskbar(settings.hide_from_taskbar)
         # The blur radius is a setting; a live pane must pick up a change to it.
         self._services.browser.set_blur_amount(settings.browser_blur_amount)
-        return SettingsResponse(settings=settings)
+        # Read *after* applying, so a toggle reports the state it just produced.
+        return self._response(settings)
 
     @Slot(str, result=str)
     @bridge_method(EmptyRequest)
@@ -80,9 +102,7 @@ class SettingsBridge(QObject):
         current = list(self._services.settings.settings.browser_user_scripts)
         if chosen not in current:
             current.append(chosen)
-        return SettingsResponse(
-            settings=self._services.settings.update({"browser_user_scripts": current})
-        )
+        return self._response(self._services.settings.update({"browser_user_scripts": current}))
 
     @Slot(str, result=str)
     @bridge_method(EmptyRequest)
@@ -112,10 +132,4 @@ class SettingsBridge(QObject):
         current = list(self._services.settings.settings.browser_extensions)
         if directory not in current:
             current.append(directory)
-        return SettingsResponse(
-            settings=self._services.settings.update(
-                {
-                    "browser_extensions": current,
-                }
-            )
-        )
+        return self._response(self._services.settings.update({"browser_extensions": current}))

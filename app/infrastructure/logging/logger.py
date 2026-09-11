@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,9 @@ _SENSITIVE_KEYS = frozenset(
         "snippet",
     }
 )
+
+LOG_FILE_BYTES = 5 * 1024 * 1024
+LOG_FILE_BACKUPS = 4
 
 _WINDOWS_PATH = re.compile(r"[A-Za-z]:\\[^\s\"']+")
 _POSIX_PATH = re.compile(r"/(?:home|Users|mnt|var|tmp)/[^\s\"']+")
@@ -96,7 +100,19 @@ def configure_logging(*, level: str = "INFO", log_file: Path | None = None) -> N
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+        # Rotating, not plain: this process logs from timers and from every
+        # frontend console message, so an install that runs for months would
+        # otherwise grow one file without bound — and a log nobody can open is
+        # a log nobody can audit. Five files of 5 MiB is enough history to
+        # investigate a session and small enough to attach to a bug report.
+        handlers.append(
+            RotatingFileHandler(
+                log_file,
+                maxBytes=LOG_FILE_BYTES,
+                backupCount=LOG_FILE_BACKUPS,
+                encoding="utf-8",
+            )
+        )
 
     logging.basicConfig(
         format="%(message)s",

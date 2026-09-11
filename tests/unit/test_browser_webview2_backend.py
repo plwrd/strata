@@ -364,3 +364,59 @@ def test_a_pane_with_no_extensions_claims_none() -> None:
 
     assert status.supports_extensions is False
     assert "Extensions" not in status.detail
+
+
+# -- which process the window hooks should watch --------------------------------
+#
+# The periodic sweep is the backstop; the instant hook is the mechanism, and it
+# needs a pid. Chrome used to be left out of it — only the 1.5 s sweep covered
+# that backend, so a menu opened and dismissed between two ticks was never
+# excluded at all.
+
+
+def test_the_engine_pid_is_the_webview2_browser_process(tmp_path: Path) -> None:
+    service = _service(tmp_path, backend="webview2")
+    service.attach(FakePane("webview2", browser_process_id=4321))
+
+    assert service.engine_process_id == 4321
+
+
+def test_the_engine_pid_is_zero_before_the_engine_starts(tmp_path: Path) -> None:
+    service = _service(tmp_path, backend="webview2")
+    service.attach(FakePane("webview2", browser_process_id=0))
+
+    assert service.engine_process_id == 0
+
+
+def test_the_chrome_backend_reports_the_browser_it_launched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = _service(tmp_path, backend="chrome")
+
+    class _Running:
+        pid = 777
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(service._chrome, "_process", _Running(), raising=False)
+
+    assert service.engine_process_id == 777
+
+
+def test_a_chrome_that_has_exited_reports_no_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dead pid is worse than none: Windows reuses process ids, and a hook on
+    a recycled one would reach another application's windows."""
+    service = _service(tmp_path, backend="chrome")
+
+    class _Exited:
+        pid = 777
+
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(service._chrome, "_process", _Exited(), raising=False)
+
+    assert service.engine_process_id == 0

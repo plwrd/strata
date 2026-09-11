@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import type {
   AppearanceTemplate,
   AppSettings,
+  CaptureProtection,
   FontBody,
   FontDisplay,
   FontMono,
@@ -20,6 +21,57 @@ import { readThemeColor } from "./applyTheme";
 
 type Motion = AppSettings["motion"];
 type GraphQuality = AppSettings["graph_quality"];
+
+/**
+ * What to tell the user about screen protection.
+ *
+ * The toggle is a request to the OS; this describes the *answer*. Saying
+ * "screenshots and screen shares do not see Strata" on a platform that granted
+ * nothing is the kind of claim someone plans a call around, so each state gets
+ * its own sentence and a failure is an alert, not a hint.
+ */
+export function describeCaptureProtection(
+  state: CaptureProtection,
+  requested: boolean,
+): { tone: "ok" | "warning" | "muted"; message: string } {
+  if (!requested) {
+    return {
+      tone: "muted",
+      message: "Off — Strata appears in screenshots and screen shares.",
+    };
+  }
+  switch (state) {
+    case "excluded":
+      return {
+        tone: "ok",
+        message:
+          "Active — you still see Strata; screenshots and screen shares do not.",
+      };
+    case "blacked-out":
+      return {
+        tone: "ok",
+        message:
+          "Active, older method — Strata appears as a black rectangle in recordings rather than being omitted.",
+      };
+    case "unsupported":
+      return {
+        tone: "warning",
+        message:
+          "Not available on this platform — Strata is still visible to screenshots and screen shares.",
+      };
+    case "failed":
+      return {
+        tone: "warning",
+        message:
+          "The system refused to hide this window. Assume Strata is visible in screenshots and screen shares.",
+      };
+    default:
+      return {
+        tone: "muted",
+        message: "Checking with the system…",
+      };
+  }
+}
 
 const TEMPLATES: {
   value: AppearanceTemplate;
@@ -253,8 +305,13 @@ function ColorRow(props: {
 }
 
 export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
-  const { settings, applySettings, chooseBrowserExtension, chooseUserScript } =
-    useStore();
+  const {
+    settings,
+    captureProtection,
+    applySettings,
+    chooseBrowserExtension,
+    chooseUserScript,
+  } = useStore();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -270,6 +327,7 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
   const particles = settings?.particles_enabled ?? true;
   const bloom = settings?.bloom_enabled ?? true;
   const hidden = settings?.hide_for_sharing ?? true;
+  const capture = describeCaptureProtection(captureProtection, hidden);
   const fontBody = settings?.font_body ?? "inter";
   const fontDisplay = settings?.font_display ?? "chakra";
   const fontMono = settings?.font_mono ?? "jetbrains";
@@ -589,10 +647,16 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               <span>Hidden for sharing</span>
               <kbd className="settings-dialog__key">Ctrl/Cmd+Shift+H</kbd>
             </label>
+            <p
+              className={`settings-dialog__hint settings-dialog__hint--${capture.tone}`}
+              role={capture.tone === "warning" ? "alert" : undefined}
+              data-testid="capture-protection"
+            >
+              {capture.message}
+            </p>
             <p className="settings-dialog__hint">
-              On by default (Signal-style). You still see Strata; screenshots
-              and screen shares do not. Turn off only when you need to demo or
-              record the app itself.
+              On by default (Signal-style). Turn off only when you need to demo
+              or record the app itself.
             </p>
           </section>
 
