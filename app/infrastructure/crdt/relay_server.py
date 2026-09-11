@@ -5,6 +5,11 @@ forwards opaque, already-sealed blobs, and it never holds a key or sees
 plaintext. Two Strata peers that can both reach this server converge — over a
 LAN or the open internet — without any change to the trust model.
 
+It takes no credential — that is the deployment's job (TLS and, if the relay is
+public, an authenticating proxy in front). What it does do is bound itself, so
+an unauthenticated stranger cannot turn "store and forward" into "fill this
+host's memory": see ``MAX_CHANNELS`` and friends.
+
 It is deliberately a stdlib WSGI app (no framework, no new dependency): that
 makes it testable in-process with httpx's WSGI transport and runnable standalone
 with ``wsgiref``. A production deployment would put a real WSGI server (gunicorn,
@@ -44,22 +49,55 @@ _RE_PRESENCE_PUT = re.compile(rf"^/channels/({_CHANNEL})/presence/({_PEER})$")
 # A single sealed batch is capped so one client cannot exhaust the relay's memory.
 MAX_BLOB_BYTES = 8 * 1024 * 1024
 
+# The relay keeps its log in memory and takes no credential: anyone who can
+# reach it can publish to any channel id they like. Without a ceiling that is an
+# open invitation to fill the host's RAM, so the store is bounded on three axes
+# and *refuses* past them rather than evicting.
+#
+# Refusing, not evicting: these blobs are CRDT updates, and a peer that never
+# learns its update was dropped believes it converged when it did not. A 507
+# reaches the publisher and can be shown to a human. Operators who need more
+# than these defaults should raise them deliberately.
+MAX_CHANNELS = 1024
+MAX_CHANNEL_BYTES = 256 * 1024 * 1024
+MAX_PEERS_PER_CHANNEL = 256
+
 WSGIEnviron = dict[str, Any]
 StartResponse = Callable[[str, list[tuple[str, str]]], Any]
+
+
+class StoreFull(Exception):
+    """The relay is at a configured limit. The publisher is told, not ignored."""
 
 
 class _Store:
     """In-memory blob log and presence, guarded by a lock (WSGI may be threaded)."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        max_channels: int = MAX_CHANNELS,
+        max_channel_bytes: int = MAX_CHANNEL_BYTES,
+        max_peers: int = MAX_PEERS_PER_CHANNEL,
+    ) -> None:
         self._lock = Lock()
         self._log: dict[str, list[bytes]] = {}
         self._presence: dict[str, dict[str, bytes]] = {}
+        self._bytes: dict[str, int] = {}
+        self._max_channels = max_channels
+        self._max_channel_bytes = max_channel_bytes
+        self._max_peers = max_peers
 
     def publish(self, channel: str, blob: bytes) -> int:
         with self._lock:
+            if channel not in self._log and len(self._log) >= self._max_channels:
+                raise StoreFull("channel limit reached")
+            used = self._bytes.get(channel, 0)
+            if used + len(blob) > self._max_channel_bytes:
+                raise StoreFull("channel is full")
             log = self._log.setdefault(channel, [])
             log.append(blob)
+            self._bytes[channel] = used + len(blob)
             return len(log)
 
     def fetch(self, channel: str, after: int) -> list[tuple[int, bytes]]:
@@ -74,7 +112,12 @@ class _Store:
 
     def announce(self, channel: str, peer: str, blob: bytes) -> None:
         with self._lock:
-            self._presence.setdefault(channel, {})[peer] = blob
+            if channel not in self._presence and len(self._presence) >= self._max_channels:
+                raise StoreFull("channel limit reached")
+            peers = self._presence.setdefault(channel, {})
+            if peer not in peers and len(peers) >= self._max_peers:
+                raise StoreFull("too many peers on this channel")
+            peers[peer] = blob
 
     def presence(self, channel: str) -> dict[str, bytes]:
         with self._lock:
@@ -112,7 +155,10 @@ def make_relay_app(
             blob = _read_body(environ)
             if not blob:
                 return _json(start_response, "400 Bad Request", {"error": "empty or oversize blob"})
-            seq = state.publish(match.group(1), blob)
+            try:
+                seq = state.publish(match.group(1), blob)
+            except StoreFull as full:
+                return _json(start_response, "507 Insufficient Storage", {"error": str(full)})
             return _json(start_response, "200 OK", {"seq": seq})
 
         if (match := _RE_BLOBS.match(path)) and method == "GET":
@@ -127,7 +173,10 @@ def make_relay_app(
             return _json(start_response, "200 OK", {"head": state.head(match.group(1))})
 
         if (match := _RE_PRESENCE_PUT.match(path)) and method == "PUT":
-            state.announce(match.group(1), match.group(2), _read_body(environ))
+            try:
+                state.announce(match.group(1), match.group(2), _read_body(environ))
+            except StoreFull as full:
+                return _json(start_response, "507 Insufficient Storage", {"error": str(full)})
             start_response("204 No Content", [("Content-Length", "0")])
             return [b""]
 

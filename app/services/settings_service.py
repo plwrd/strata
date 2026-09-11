@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -47,6 +48,42 @@ def _clean_paths(value: Any, field: str, limit: int) -> list[str]:
     if len(cleaned) > limit:
         raise ValueError(f"{field} holds at most {limit} entries")
     return cleaned
+
+
+MAX_URL_LENGTH = 2000
+_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _clean_endpoint(value: Any, field: str) -> str:
+    """A plain ``http(s)`` endpoint, or a refusal.
+
+    Every URL in this file names somewhere Strata will *send* data — a model
+    endpoint, a collaboration relay. So each is held to the same three rules:
+
+    * ``http``/``https`` only. Any other scheme reaching an HTTP client is either
+      a mistake or an attempt to make it read something it should not.
+    * A host is required. ``http:///notes`` is not an endpoint.
+    * No embedded credentials. A password in a settings file is a password in a
+      bug report, and `user:pass@host` also hides the real host from a reader
+      glancing at the box.
+
+    Note what this does *not* do: it does not decide whether an endpoint is
+    local. That question belongs to the AI policy gate, which asks it of the
+    endpoint actually in use (:func:`app.domain.ai.is_local_endpoint`).
+    """
+    text = str(value).strip()
+    if not text:
+        return ""
+    if len(text) > MAX_URL_LENGTH:
+        raise ValueError(f"{field} is too long")
+    parts = urlsplit(text)
+    if parts.scheme.lower() not in _URL_SCHEMES:
+        raise ValueError(f"{field} must be an http:// or https:// URL")
+    if not parts.hostname:
+        raise ValueError(f"{field} must include a host")
+    if parts.username or parts.password:
+        raise ValueError(f"{field} must not embed credentials")
+    return text
 
 
 logger = get_logger(__name__)
@@ -303,6 +340,40 @@ class AppSettings(BaseModel):
         if engine not in SEARCH_URLS:
             raise ValueError("browser_search_engine must be an engine Strata knows")
         return engine
+
+    @field_validator("relay_url", mode="before")
+    @classmethod
+    def _check_relay_url(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return _clean_endpoint(value, "relay_url")
+
+    @field_validator("provider_base_urls", mode="before")
+    @classmethod
+    def _check_provider_base_urls(cls, value: Any) -> dict[str, str]:
+        """Validate every provider endpoint override.
+
+        An override moves where a model request is *sent*. Left unchecked, the
+        entry for a provider the catalogue calls local ("Runs on this machine.
+        Nothing leaves it.") could name any host on the internet, and a layer
+        restricted to local AI would be gated on the label while its plaintext
+        went elsewhere. The gate now recomputes locality from this value
+        (`AIService.capabilities_for`); this validator is the other half — it
+        keeps the value a URL an HTTP client will actually dial.
+        """
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("provider_base_urls must be an object")
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_url in value.items():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            endpoint = _clean_endpoint(raw_url, f"provider_base_urls.{key}")
+            if endpoint:
+                cleaned[key] = endpoint
+        return cleaned
 
     @field_validator("ui_scale", mode="before")
     @classmethod

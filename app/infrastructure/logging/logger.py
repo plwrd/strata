@@ -52,16 +52,38 @@ def _redact_paths(value: str) -> str:
     return _POSIX_PATH.sub(basename, value)
 
 
+_MAX_REDACT_DEPTH = 6
+
+
+def _redact_value(key: str, value: Any, depth: int = 0) -> Any:
+    """Redact one value, recursing into the containers a caller may pass.
+
+    Structured logging invites ``details={...}`` and ``layers=[...]``. A redactor
+    that only looked at the top level would mean the rule held for
+    ``password=...`` and quietly lapsed for ``details={"password": ...}`` — which
+    is the shape a bridge error actually has.
+    """
+    if key.lower() in _SENSITIVE_KEYS:
+        return "<redacted>"
+    if depth >= _MAX_REDACT_DEPTH:
+        return value
+    if isinstance(value, str):
+        return _redact_paths(value)
+    if isinstance(value, dict):
+        return {k: _redact_value(str(k), v, depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        redacted = [_redact_value(key, item, depth + 1) for item in value]
+        return tuple(redacted) if isinstance(value, tuple) else redacted
+    return value
+
+
 def _redactor(
     _logger: object,
     _name: str,
     event_dict: structlog.typing.EventDict,
 ) -> structlog.typing.EventDict:
     for key, value in list(event_dict.items()):
-        if key.lower() in _SENSITIVE_KEYS:
-            event_dict[key] = "<redacted>"
-        elif isinstance(value, str):
-            event_dict[key] = _redact_paths(value)
+        event_dict[key] = _redact_value(key, value)
     return event_dict
 
 
@@ -95,9 +117,15 @@ def configure_logging(*, level: str = "INFO", log_file: Path | None = None) -> N
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
-            _redactor,
+            # Tracebacks are rendered to a string *before* the redactor runs, not
+            # after. `format_exc_info` is where an exception becomes text, and
+            # that text is full of absolute paths (and whatever a message
+            # interpolated). Redacting first would have left every `.exception()`
+            # call writing the user's home directory into the log — the one rule
+            # this module exists to enforce.
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
+            _redactor,
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(

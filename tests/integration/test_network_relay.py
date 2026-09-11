@@ -107,3 +107,53 @@ def test_collaboration_service_syncs_through_the_http_relay(tmp_path, relay: Htt
     # presence also traverses the relay
     alice.announce("L", PresencePeer(peer_id="p-alice", display_name="Alice"))
     assert any(p.display_name == "Alice" for p in bob.presence("L"))
+
+
+# --- resource limits --------------------------------------------------------
+#
+# The relay is unauthenticated by design: whoever can reach it can publish. It
+# keeps its log in memory, so without a ceiling that is a one-command way to
+# fill the host. The limits refuse rather than evict — dropping a CRDT update
+# silently would leave a peer believing it had converged when it had not.
+
+
+def _relay_with(store: _Store) -> HttpRelay:
+    app = make_relay_app(store)
+    client = httpx.Client(transport=httpx.WSGITransport(app=app), base_url="http://relay")
+    return HttpRelay("http://relay", client=client)
+
+
+def test_a_full_channel_refuses_new_blobs_rather_than_dropping_them() -> None:
+    relay = _relay_with(_Store(max_channel_bytes=16))
+
+    assert relay.publish("chan", b"0123456789") == 1
+
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        relay.publish("chan", b"0123456789")
+    assert error.value.response.status_code == 507
+
+    # What was accepted is still there, and still fetchable.
+    assert [b for _, b in relay.fetch("chan", 0)] == [b"0123456789"]
+
+
+def test_channels_cannot_be_created_without_limit() -> None:
+    relay = _relay_with(_Store(max_channels=2))
+
+    relay.publish("one", b"x")
+    relay.publish("two", b"x")
+
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        relay.publish("three", b"x")
+    assert error.value.response.status_code == 507
+
+
+def test_peers_on_a_channel_are_capped() -> None:
+    relay = _relay_with(_Store(max_peers=1))
+
+    relay.announce("chan", "peer-1", b"blob")
+    # An existing peer may keep refreshing its own slot.
+    relay.announce("chan", "peer-1", b"blob-2")
+
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        relay.announce("chan", "peer-2", b"blob")
+    assert error.value.response.status_code == 507
