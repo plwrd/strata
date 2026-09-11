@@ -228,7 +228,15 @@ class WebView2Pane(QWidget):
     # -- startup -------------------------------------------------------------
 
     def _start(self, *, user_data_dir: Path, loader: Path, hide_for_sharing: bool) -> None:
-        extra = (sdk.SOFTWARE_DECODE_ARGUMENT,) if hide_for_sharing else ()
+        # While hiding: take the engine off the DirectComposition present path
+        # (the whole-window overlay that flickers and leaks — see
+        # `app.desktop.capture_flags`) and off hardware video decode. The
+        # always-on video-overlay flag is prepended by `create_environment`.
+        extra = (
+            (sdk.DISABLE_DIRECT_COMPOSITION_ARGUMENT, sdk.SOFTWARE_DECODE_ARGUMENT)
+            if hide_for_sharing
+            else ()
+        )
         try:
             sdk.create_environment(
                 user_data_folder=user_data_dir,

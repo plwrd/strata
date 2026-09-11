@@ -34,6 +34,9 @@ from pathlib import Path
 from typing import Any
 
 from app.desktop.capture_flags import CAPTURE_SAFE_ARGUMENTS as _SHARED_CAPTURE_ARGUMENTS
+from app.desktop.capture_flags import (
+    DISABLE_DIRECT_COMPOSITION_ARGUMENT as _DISABLE_DIRECT_COMPOSITION_ARGUMENT,
+)
 from app.desktop.capture_flags import SOFTWARE_DECODE_ARGUMENT as _SOFTWARE_DECODE_ARGUMENT
 from app.desktop.webview2 import _slots as slots
 from app.desktop.webview2.com import (
@@ -88,6 +91,7 @@ CAPTURE_SAFE_ARGUMENTS = (
     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
 )
 SOFTWARE_DECODE_ARGUMENT = _SOFTWARE_DECODE_ARGUMENT
+DISABLE_DIRECT_COMPOSITION_ARGUMENT = _DISABLE_DIRECT_COMPOSITION_ARGUMENT
 
 
 class WebView2Unavailable(Exception):
@@ -851,8 +855,18 @@ def create_environment(
     create.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, LPVOID, LPVOID]
     create.restype = HRESULT
 
+    # STRATA_WEBVIEW2_FLAGS is the WebView2 counterpart of Qt's
+    # QTWEBENGINE_CHROMIUM_FLAGS: extra Chromium switches appended for A/B
+    # testing a compositor problem against a real recorder without a rebuild
+    # (e.g. --disable-direct-composition). Appended, never replacing, so the
+    # capture-safe set is always present.
+    import os
+
+    ad_hoc = tuple(os.environ.get("STRATA_WEBVIEW2_FLAGS", "").split())
+    if ad_hoc:
+        logger.info("webview2.ad_hoc_flags", flags=ad_hoc)
     options = _EnvironmentOptions(
-        " ".join((*CAPTURE_SAFE_ARGUMENTS, *extra_arguments)),
+        " ".join((*CAPTURE_SAFE_ARGUMENTS, *extra_arguments, *ad_hoc)),
         extensions_enabled=extensions_enabled,
     )
     handler: Callback

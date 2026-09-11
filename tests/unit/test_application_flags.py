@@ -34,6 +34,27 @@ def test_hiding_also_forces_software_video_decode(monkeypatch: pytest.MonkeyPatc
     assert "--disable-accelerated-video-decode" in application._chromium_flags()
 
 
+def test_hiding_takes_the_whole_window_off_the_overlay_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The intermittent leak: an ordinary page (no video) can still put the
+    *whole* excluded window on a DirectComposition flip-model plane that DWM
+    scans out beside its composition — which flickers and, mid-flicker, is
+    captured. ``--disable-direct-composition`` keeps every frame in a surface
+    DWM composes."""
+    monkeypatch.setattr(application, "_touch_requested", lambda: False)
+
+    monkeypatch.setattr(application, "_hide_for_sharing_requested", lambda: True)
+    assert "--disable-direct-composition" in application._chromium_flags()
+
+    # Not charged to someone who did not ask to be hidden: it is a GPU cost, and
+    # the video-overlay flag already covers the flicker for a non-hider.
+    monkeypatch.setattr(application, "_hide_for_sharing_requested", lambda: False)
+    hiding_off = application._chromium_flags()
+    assert "--disable-direct-composition " not in hiding_off + " "
+    assert "--disable-direct-composition-video-overlays" in hiding_off
+
+
 def test_unreadable_settings_fail_towards_hiding(monkeypatch: pytest.MonkeyPatch) -> None:
     """A corrupt settings file must not silently expose the window."""
 
@@ -89,7 +110,7 @@ def test_every_chromium_engine_gets_the_same_compositor_flags(
     with pytest.raises(ProviderError):
         chrome.ensure_ready()
 
-    for flag in (*CAPTURE_SAFE_ARGUMENTS, SOFTWARE_DECODE_ARGUMENT):
+    for flag in (*CAPTURE_SAFE_ARGUMENTS, SOFTWARE_DECODE_ARGUMENT, "--disable-direct-composition"):
         assert flag in qt_flags, flag
         assert flag in launched[0], flag
 

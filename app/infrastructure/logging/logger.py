@@ -46,6 +46,7 @@ _WINDOWS_PATH = re.compile(r"[A-Za-z]:\\[^\s\"']+")
 _POSIX_PATH = re.compile(r"/(?:home|Users|mnt|var|tmp)/[^\s\"']+")
 
 _configured = False
+_log_file: Path | None = None
 
 
 def _redact_paths(value: str) -> str:
@@ -92,10 +93,20 @@ def _redactor(
 
 
 def configure_logging(*, level: str = "INFO", log_file: Path | None = None) -> None:
-    """Configure structlog once for the process."""
-    global _configured
-    if _configured:
+    """Configure structlog for the process.
+
+    Idempotent for a repeat of the same request, but a call that names a log
+    file is *not* a repeat of the import-time default that named none. The
+    first ``get_logger`` — a module-level ``logger = get_logger(__name__)`` in
+    whichever module imports first — configures stderr-only logging before
+    ``bootstrap`` runs, and until this distinction was made that early call
+    won: ``strata.log`` was never created, on any install, and the one line
+    that would have said when screen protection was lost had nowhere to go.
+    """
+    global _configured, _log_file
+    if _configured and (log_file is None or log_file == _log_file):
         return
+    _log_file = log_file
 
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if log_file is not None:
