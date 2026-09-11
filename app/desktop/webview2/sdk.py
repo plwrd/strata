@@ -33,6 +33,8 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
+from app.desktop.capture_flags import CAPTURE_SAFE_ARGUMENTS as _SHARED_CAPTURE_ARGUMENTS
+from app.desktop.capture_flags import SOFTWARE_DECODE_ARGUMENT as _SOFTWARE_DECODE_ARGUMENT
 from app.desktop.webview2 import _slots as slots
 from app.desktop.webview2.com import (
     BOOL,
@@ -76,13 +78,16 @@ _RUNTIME_KEYS = (
 # exclusion entirely — which also makes the window flicker as the overlay is
 # taken and released. Keeping video on the composited path costs a little GPU
 # and keeps every frame inside the exclusion.
+# The compositor half is shared with every other Chromium Strata runs (see
+# `app.desktop.capture_flags` for why it is one list). The rest is WebView2's
+# own: Edge's out-of-process UI surfaces would otherwise put PDF and SmartScreen
+# chrome in windows of a process Strata does not own — and a window Strata
+# cannot account for is a window it cannot exclude.
 CAPTURE_SAFE_ARGUMENTS = (
-    "--disable-direct-composition-video-overlays",
+    *_SHARED_CAPTURE_ARGUMENTS,
     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
 )
-# Only while "hidden for sharing" is on: a hardware-decoded frame can still be
-# handed to a zero-copy presentation path.
-SOFTWARE_DECODE_ARGUMENT = "--disable-accelerated-video-decode"
+SOFTWARE_DECODE_ARGUMENT = _SOFTWARE_DECODE_ARGUMENT
 
 
 class WebView2Unavailable(Exception):

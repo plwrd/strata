@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Protocol, cast
 from urllib.parse import quote_plus, urlsplit
 
+from app.desktop.capture_flags import capture_flags
 from app.desktop.screen_security import set_process_windows_excluded_from_capture
 from app.domain.browser import (
     IN_WINDOW_BACKENDS,
@@ -242,6 +243,12 @@ class ChromeSource:
         profile = self.profile_path
         profile.mkdir(parents=True, exist_ok=True)
         self._clear_history()  # start each session with no prior browsing history
+        # The same compositor flags the two embedded engines get. This backend
+        # is the one a user picks *because* it plays video, and a video promoted
+        # to a hardware overlay is scanned out beside DWM — so it appears in a
+        # recording of a window Strata has excluded. The exclusion is applied to
+        # this browser's windows below; without these flags it would only be
+        # true of everything except the video.
         arguments = [
             executable,
             f"--remote-debugging-port={self._port}",
@@ -249,6 +256,7 @@ class ChromeSource:
             f"--user-data-dir={profile}",
             "--no-first-run",
             "--no-default-browser-check",
+            *capture_flags(hiding=self._settings.settings.hide_for_sharing),
             "about:blank",
         ]
         try:

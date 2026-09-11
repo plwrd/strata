@@ -57,7 +57,9 @@ export function describeCaptureProtection(
       return {
         tone: "warning",
         message:
-          "Not available on this platform — Strata is still visible to screenshots and screen shares.",
+          "Not available on this platform — Strata is visible to screenshots and screen shares. " +
+          "Windows is the only platform with a per-window capture control; on Linux there is none to ask for. " +
+          "Lock your private layers before you share a screen.",
       };
     case "failed":
       return {

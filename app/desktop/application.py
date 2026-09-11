@@ -9,6 +9,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.bootstrap import APP_NAME, build_services, dev_server, frontend_root, resource_root
+from app.desktop.capture_flags import capture_flags
 from app.desktop.main_window import MainWindow
 from app.desktop.webengine import CONTENT_SECURITY_POLICY, register_scheme
 from app.infrastructure.logging.logger import get_logger
@@ -57,23 +58,11 @@ def _chromium_flags() -> str:
         "--disable-speech-api",
         "--no-first-run",
         "--disable-remote-fonts",
-        # Keep video on the composited path instead of a hardware overlay plane.
-        #
-        # `SetWindowDisplayAffinity` is enforced by DWM, which can only exclude
-        # what DWM composes. When Chromium promotes a <video> to a DirectComposition
-        # hardware overlay, that plane is scanned out beside DWM's output rather
-        # than through it — so the video escapes the exclusion and the window
-        # flickers as the overlay is taken and released. Both reported symptoms
-        # have that one cause. Composited video is slightly more expensive and
-        # always covered by the affinity.
-        "--disable-direct-composition-video-overlays",
+        # Keep every frame on the path `SetWindowDisplayAffinity` can reach.
+        # The reasoning, and why this is one shared list across all three
+        # Chromium engines, is in `app.desktop.capture_flags`.
+        *capture_flags(hiding=_hide_for_sharing_requested()),
     ]
-    if _hide_for_sharing_requested():
-        # Belt and braces while hiding: a hardware-decoded frame can still be
-        # handed to a zero-copy presentation path. Software decode keeps every
-        # frame in a surface DWM composes. Only paid when the user asked to be
-        # hidden — it costs CPU on video playback.
-        flags.append("--disable-accelerated-video-decode")
     if _touch_requested():
         # Advertise touch so sites serve their touch/mobile UI. Safe for Strata's
         # own UI, which has no hover/pointer media queries to flip.

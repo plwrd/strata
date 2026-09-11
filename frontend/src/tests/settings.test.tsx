@@ -182,7 +182,9 @@ describe("SettingsDialog", () => {
 
     const status = screen.getByTestId("capture-protection");
     expect(status).toHaveTextContent(/not available on this platform/i);
-    expect(status).toHaveTextContent(/still visible/i);
+    expect(status).toHaveTextContent(/visible to screenshots and screen shares/i);
+    // And what to do instead, since there is nothing to turn on.
+    expect(status).toHaveTextContent(/lock your private layers/i);
     expect(status).toHaveAttribute("role", "alert");
   });
 

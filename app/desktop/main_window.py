@@ -1,4 +1,4 @@
-"""The native window: the Strata view, and — when research asks for it — a
+r"""The native window: the Strata view, and — when research asks for it — a
 browser pane beside it.
 
 The two are separate ``QWebEngineView``\ s on separate profiles, in a splitter.
@@ -10,6 +10,7 @@ no bridge at all (see ``app.desktop.browser_pane``).
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,6 +32,7 @@ from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_
 from app.desktop.screen_security import (
     CaptureGuard,
     CaptureState,
+    capture_control_available,
     set_own_windows_excluded_from_capture,
     set_window_excluded_from_capture,
     set_windows_excluded_from_capture,
@@ -190,10 +192,18 @@ class MainWindow(QMainWindow):
         assert filter_app is not None
         filter_app.installEventFilter(self)
 
+        # Only where there is something to sweep. On Linux every call in this
+        # path returns immediately (there is no per-window capture control to
+        # make), so the timer would be a wake-up every 1.5 s, for the life of
+        # the process, that cannot change anything — and on a laptop that is
+        # battery spent on a no-op.
         self._capture_sweep = QTimer(self)
         self._capture_sweep.setInterval(CAPTURE_SWEEP_MS)
         self._capture_sweep.timeout.connect(self._tick_capture_sweep)
-        self._capture_sweep.start()
+        if capture_control_available():
+            self._capture_sweep.start()
+        else:
+            logger.info("window.capture_sweep_skipped", platform=sys.platform)
 
     def _build_browser_pane(self, services: Services) -> BrowserPane | WebView2Pane:
         """The research pane, on whichever engine the settings ask for.

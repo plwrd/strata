@@ -78,6 +78,14 @@ def _windows_set_in_taskbar(window: _Window, *, shown: bool) -> bool:
     hwnd = int(cast(Any, window.winId()))
     current = int(get_long(hwnd, GWL_EXSTYLE))
     if shown:
+        # Only *undo* a hide. An ordinary top-level window already has a taskbar
+        # button without `WS_EX_APPWINDOW`, so forcing that bit on changed the
+        # ex-style of every default window — and the change costs a hide/show
+        # cycle, which is a whole-window flash at every launch for a user who
+        # never touched this setting. `WS_EX_APPWINDOW` is only needed to
+        # *restore* a button that `WS_EX_TOOLWINDOW` took away.
+        if not current & WS_EX_TOOLWINDOW:
+            return True
         desired = (current & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW
     else:
         desired = (current | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW

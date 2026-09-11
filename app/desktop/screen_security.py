@@ -7,10 +7,27 @@ Windows Recall, etc.). If that fails (older builds), fall back to
 ``WDA_MONITOR`` which blacks the window out in captures — still
 privacy-preserving.
 
-Other platforms: no-op, and *reported* as one. Capture exclusion is OS-enforced;
-the UI only asks for it.
+Other platforms report ``UNSUPPORTED`` and mean it. macOS has
+``NSWindow.sharingType`` and Linux has nothing at all (X11 lets any client read
+the root window by design); neither is implemented, so neither is claimed — the
+settings dialog shows the refusal rather than a tick. Capture exclusion is
+OS-enforced; the UI only asks for it.
 
-Two rules govern everything in this module, and both were learned the hard way:
+Three rules govern everything in this module, and all three were learned the
+hard way:
+
+**A correct affinity is never written again.** Every
+``SetWindowDisplayAffinity`` call makes DWM rebuild the window's redirection
+surface, and the window flickers as it does. That flicker is not cosmetic: the
+rebuild is the moment a frame can be composed outside the exclusion and reach a
+recording — a whole-window flash that a screen capture catches in full. The
+affinity used to be re-asserted unconditionally by a 1.5 s sweep, by every
+activation change, and by a window hook firing on every show, so an
+already-excluded window was rebuilt several times a second. There is now exactly
+one write site (:func:`_set_affinity_if_needed`), it reads first, and steady
+state performs no writes at all. The single unavoidable write happens before the
+window is first shown (the Qt surface-created event, or ``EVENT_OBJECT_CREATE``),
+so there is no visible frame to catch.
 
 **Every ``ctypes`` prototype is declared before use.** ``ctypes`` assumes a C
 ``int`` for anything it has not been told about, so an unconfigured
@@ -77,6 +94,23 @@ def weakest(states: Iterable[CaptureState]) -> CaptureState:
     return min(states, key=lambda state: _RANK[state], default=CaptureState.OFF)
 
 
+def capture_control_available() -> bool:
+    """Whether this platform has a per-window capture control at all.
+
+    Windows does (``SetWindowDisplayAffinity``). Linux does not: X11 lets any
+    client read the root window by design, and no Wayland protocol offers a
+    client-side exclusion — Electron's equivalent is a documented no-op there
+    too. macOS has one (``NSWindow.sharingType``) that Strata does not
+    implement.
+
+    Callers use this for two things: to phrase the truth for the user, and to
+    stop doing work that cannot have an effect — the capture sweep is a timer
+    that would otherwise wake the machine every 1.5 s on a platform where every
+    call it makes returns immediately.
+    """
+    return _is_windows()
+
+
 class _HasWinId(Protocol):
     def winId(self) -> object: ...
 
@@ -88,6 +122,57 @@ def _is_windows() -> bool:
     on, which marks every other branch unreachable and stops checking it. This
     code has to be correct on all three."""
     return sys.platform == "win32"
+
+
+def _read_affinity(user32: Any, hwnd: int) -> int | None:
+    """The affinity the OS currently reports for ``hwnd``, or None if it cannot say.
+
+    "The call returned TRUE" is not the same claim as "this window is out of a
+    recording", and the second one is what the UI repeats to the user. Where
+    Windows will tell us, ask.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        current = wintypes.DWORD()
+        if not user32.GetWindowDisplayAffinity(hwnd, ctypes.byref(current)):
+            return None
+        return int(current.value)
+    except Exception:  # pragma: no cover - a stand-in library in tests
+        return None
+
+
+def _set_affinity_if_needed(user32: Any, hwnd: int, affinity: int) -> bool:
+    """Set ``hwnd``'s affinity only when it is not already that. Returns success.
+
+    The conditional is the point, and it is a correctness fix rather than an
+    optimisation. Every ``SetWindowDisplayAffinity`` call makes DWM rebuild the
+    window's redirection surface — the window flickers as it does, and that
+    rebuild is precisely the moment a frame can be composed outside the
+    exclusion and land in a recording.
+
+    The affinity used to be written unconditionally from three places: a 1.5 s
+    sweep over every window, a re-assert on every activation change, and a
+    window hook that fires on every show. A window that was *already* excluded
+    was therefore torn down and rebuilt several times a second — which is the
+    flicker, and each rebuild its own chance to leak a frame. Steady state is
+    now a read and no write at all.
+
+    A window whose affinity cannot be read is still written: skipping a window
+    that might need it would be the worse error.
+    """
+    current = _read_affinity(user32, hwnd)
+    if current == affinity:
+        return True
+    if not user32.SetWindowDisplayAffinity(hwnd, affinity):
+        return False
+    # Confirm rather than assume. "The call returned TRUE" is not the same
+    # claim as "this window is out of a recording", and the second is what the
+    # UI repeats to the user. An OS that will not answer leaves the setter's
+    # own success standing.
+    settled = _read_affinity(user32, hwnd)
+    return settled is None or settled == affinity
 
 
 def _user32() -> Any:
@@ -114,6 +199,11 @@ def _user32() -> Any:
         user32.IsWindowVisible.restype = wintypes.BOOL
         user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
         user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetWindowDisplayAffinity.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowDisplayAffinity.restype = wintypes.BOOL
         user32.EnumWindows.restype = wintypes.BOOL
         user32.SetWinEventHook.restype = wintypes.HANDLE
         user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
@@ -138,10 +228,6 @@ def set_window_excluded_from_capture(window: _HasWinId, *, enabled: bool) -> Cap
         platform=sys.platform,
         enabled=enabled,
     )
-    # macOS has NSWindow.sharingType = .none; Qt's winId is an NSView and the
-    # Cocoa bridge is fragile without PyObjC. Leave a clear log and an honest
-    # status rather than a half-working path — Windows (Signal's primary
-    # desktop capture block) is fully supported.
     return CaptureState.UNSUPPORTED if enabled else CaptureState.OFF
 
 
@@ -259,12 +345,16 @@ def _windows_exclude_by_pid(pid: int, *, enabled: bool, include_hidden: bool) ->
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
             if owner.value != pid:
                 return True
-            if user32.SetWindowDisplayAffinity(hwnd, affinity):
+            # Conditional: a window already at this affinity is left alone.
+            # Rewriting it rebuilds its DWM surface — which is the flicker, and
+            # the one moment a frame can escape — and this runs over every
+            # window of the process every 1.5 s.
+            if _set_affinity_if_needed(user32, hwnd, affinity):
                 touched += 1
             # Try the blackout fallback, same as the single-window path. Only
             # count a window we actually covered — a silent miss is the one
             # thing this feature must not report as a success.
-            elif enabled and user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR):
+            elif enabled and _set_affinity_if_needed(user32, hwnd, WDA_MONITOR):
                 touched += 1
         except Exception:  # pragma: no cover - defensive; see above
             logger.warning("screen_security.sweep_window_failed")
@@ -285,7 +375,7 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> Captur
     hwnd = int(user32.GetAncestor(raw, GA_ROOT) or 0) or raw
 
     if not enabled:
-        if user32.SetWindowDisplayAffinity(hwnd, WDA_NONE):
+        if _set_affinity_if_needed(user32, hwnd, WDA_NONE):
             logger.debug("screen_security.windows_affinity", enabled=False, affinity=WDA_NONE)
             return CaptureState.OFF
         logger.warning(
@@ -296,7 +386,7 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> Captur
         )
         return CaptureState.FAILED
 
-    if user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+    if _set_affinity_if_needed(user32, hwnd, WDA_EXCLUDEFROMCAPTURE):
         # Debug, not info: this is re-asserted across every window on every
         # activation change, and a heartbeat in the log buries the failures
         # that matter. The *transitions* are logged once, by the window.
@@ -307,11 +397,18 @@ def _windows_set_display_affinity(window: _HasWinId, *, enabled: bool) -> Captur
         )
         return CaptureState.EXCLUDED
 
+    # The exclusion did not take. What the window has *now* decides what is
+    # claimed: an older build may have granted the blackout instead, and a
+    # window left ordinary is one the user has to be told about.
+    if _read_affinity(user32, hwnd) == WDA_MONITOR:
+        logger.debug("screen_security.windows_affinity", enabled=True, affinity=WDA_MONITOR)
+        return CaptureState.BLACKED_OUT
+
     logger.warning(
         "screen_security.windows_exclude_failed_trying_monitor",
         win_error=ctypes.GetLastError(),
     )
-    if user32.SetWindowDisplayAffinity(hwnd, WDA_MONITOR):
+    if _set_affinity_if_needed(user32, hwnd, WDA_MONITOR):
         logger.debug(
             "screen_security.windows_affinity",
             enabled=True,
@@ -473,8 +570,11 @@ def _apply_affinity_to_hwnd(hwnd: int, *, enabled: bool) -> bool:
     user32 = _user32()
     root = int(user32.GetAncestor(hwnd, GA_ROOT) or 0) or hwnd
     affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
-    if user32.SetWindowDisplayAffinity(root, affinity):
+    # This fires on every window create *and* show event in a watched process,
+    # which for the main window is often. Conditional, so an already-excluded
+    # window is not rebuilt — and made to flicker — on every show.
+    if _set_affinity_if_needed(user32, root, affinity):
         return True
     if not enabled:
         return False
-    return bool(user32.SetWindowDisplayAffinity(root, WDA_MONITOR))
+    return _set_affinity_if_needed(user32, root, WDA_MONITOR)

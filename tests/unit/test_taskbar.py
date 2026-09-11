@@ -97,3 +97,40 @@ def test_windows_showing_restores_appwindow(monkeypatch: pytest.MonkeyPatch) -> 
     assert not (ex & WS_EX_TOOLWINDOW)
     # Not visible: no cycle needed, the style is adopted on the next show.
     assert user32.ShowWindow.call_count == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 ex-style only")
+def test_an_ordinary_window_is_not_restyled_just_to_keep_its_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default path must touch nothing.
+
+    A normal top-level window already has a taskbar button; it does not need
+    `WS_EX_APPWINDOW`. Setting it anyway changed the ex-style of every window
+    that had never used this feature — and the change is paid for with a
+    hide/show cycle, which is a whole-window flash at every launch.
+    """
+    user32 = _fake_user32(0)  # neither bit: an ordinary Qt main window
+    monkeypatch.setattr("ctypes.windll", MagicMock(user32=user32))
+    window = SimpleNamespace(winId=lambda: 0x10, isVisible=lambda: True)
+
+    assert set_window_in_taskbar(window, shown=True) is True
+
+    assert user32._state["ex"] == 0
+    assert user32.ShowWindow.call_count == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 ex-style only")
+def test_a_hidden_window_is_still_restored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Doing nothing in the ordinary case must not become doing nothing."""
+    user32 = _fake_user32(WS_EX_TOOLWINDOW)
+    monkeypatch.setattr("ctypes.windll", MagicMock(user32=user32))
+    window = SimpleNamespace(winId=lambda: 0x10, isVisible=lambda: True)
+
+    assert set_window_in_taskbar(window, shown=True) is True
+
+    ex = user32._state["ex"]
+    assert ex & WS_EX_APPWINDOW
+    assert not (ex & WS_EX_TOOLWINDOW)
+    # Visible, and the style really changed, so the cycle is warranted here.
+    assert user32.ShowWindow.call_count == 2
