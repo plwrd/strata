@@ -5,11 +5,17 @@ Two ways to put a page in front of you, one set of models:
 * **embedded** — a browser pane inside the Strata window (Qt WebEngine, its own
   persistent profile). The default. No loopback port, no second process, and
   sign-ins survive restarts. It cannot load Chrome extensions: Qt ships
-  Chromium without the extensions subsystem, and no setting changes that.
+  Chromium without the extensions subsystem, and no setting changes that. It
+  also cannot play H.264 or AAC — that Qt build carries no proprietary codecs.
+* **webview2** — the same pane, in the same window, rendered by the Microsoft
+  Edge WebView2 runtime (Windows only). Chosen when video matters: Edge ships
+  the codecs Qt's build does not. Being inside Strata's own window, it stays
+  under the window's screen-capture exclusion — see ADR-0012.
 * **chrome** — the Chrome you already have, driven over the DevTools protocol
-  on a loopback port against a Strata-owned profile. For the pages the embedded
-  view genuinely cannot do: anything that needs your extensions, and the
-  sign-in flows that refuse embedded browsers.
+  on a loopback port against a Strata-owned profile. For the pages neither
+  in-window view can do: anything that needs your extensions, and the sign-in
+  flows that refuse embedded browsers. It is a browser Strata does not own, so
+  it is the one backend that cannot be kept out of a screen recording.
 
 Both produce the same :class:`ScrapedPage` from the same extraction, so the
 research pipeline downstream cannot tell them apart — and neither can the parts
@@ -27,7 +33,11 @@ from pydantic import BaseModel, ConfigDict, Field
 # the engine sees a normal browser request from a normal browser session.
 SearchEngine = Literal["duckduckgo", "google", "bing", "brave", "kagi", "startpage"]
 
-BrowserBackend = Literal["embedded", "chrome"]
+BrowserBackend = Literal["embedded", "webview2", "chrome"]
+
+# The two that render inside the Strata window. They differ by engine, not by
+# how the app drives them — the pane contract and the capture story are shared.
+IN_WINDOW_BACKENDS: frozenset[str] = frozenset({"embedded", "webview2"})
 
 SEARCH_URLS: dict[str, str] = {
     "duckduckgo": "https://duckduckgo.com/?q={query}",

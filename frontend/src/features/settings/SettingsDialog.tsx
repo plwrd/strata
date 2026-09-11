@@ -696,15 +696,22 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 }
               >
                 <option value="embedded">Pane in this window</option>
+                <option value="webview2">
+                  Pane in this window (Edge engine — plays video)
+                </option>
                 <option value="chrome">Your own Chrome</option>
               </select>
             </label>
             <p className="settings-dialog__hint">
-              The pane keeps its own sign-ins and needs nothing installed, but
-              it cannot load Chrome extensions — Qt ships Chromium without the
-              extensions subsystem. Choose your own Chrome when a page needs
-              your extensions, or refuses to let you sign in to an embedded
-              browser.
+              Either pane keeps its own sign-ins and needs nothing installed,
+              but neither can load Chrome extensions — Chromium's extensions
+              subsystem is not in these builds. The built-in pane cannot play
+              H.264 or AAC, so most video stays blank; the Edge engine can, and
+              stays inside this window, so the screen-capture exclusion below
+              still covers it. Choose your own Chrome only when a page needs
+              your extensions or refuses to let you sign in to an embedded
+              browser — it is the one option Strata cannot keep out of a screen
+              recording.
             </p>
             <label className="composer__field">
               <span className="label">Search engine</span>

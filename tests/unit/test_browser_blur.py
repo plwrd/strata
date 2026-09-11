@@ -19,16 +19,16 @@ import pytest
 # The pane module imports PySide6 at load; skip cleanly where Qt is absent.
 pytest.importorskip("PySide6.QtWebEngineCore")
 
-from app.desktop.browser_pane import _BLUR_SELECTOR, _blur_source
+from app.desktop.browser_pane import _BLUR_SELECTOR, blur_source
 
 
 def test_off_disables_the_injection() -> None:
-    source = _blur_source(False, 16)
+    source = blur_source(False, 16)
     assert "const ON = false" in source
 
 
 def test_on_sets_an_inline_important_filter() -> None:
-    source = _blur_source(True, 16)
+    source = blur_source(True, 16)
     assert "const ON = true" in source
     # Inline !important via the CSSOM — beats a site's own !important rule, and is
     # not subject to the page's style-src CSP the way an injected <style> is.
@@ -47,14 +47,14 @@ def test_the_selector_covers_what_sites_really_use() -> None:
 
 def test_video_is_promoted_to_its_own_layer() -> None:
     # A blurred <video> flickers against the GPU overlay; translateZ(0) settles it.
-    source = _blur_source(True, 16)
+    source = blur_source(True, 16)
     assert "translateZ(0)" in source
     assert 'el.tagName === "VIDEO"' in source
 
 
 def test_dynamic_media_is_caught_after_load() -> None:
     # Single-page apps add media nodes after first paint; an observer re-applies.
-    source = _blur_source(True, 16)
+    source = blur_source(True, 16)
     assert "MutationObserver" in source
 
 
@@ -62,7 +62,7 @@ def test_late_attributes_are_observed_not_just_added_nodes() -> None:
     # x.com inserts an avatar <div> first and sets its background-image a tick
     # later, and lazy-loads <img>/<video> via a later src — attribute changes,
     # not child additions. The observer must watch those attributes.
-    source = _blur_source(True, 16)
+    source = blur_source(True, 16)
     assert "attributes: true" in source
     assert '"style", "src", "srcset", "poster"' in source
 
@@ -70,13 +70,13 @@ def test_late_attributes_are_observed_not_just_added_nodes() -> None:
 def test_scroll_triggers_a_sweep_for_recycled_content() -> None:
     # Infinite scroll recycles nodes and may not fire a useful mutation per card;
     # a throttled sweep on scroll is the safety net.
-    assert 'addEventListener("scroll"' in _blur_source(True, 16)
+    assert 'addEventListener("scroll"' in blur_source(True, 16)
 
 
 def test_a_reinjection_tears_down_the_previous_run() -> None:
     # Re-running (toggle, or a fresh navigation) must not stack observers and
     # scroll listeners; the previous run is stopped first.
-    assert "prev.stop()" in _blur_source(True, 16)
+    assert "prev.stop()" in blur_source(True, 16)
 
 
 @pytest.mark.parametrize(
@@ -84,16 +84,16 @@ def test_a_reinjection_tears_down_the_previous_run() -> None:
     [(-5, 1), (0, 1), (1, 1), (16, 16), (100, 100), (9999, 100)],
 )
 def test_the_radius_is_clamped(amount: int, expected: int) -> None:
-    assert f"RADIUS = {expected}" in _blur_source(True, amount)
+    assert f"RADIUS = {expected}" in blur_source(True, amount)
 
 
 def test_the_amount_cannot_break_out_of_the_injected_script() -> None:
     """A hostile radius is coerced through int(); it cannot inject CSS or JS."""
     with pytest.raises((ValueError, TypeError)):
-        _blur_source(True, "16px; } evil()")  # type: ignore[arg-type]
+        blur_source(True, "16px; } evil()")  # type: ignore[arg-type]
 
 
 def test_the_selector_is_embedded_as_a_json_string() -> None:
-    source = _blur_source(True, 16)
+    source = blur_source(True, 16)
     # The selector is a JSON string literal, not spliced in raw.
     assert "\"img,video,canvas,picture,iframe,[style*='background-image']\"" in source

@@ -68,7 +68,7 @@ export interface FakeBridgeOptions {
   /** False models a workspace where browser research was never switched on. */
   browserEnabled?: boolean;
   /** Which research browser the fake reports. Defaults to the pane. */
-  browserBackend?: "embedded" | "chrome";
+  browserBackend?: "embedded" | "webview2" | "chrome";
   /** Seed the health report served via `workspace.knowledge_health`. */
   health?: HealthReport;
   failWith?: { code: string; message: string };
@@ -1349,7 +1349,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           tab_count: 0,
           blur_enabled: false,
           blur_amount: 12,
-          blur_supported: browserBackend === "embedded",
+          blur_supported: browserBackend !== "chrome",
           mobile_mode: false,
           detail: browserEnabled
             ? "The browser pane is closed."
@@ -1370,7 +1370,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           tab_count: 1,
           blur_enabled: false,
           blur_amount: 12,
-          blur_supported: browserBackend === "embedded",
+          blur_supported: browserBackend !== "chrome",
           mobile_mode: false,
           detail: "The browser pane is open on example.com.",
         },
@@ -1389,7 +1389,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           tab_count: 0,
           blur_enabled: false,
           blur_amount: 12,
-          blur_supported: browserBackend === "embedded",
+          blur_supported: browserBackend !== "chrome",
           mobile_mode: false,
           detail: "The browser pane is closed.",
         },

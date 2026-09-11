@@ -185,8 +185,8 @@ class AppSettings(BaseModel):
     @classmethod
     def _check_backend(cls, value: Any) -> str:
         backend = str(value).strip().lower()
-        if backend not in ("embedded", "chrome"):
-            raise ValueError("browser_backend must be 'embedded' or 'chrome'")
+        if backend not in ("embedded", "webview2", "chrome"):
+            raise ValueError("browser_backend must be 'embedded', 'webview2' or 'chrome'")
         return backend
 
     @field_validator("browser_debug_port", mode="before")

@@ -25,7 +25,7 @@ never the editor.
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, Slot
@@ -188,7 +188,7 @@ MOBILE_USER_AGENT = (
 )
 
 
-def _blur_source(enabled: bool, amount: int) -> str:
+def blur_source(enabled: bool, amount: int) -> str:
     import json
 
     radius = max(1, min(100, int(amount)))
@@ -240,6 +240,10 @@ class BrowserPane(QWidget):
     """Toolbar plus view. Owns the page; knows nothing about research."""
 
     urlChanged = Signal(str)
+
+    # Which engine is behind this pane. Read by `EmbeddedSource` and reported
+    # to the user, because it decides whether video plays (see ADR-0012).
+    backend: BrowserBackend = "embedded"
 
     def __init__(self, profile: QWebEngineProfile, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -342,7 +346,7 @@ class BrowserPane(QWidget):
         self._blur_enabled = bool(enabled)
         self._blur_amount = max(1, min(100, int(amount)))
         self._install_blur_script()
-        self._page.runJavaScript(_blur_source(self._blur_enabled, self._blur_amount))
+        self._page.runJavaScript(blur_source(self._blur_enabled, self._blur_amount))
 
     def set_mobile(self, enabled: bool) -> None:
         """Serve sites their mobile layout by swapping the user-agent. Qt thread only.
@@ -366,7 +370,7 @@ class BrowserPane(QWidget):
             scripts.remove(self._blur_script)
         script = QWebEngineScript()
         script.setName("strata-blur")
-        script.setSourceCode(_blur_source(self._blur_enabled, self._blur_amount))
+        script.setSourceCode(blur_source(self._blur_enabled, self._blur_amount))
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(True)
@@ -378,22 +382,43 @@ class BrowserPane(QWidget):
         self._page.runJavaScript(extraction_script(), 0, deliver)
 
 
+class ResearchPane(Protocol):
+    """What the service needs of an in-window pane, whatever draws it.
+
+    Both the Qt pane above and the WebView2 pane in ``app.desktop.webview2``
+    satisfy this. Stated as a protocol rather than a base class because the two
+    share no implementation — one *is* a ``QWebEngineView``, the other owns an
+    HWND — only a contract.
+    """
+
+    backend: BrowserBackend
+
+    def current(self) -> BrowserTab: ...
+    def is_mobile(self) -> bool: ...
+    def isVisible(self) -> bool: ...
+    def load_url(self, url: str) -> None: ...
+    def set_blur(self, enabled: bool, amount: int) -> None: ...
+    def set_mobile(self, enabled: bool) -> None: ...
+    def extract(self, deliver: Any) -> None: ...
+
+
 class EmbeddedSource(QObject):
     """Adapts the pane to :class:`app.services.browser_service.PageSource`.
 
     The service calls this from a worker thread; every touch of the pane is
-    marshalled onto the Qt thread first, because a ``QWebEnginePage`` may only
-    be driven from the thread that owns it.
+    marshalled onto the Qt thread first, because neither engine may be driven
+    from a thread that does not own it.
     """
-
-    backend: BrowserBackend = "embedded"
 
     _readRequested = Signal()
 
-    def __init__(self, pane: BrowserPane, show: Any, parent: QObject | None = None) -> None:
+    def __init__(self, pane: ResearchPane, show: Any, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._pane = pane
         self._show = show
+        # An instance attribute, not a class one: which engine is behind the
+        # pane is decided per window, and the service reports it to the user.
+        self.backend: BrowserBackend = getattr(pane, "backend", "embedded")
         self._lock = threading.Lock()
         self._done = threading.Event()
         self._result: ScrapedPage | None = None
@@ -405,18 +430,26 @@ class EmbeddedSource(QObject):
     def status(self) -> BrowserStatus:
         tab = self._pane.current()
         showing = self._pane.isVisible()
+        # An engine can fail *after* the pane is built — WebView2's controller
+        # arrives asynchronously, so "the runtime is missing" is caught before
+        # the pane exists but "the controller would not start" is not. Saying
+        # so here is the difference between a pane that looks merely empty and
+        # one the user knows to switch away from.
+        failure = str(getattr(self._pane, "failure_reason", "") or "")
+        if failure:
+            detail = f"The browser pane could not start its engine. {failure}"
+        elif showing:
+            detail = f"The browser pane is open on {_host(tab.url) or 'a blank page'}."
+        else:
+            detail = "The browser pane is closed."
         return BrowserStatus(
-            backend="embedded",
-            running=showing,
+            backend=self.backend,
+            running=showing and not failure,
             supports_extensions=False,
             mobile_mode=self._pane.is_mobile(),
             profile_path="",
             tab_count=1 if tab.url else 0,
-            detail=(
-                f"The browser pane is open on {_host(tab.url) or 'a blank page'}."
-                if showing
-                else "The browser pane is closed."
-            ),
+            detail=detail,
         )
 
     def ensure_ready(self) -> BrowserStatus:

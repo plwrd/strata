@@ -871,7 +871,7 @@ export interface CollaborationState {
 // field below describes something that happened in *that* browser; page text
 // is untrusted data and is rendered as text, never as markup.
 
-export type BrowserBackend = "embedded" | "chrome";
+export type BrowserBackend = "embedded" | "webview2" | "chrome";
 export type DigestMode = "full" | "brief" | "outline";
 
 export interface BrowserStatus {

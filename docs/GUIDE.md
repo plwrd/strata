@@ -256,21 +256,42 @@ The loop:
 
 ### When the pane is not enough
 
-The pane cannot load Chrome extensions. That is not a setting we forgot: Qt
-ships Chromium without the extensions subsystem, so there is nothing to switch
-on. A few sign-in pages also refuse embedded browsers outright.
-
-It also cannot play **H.264 video** — the format x.com, YouTube and most of the
+The pane cannot play **H.264 video** — the format x.com, YouTube and most of the
 web use. Qt's bundled browser omits the patent-encumbered H.264/AAC codecs, so
 those videos stay blank (WebM/VP9 and AV1 do play). This is a property of the
 engine, not a bug: there is no flag that adds a codec that was never compiled
 in. Images, text and scraping are unaffected.
 
-For those, Settings → Browser research → **Browser** offers *Your own Chrome*.
-Strata then launches the Chrome you already have — your extensions, a profile
-Strata owns — and reads the tab you point it at instead. Everything else in
-this section works identically; the panel grows a tab picker, because Chrome
-has real tabs and the pane shows one page.
+It also cannot load Chrome extensions. That is not a setting we forgot: Qt
+ships Chromium without the extensions subsystem, so there is nothing to switch
+on. A few sign-in pages also refuse embedded browsers outright.
+
+Settings → Browser research → **Browser** offers two answers, and they are not
+equivalent where privacy is concerned.
+
+**Pane in this window (Edge engine)** — Windows only. The same pane, in the same
+place, rendered by the Microsoft Edge WebView2 runtime instead of Qt's Chromium.
+Edge ships the codecs Qt's build does not, so **video plays**. Because it is
+still inside Strata's window, *Hidden for sharing* (§17) still covers it —
+including the engine's own menus and dropdowns, which run in a browser process
+Strata starts and can account for. It needs the Edge WebView2 runtime, which is
+already present on Windows 11 and most Windows 10 machines; Strata ships only a
+166 KB loader and installs nothing. If the runtime is missing the pane says so
+and research falls back to the built-in engine — the setting will show what is
+actually running, not what was asked for.
+
+**Your own Chrome** — Strata launches the Chrome you already have, with your
+extensions and a profile Strata owns, and reads the tab you point it at. The
+panel grows a tab picker, because Chrome has real tabs and the pane shows one
+page. Choose this when a page genuinely needs your extensions or refuses to let
+you sign in to an embedded browser — and know the trade: it is a browser Strata
+does not own, so **it is the one option that cannot be kept out of a screen
+recording**. Strata excludes the windows of the process it launched, but a
+browser opens more windows over its life, and a promise that quietly stops
+holding is worse than none.
+
+Switching engines takes effect when Strata next starts: the pane is built with
+the window.
 
 ### Blurring media on a shared screen
 
@@ -285,8 +306,8 @@ shortcut could not reach.
 It blurs avatars and background-image thumbnails too, not only `<img>` tags —
 sites like x.com render those as styled `<div>`s — and it holds on pages that
 re-render as you scroll. Set the strength (and whether the pane starts blurred)
-in Settings → Browser research. Blur applies to the built-in pane only — Strata
-does not reach into your own Chrome to restyle it. It pairs with *Hidden for
+in Settings → Browser research. Blur applies to whichever engine backs the pane
+in this window — Strata does not reach into your own Chrome to restyle it. It pairs with *Hidden for
 sharing* (§17), which excludes the whole window from capture pipelines: blur is
 for a screen someone can see, *Hidden for sharing* is for one being captured.
 
@@ -906,19 +927,23 @@ The exclusion is enforced by the Windows desktop compositor, which means it can
 only cover what the compositor draws. A video promoted to a *hardware overlay
 plane* is scanned out beside the compositor's output rather than through it, so
 it would escape the exclusion — and the hand-off is what made the window flicker.
-Strata therefore launches its browser engine with video overlays off, and with
-hardware video decode off while *Hidden for sharing* is on. Video costs a little
-more CPU as a result, and it stays inside the exclusion. If you want to measure
-that trade-off, `QTWEBENGINE_CHROMIUM_FLAGS` in the environment overrides the
-whole set.
+Strata therefore launches *both* of its browser engines with video overlays off,
+and with hardware video decode off while *Hidden for sharing* is on. Video costs
+a little more CPU as a result, and it stays inside the exclusion. If you want to
+measure that trade-off, `QTWEBENGINE_CHROMIUM_FLAGS` in the environment
+overrides the whole set for the built-in engine.
 
 Turn it off in Settings if you need to demo or record Strata itself.
 
-One honest limit: this covers the windows Strata itself owns. The **Chrome
-backend** (Settings → browser backend) drives a *separate* browser you already
-have installed; Strata excludes the windows of the process it launched, but it
-cannot follow every window that browser goes on to open. If being hidden from a
-recording matters more than in-pane H.264 video, use the embedded pane.
+One honest limit: this covers the windows Strata itself owns. Both in-window
+research engines qualify — the built-in pane draws into a Strata window, and the
+Edge engine puts its menus in a browser process Strata starts, which the
+exclusion sweep covers. The **Chrome backend** (§9) does not: it drives a
+*separate* browser you already have installed, and while Strata excludes the
+windows of the process it launched, it cannot follow every window that browser
+goes on to open. Video and capture protection are no longer a trade — the Edge
+engine gives you both, and your own Chrome is the one choice that gives up the
+second.
 
 **Minimize to tray** (**off by default**) puts a Strata icon in the system tray.
 With it on, closing or minimizing the window *hides* it — it leaves the taskbar,

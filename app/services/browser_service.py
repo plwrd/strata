@@ -34,11 +34,12 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from urllib.parse import quote_plus, urlsplit
 
 from app.desktop.screen_security import set_process_windows_excluded_from_capture
 from app.domain.browser import (
+    IN_WINDOW_BACKENDS,
     SEARCH_URLS,
     BrowserBackend,
     BrowserStatus,
@@ -426,8 +427,21 @@ class BrowserService:
 
     @property
     def backend(self) -> BrowserBackend:
+        """What the *window actually built*, which is not always what is set.
+
+        A WebView2 pane can be asked for and not be possible — no runtime, no
+        loader — in which case the window falls back to the Qt pane and attaches
+        that. Reporting the setting rather than the attached pane would tell the
+        user they are on an engine they are not, and the difference decides
+        whether video plays.
+        """
         configured = self._settings.settings.browser_backend
-        return "chrome" if configured == "chrome" else "embedded"
+        if configured == "chrome":
+            return "chrome"
+        attached = getattr(self._embedded, "backend", None)
+        if attached in IN_WINDOW_BACKENDS:
+            return cast(BrowserBackend, attached)
+        return "embedded"
 
     def _source(self) -> PageSource:
         if self.backend == "chrome":
@@ -456,9 +470,9 @@ class BrowserService:
 
     @property
     def blur_supported(self) -> bool:
-        # The pane can be restyled; a separate real Chrome is not Strata's to
-        # reach into and repaint.
-        return self.backend == "embedded" and self._embedded is not None
+        # Either in-window pane can be restyled; a separate real Chrome is not
+        # Strata's to reach into and repaint.
+        return self.backend in IN_WINDOW_BACKENDS and self._embedded is not None
 
     def blur_state(self) -> tuple[bool, int]:
         return self._blur_enabled, self._blur_amount
@@ -490,13 +504,25 @@ class BrowserService:
     # -- capture exclusion (Chrome backend only) -----------------------------
 
     def apply_capture_exclusion(self, enabled: bool) -> None:
-        """Hide the launched Chrome's windows from capture (Chrome backend only).
+        """Reach the browser windows that are not Strata's own.
 
-        The embedded pane is a Strata window, already covered by the window's own
-        exclusion; this reaches the separate Chrome process Strata started.
+        The Qt pane is drawn into a Strata window and is covered by that
+        window's exclusion. The other two are not: Chrome is a separate browser
+        entirely, and WebView2 renders in our window but puts its popups and
+        menus in an ``msedgewebview2.exe`` of its own. Both need the sweep — the
+        difference is that the WebView2 process is one Strata started and can
+        therefore account for, which is the whole reason it is preferred.
         """
         if self.backend == "chrome":
             self._chrome.apply_capture_exclusion(enabled)
+            return
+        pid = getattr(self._embedded, "browser_process_id", 0)
+        if callable(pid):  # pragma: no cover - defensive against a property/method mix-up
+            pid = pid()
+        if pid:
+            set_process_windows_excluded_from_capture(
+                int(pid), enabled=enabled, include_hidden=True
+            )
 
     # -- mobile mode ---------------------------------------------------------
 

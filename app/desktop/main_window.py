@@ -10,6 +10,7 @@ no bridge at all (see ``app.desktop.browser_pane``).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl
 from PySide6.QtGui import (
@@ -24,6 +25,7 @@ from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget
 
+from app.bootstrap import resource_root
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
 from app.desktop.screen_security import (
     set_own_windows_excluded_from_capture,
@@ -36,6 +38,12 @@ from app.desktop.webchannel import build_channel
 from app.desktop.webengine import APP_URL, StrataPage, build_profile
 from app.infrastructure.logging.logger import get_logger
 from app.services.container import Services
+
+if TYPE_CHECKING:
+    # Imported for typing only: the WebView2 binding must not be loaded on a
+    # machine that will never use it, but mypy still checks the pane against
+    # the `ResearchPane` protocol the service expects.
+    from app.desktop.webview2.pane import WebView2Pane
 
 logger = get_logger(__name__)
 
@@ -125,11 +133,7 @@ class MainWindow(QMainWindow):
         # The browser pane: built now, hidden until research opens it. Nothing
         # is loaded into it until then, so an unused pane costs a widget, not a
         # renderer process.
-        self._browser_profile = build_browser_profile(
-            services.paths.data_dir / "browser-pane",
-            parent=QApplication.instance(),
-        )
-        self._browser_pane = BrowserPane(self._browser_profile, self)
+        self._browser_pane = self._build_browser_pane(services)
         self._browser_pane.hide()
 
         self._splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -170,6 +174,53 @@ class MainWindow(QMainWindow):
         self._capture_sweep.setInterval(CAPTURE_SWEEP_MS)
         self._capture_sweep.timeout.connect(self._tick_capture_sweep)
         self._capture_sweep.start()
+
+    def _build_browser_pane(self, services: Services) -> BrowserPane | WebView2Pane:
+        """The research pane, on whichever engine the settings ask for.
+
+        WebView2 is a *request*, not a guarantee — the runtime may be absent and
+        the redistributable may not have shipped. Rather than lose research
+        entirely, fall back to the Qt pane and let the status line say which
+        engine is actually running; the difference decides whether video plays,
+        so it is not something to hide.
+        """
+        from PySide6.QtWidgets import QApplication
+
+        if services.settings.settings.browser_backend == "webview2":
+            pane = self._try_webview2_pane(services)
+            if pane is not None:
+                return pane
+
+        self._browser_profile = build_browser_profile(
+            services.paths.data_dir / "browser-pane",
+            parent=QApplication.instance(),
+        )
+        return BrowserPane(self._browser_profile, self)
+
+    def _try_webview2_pane(self, services: Services) -> WebView2Pane | None:
+        """Build the WebView2 pane, or None with the reason logged.
+
+        Imported here rather than at module scope so a machine without WebView2
+        — or a platform without it at all — does not pay for the binding just by
+        opening a window.
+        """
+        try:
+            from app.desktop.webview2 import sdk
+            from app.desktop.webview2.pane import WebView2Pane
+        except ImportError as exc:  # pragma: no cover - the package is committed
+            logger.warning("browser_pane.webview2_import_failed", error=str(exc))
+            return None
+
+        loader = sdk.loader_path(resource_root())
+        if loader is None:
+            logger.warning("browser_pane.webview2_loader_missing")
+            return None
+        return WebView2Pane(
+            user_data_dir=services.paths.data_dir / "webview2-pane",
+            loader=loader,
+            hide_for_sharing=self._hide_for_sharing,
+            parent=self,
+        )
 
     def _toggle_blur(self) -> None:
         """Flip media blur in the pane. A no-op when there is nothing to blur."""
@@ -319,6 +370,10 @@ class MainWindow(QMainWindow):
         is, only that it is ours.
         """
         set_own_windows_excluded_from_capture(enabled=self._hide_for_sharing)
+        # The research engine may render in a process of its own — WebView2's
+        # browser process, or a launched Chrome. Its menus and dropdowns are
+        # that process's windows, so a sweep of ours cannot reach them.
+        self._services.browser.apply_capture_exclusion(self._hide_for_sharing)
 
     def _tick_capture_sweep(self) -> None:
         """Heartbeat sweep: only while hiding, and only for windows we own."""
@@ -392,6 +447,11 @@ class MainWindow(QMainWindow):
         # (or a signed-in pane) must not outlive Strata — THREAT_MODEL.md T-34.
         if self._tray is not None:
             self._tray.dispose()
+        # The WebView2 controller has to be closed while its host window still
+        # exists; leaving it to teardown means closing it against a dead HWND.
+        shutdown = getattr(self._browser_pane, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
         self._services.browser.close()
         self._services.workspace.close()
         super().closeEvent(event)
