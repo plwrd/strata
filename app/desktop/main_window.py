@@ -219,6 +219,9 @@ class MainWindow(QMainWindow):
             user_data_dir=services.paths.data_dir / "webview2-pane",
             loader=loader,
             hide_for_sharing=self._hide_for_sharing,
+            extensions=tuple(
+                Path(folder) for folder in services.settings.settings.browser_extensions
+            ),
             parent=self,
         )
 

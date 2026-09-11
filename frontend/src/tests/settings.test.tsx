@@ -40,6 +40,7 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       hide_from_taskbar: false,
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
+      browser_extensions: [] as string[],
       browser_executable_path: "",
       browser_profile_path: "",
       browser_debug_port: 9333,
@@ -167,6 +168,65 @@ describe("SettingsDialog", () => {
     );
     await waitFor(() =>
       expect(applySettings).toHaveBeenCalledWith({ battery_saver: true }),
+    );
+  });
+  it("keeps the extension list out of the way unless the Edge engine is on", () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(
+      screen.queryByRole("button", { name: /Add an extension folder/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("lists the extension folders the Edge pane will load", () => {
+    seedReady({
+      browser_control_enabled: true,
+      browser_backend: "webview2",
+      browser_extensions: ["C:/tools/ublock", "C:/tools/reader"],
+    });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(screen.getByText("C:/tools/ublock")).toBeInTheDocument();
+    expect(screen.getByText("C:/tools/reader")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Add an extension folder/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("removes one extension without disturbing the others", async () => {
+    seedReady({
+      browser_control_enabled: true,
+      browser_backend: "webview2",
+      browser_extensions: ["C:/tools/ublock", "C:/tools/reader"],
+    });
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove extension C:/tools/ublock" }),
+    );
+
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        browser_extensions: ["C:/tools/reader"],
+      }),
+    );
+  });
+
+  it("survives the user cancelling the folder picker", async () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "webview2" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Add an extension folder/ }),
+    );
+
+    // Cancelling rejects; the dialog must stay usable rather than surface it.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Add an extension folder/ }),
+      ).toBeInTheDocument(),
     );
   });
 });

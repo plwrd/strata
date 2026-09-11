@@ -283,15 +283,42 @@ actually running, not what was asked for.
 **Your own Chrome** — Strata launches the Chrome you already have, with your
 extensions and a profile Strata owns, and reads the tab you point it at. The
 panel grows a tab picker, because Chrome has real tabs and the pane shows one
-page. Choose this when a page genuinely needs your extensions or refuses to let
-you sign in to an embedded browser — and know the trade: it is a browser Strata
-does not own, so **it is the one option that cannot be kept out of a screen
-recording**. Strata excludes the windows of the process it launched, but a
-browser opens more windows over its life, and a promise that quietly stops
-holding is worse than none.
+page. Choose this when a page refuses to let you sign in to an embedded
+browser, or when you need an extension you can only install from the store —
+and know the trade: it is a browser Strata does not own, so **it is the one
+option that cannot be kept out of a screen recording**. Strata excludes the
+windows of the process it launched, but a browser opens more windows over its
+life, and a promise that quietly stops holding is worse than none.
 
 Switching engines takes effect when Strata next starts: the pane is built with
 the window.
+
+### Extensions in the pane
+
+The Edge engine can load **extensions** — an ad blocker, a reader mode, a
+paywall helper — so the pane is no longer the poor relation of your own Chrome.
+Settings → Browser research → **Extensions** → *Add an extension folder…* opens
+a folder picker; remove one with the button beside it.
+
+Two things to know before you use it.
+
+**It takes a folder, not a `.crx`.** WebView2 has no store-install path, so you
+point Strata at an *unpacked* extension — the directory that contains
+`manifest.json`. Most extensions can be unpacked from their `.crx` (it is a zip
+with a header) or cloned from source. Strata loads up to ten, and tells you in
+the Research panel which ones loaded and which folder it could not find, so a
+blocker that has quietly stopped running does not look like one that is working.
+
+**An extension is third-party code with sight of everything you research.** It
+runs in the pane, reads every page you open there, and can send what it reads
+anywhere it likes — that is what extensions are. It *cannot* reach your
+workspace: the pane has no bridge to Strata, holds no channel to Python, and
+that is true of extensions exactly as it is of the pages they run on. Add ones
+you would trust with your reading; the list is empty until you put something in
+it, and adding each one is a deliberate act.
+
+Extensions load when the engine's browser process starts, so a change here
+takes effect the next time you start Strata.
 
 ### Blurring media on a shared screen
 

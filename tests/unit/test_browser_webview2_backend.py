@@ -223,6 +223,8 @@ class FakeWidgetPane:
     def __init__(self, backend: str) -> None:
         self.backend = backend
         self.failure_reason = ""
+        self.loaded_extensions: list[str] = []
+        self.extension_errors: list[str] = []
 
     def current(self) -> BrowserTab:
         return BrowserTab(target_id="pane", title="A page", url="https://example.com/", active=True)
@@ -294,3 +296,71 @@ def test_a_healthy_pane_reports_the_page_not_an_error() -> None:
 
     assert status.running is True
     assert "example.com" in status.detail
+
+
+# -- extensions ----------------------------------------------------------------
+
+
+def test_extensions_default_to_none() -> None:
+    assert AppSettings().browser_extensions == []
+
+
+def test_extension_paths_are_tidied_not_validated() -> None:
+    """Whitespace and duplicates go; a missing folder is *kept*.
+
+    Settings must load on a machine where the folder has since been moved —
+    the pane reports that when it tries, rather than the app refusing to start.
+    """
+    settings = AppSettings(
+        browser_extensions=["  C:/tools/ublock  ", "C:/tools/ublock", "", "C:/gone"]
+    )
+
+    assert settings.browser_extensions == ["C:/tools/ublock", "C:/gone"]
+
+
+def test_a_bare_string_is_not_a_list_of_folders() -> None:
+    """Otherwise "C:/tools/ublock" silently becomes eighteen one-character paths."""
+    with pytest.raises(ValueError, match="browser_extensions"):
+        AppSettings(browser_extensions="C:/tools/ublock")
+
+
+def test_the_extension_list_is_capped() -> None:
+    with pytest.raises(ValueError, match="at most"):
+        AppSettings(browser_extensions=[f"C:/tools/e{index}" for index in range(50)])
+
+
+def test_loaded_extensions_are_named_in_the_status() -> None:
+    pytest.importorskip("PySide6.QtWebEngineWidgets")
+    from app.desktop.browser_pane import EmbeddedSource
+
+    pane = FakeWidgetPane("webview2")
+    pane.loaded_extensions = ["uBlock Origin"]
+
+    status = EmbeddedSource(pane, lambda visible: None).status()
+
+    assert status.supports_extensions is True
+    assert "uBlock Origin" in status.detail
+
+
+def test_an_extension_that_did_not_load_is_not_passed_over() -> None:
+    """Silence here reads as "it is working", which is the wrong answer."""
+    pytest.importorskip("PySide6.QtWebEngineWidgets")
+    from app.desktop.browser_pane import EmbeddedSource
+
+    pane = FakeWidgetPane("webview2")
+    pane.extension_errors = ["C:/gone is not a folder."]
+
+    status = EmbeddedSource(pane, lambda visible: None).status()
+
+    assert status.supports_extensions is False
+    assert "C:/gone is not a folder." in status.detail
+
+
+def test_a_pane_with_no_extensions_claims_none() -> None:
+    pytest.importorskip("PySide6.QtWebEngineWidgets")
+    from app.desktop.browser_pane import EmbeddedSource
+
+    status = EmbeddedSource(FakeWidgetPane("webview2"), lambda visible: None).status()
+
+    assert status.supports_extensions is False
+    assert "Extensions" not in status.detail

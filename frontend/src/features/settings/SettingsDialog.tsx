@@ -253,7 +253,7 @@ function ColorRow(props: {
 }
 
 export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
-  const { settings, applySettings } = useStore();
+  const { settings, applySettings, chooseBrowserExtension } = useStore();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -703,16 +703,58 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               </select>
             </label>
             <p className="settings-dialog__hint">
-              Either pane keeps its own sign-ins and needs nothing installed,
-              but neither can load Chrome extensions — Chromium's extensions
-              subsystem is not in these builds. The built-in pane cannot play
-              H.264 or AAC, so most video stays blank; the Edge engine can, and
-              stays inside this window, so the screen-capture exclusion below
-              still covers it. Choose your own Chrome only when a page needs
-              your extensions or refuses to let you sign in to an embedded
-              browser — it is the one option Strata cannot keep out of a screen
-              recording.
+              Both panes keep their own sign-ins and need nothing installed. The
+              built-in one cannot play H.264 or AAC, so most video stays blank,
+              and it cannot load extensions — Qt ships Chromium without the
+              extensions subsystem. The Edge engine does both, and stays inside
+              this window, so the screen-capture exclusion below still covers
+              it. Choose your own Chrome only when a page refuses to let you
+              sign in to an embedded browser — it is the one option Strata
+              cannot keep out of a screen recording.
             </p>
+            {settings?.browser_backend === "webview2" && (
+              <div className="composer__field">
+                <span className="label">Extensions</span>
+                <ul className="settings-dialog__list">
+                  {(settings?.browser_extensions ?? []).map((folder) => (
+                    <li key={folder} className="settings-dialog__row">
+                      <code title={folder}>{folder}</code>
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        aria-label={`Remove extension ${folder}`}
+                        onClick={() =>
+                          void applySettings({
+                            browser_extensions: (
+                              settings?.browser_extensions ?? []
+                            ).filter((kept) => kept !== folder),
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void chooseBrowserExtension()}
+                >
+                  Add an extension folder…
+                </button>
+                <p className="settings-dialog__hint">
+                  Unpacked extensions only — pick the folder holding
+                  <code> manifest.json</code>, not a <code>.crx</code> file.
+                  There is no store install here. An extension sees every page
+                  the pane visits and can send what it sees anywhere, so add
+                  only ones you would trust with your research; it cannot reach
+                  your workspace, because the pane has no bridge to it. Changes
+                  take effect next time Strata starts — the engine loads
+                  extensions when its browser process is created.
+                </p>
+              </div>
+            )}
             <label className="composer__field">
               <span className="label">Search engine</span>
               <select

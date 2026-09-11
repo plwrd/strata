@@ -148,6 +148,7 @@ _GET_STRING = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.POINTER(LPVOID))
 _PUT_STRING = ctypes.WINFUNCTYPE(HRESULT, LPVOID, wintypes.LPCWSTR)
 _GET_BOOL = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.POINTER(BOOL))
 _PUT_BOOL = ctypes.WINFUNCTYPE(HRESULT, LPVOID, BOOL)
+_INVOKE_HRESULT = ctypes.WINFUNCTYPE(HRESULT, LPVOID, HRESULT)
 
 
 class _EnvironmentOptions:
@@ -159,24 +160,40 @@ class _EnvironmentOptions:
     process — which is why it is not optional despite looking like boilerplate.
     """
 
-    def __init__(self, arguments: str) -> None:
+    def __init__(self, arguments: str, *, extensions_enabled: bool = False) -> None:
         self._arguments = arguments
+        self._extensions_enabled = extensions_enabled
         self._language = ""
         # Must be a parseable version, not "". WebView2 compares the installed
         # runtime against it and rejects the whole environment with
         # E_INVALIDARG otherwise — the SDK's C++ helper seeds the same value.
         self._target_version = slots.TARGET_COMPATIBLE_BROWSER_VERSION
         self._single_sign_on = False
-        self._callback = Callback(
-            slots.IID_ENVIRONMENT_OPTIONS,
-            (_GET_STRING, self._get_arguments),
-            (_PUT_STRING, self._put_arguments),
-            (_GET_STRING, self._get_language),
-            (_PUT_STRING, self._put_language),
-            (_GET_STRING, self._get_target_version),
-            (_PUT_STRING, self._put_target_version),
-            (_GET_BOOL, self._get_sso),
-            (_PUT_BOOL, self._put_sso),
+        # Two interfaces on one object. Extensions are opted into through
+        # `…Options6`, which the runtime reaches by QueryInterface on the very
+        # object we pass to creation — there is no other way in, and it must be
+        # decided here because the browser process is configured once.
+        self._callback = Callback.implementing(
+            (
+                slots.IID_ENVIRONMENT_OPTIONS,
+                (
+                    (_GET_STRING, self._get_arguments),
+                    (_PUT_STRING, self._put_arguments),
+                    (_GET_STRING, self._get_language),
+                    (_PUT_STRING, self._put_language),
+                    (_GET_STRING, self._get_target_version),
+                    (_PUT_STRING, self._put_target_version),
+                    (_GET_BOOL, self._get_sso),
+                    (_PUT_BOOL, self._put_sso),
+                ),
+            ),
+            (
+                slots.IID_ENVIRONMENT_OPTIONS6,
+                (
+                    (_GET_BOOL, self._get_extensions_enabled),
+                    (_PUT_BOOL, self._put_extensions_enabled),
+                ),
+            ),
         )
 
     @property
@@ -214,6 +231,145 @@ class _EnvironmentOptions:
     def _put_sso(self, _this: int, value: int) -> int:
         self._single_sign_on = bool(value)
         return 0
+
+    def _get_extensions_enabled(self, _this: int, out: Any) -> int:
+        out[0] = 1 if self._extensions_enabled else 0
+        return 0
+
+    def _put_extensions_enabled(self, _this: int, value: int) -> int:
+        self._extensions_enabled = bool(value)
+        return 0
+
+
+class BrowserExtension:
+    """One loaded extension, as the runtime reports it back."""
+
+    def __init__(self, interface: Interface) -> None:
+        self._it = interface
+        self._handlers: list[Any] = []
+        self.id = interface.get_string(slots.BROWSER_EXTENSION_GET_ID, "get_Id")
+        self.name = interface.get_string(slots.BROWSER_EXTENSION_GET_NAME, "get_Name")
+        self.enabled = interface.get_bool(slots.BROWSER_EXTENSION_GET_ISENABLED, "get_IsEnabled")
+
+    def set_enabled(self, enabled: bool, on_done: Callable[[str], None]) -> None:
+        handler: Callback
+
+        def invoke(_this: int, hr: int) -> int:
+            self._handlers.remove(handler)
+            on_done("" if hr >= 0 else f"0x{hr & 0xFFFFFFFF:08X}")
+            return 0
+
+        handler = Callback(
+            slots.IID_BROWSER_EXTENSION_ENABLE_COMPLETED_HANDLER, (_INVOKE_HRESULT, invoke)
+        )
+        self._handlers.append(handler)
+        self._it.call(
+            slots.BROWSER_EXTENSION_ENABLE,
+            (BOOL, LPVOID),
+            BOOL(1 if enabled else 0),
+            handler.pointer,
+            what="Enable",
+        )
+
+    def remove(self, on_done: Callable[[str], None]) -> None:
+        handler: Callback
+
+        def invoke(_this: int, hr: int) -> int:
+            self._handlers.remove(handler)
+            on_done("" if hr >= 0 else f"0x{hr & 0xFFFFFFFF:08X}")
+            return 0
+
+        handler = Callback(
+            slots.IID_BROWSER_EXTENSION_REMOVE_COMPLETED_HANDLER, (_INVOKE_HRESULT, invoke)
+        )
+        self._handlers.append(handler)
+        self._it.call(slots.BROWSER_EXTENSION_REMOVE, (LPVOID,), handler.pointer, what="Remove")
+
+    def release(self) -> None:
+        self._it.release()
+
+
+class Profile:
+    """``ICoreWebView2Profile7`` — where extensions live.
+
+    Extensions are per *profile*, not per view, and the profile is reached from
+    the view. They are also **unpacked folders**, not ``.crx`` files: there is
+    no store install path here, which is why Strata asks for a directory.
+    """
+
+    def __init__(self, interface: Interface) -> None:
+        self._it = interface
+        self._handlers: list[Any] = []
+
+    @property
+    def supports_extensions(self) -> bool:
+        return bool(self._it)
+
+    def add_extension(self, folder: Path, on_done: Callable[[str, str], None]) -> None:
+        """Load an unpacked extension. ``on_done(name, error)``."""
+        handler: Callback
+
+        def invoke(_this: int, hr: int, extension: int) -> int:
+            self._handlers.remove(handler)
+            if hr < 0 or not extension:
+                on_done("", f"0x{hr & 0xFFFFFFFF:08X}")
+                return 0
+            loaded = Interface(extension)
+            name = loaded.get_string(slots.BROWSER_EXTENSION_GET_NAME, "get_Name")
+            on_done(name, "")
+            return 0
+
+        handler = Callback(
+            slots.IID_PROFILE_ADD_BROWSER_EXTENSION_COMPLETED_HANDLER, (_INVOKE_HRESULT_PTR, invoke)
+        )
+        self._handlers.append(handler)
+        self._it.call(
+            slots.PROFILE7_ADDBROWSEREXTENSION,
+            (wintypes.LPCWSTR, LPVOID),
+            str(folder),
+            handler.pointer,
+            what="AddBrowserExtension",
+        )
+
+    def list_extensions(self, on_done: Callable[[list[BrowserExtension]], None]) -> None:
+        handler: Callback
+
+        def invoke(_this: int, hr: int, listing: int) -> int:
+            self._handlers.remove(handler)
+            if hr < 0 or not listing:
+                on_done([])
+                return 0
+            items = Interface(listing)
+            count = items.get_uint32(slots.BROWSER_EXTENSION_LIST_GET_COUNT, "get_Count")
+            found: list[BrowserExtension] = []
+            for index in range(count):
+                out = LPVOID()
+                items.call(
+                    slots.BROWSER_EXTENSION_LIST_GETVALUEATINDEX,
+                    (ctypes.c_uint32, ctypes.POINTER(LPVOID)),
+                    ctypes.c_uint32(index),
+                    ctypes.byref(out),
+                    what="GetValueAtIndex",
+                )
+                if out.value:
+                    found.append(BrowserExtension(Interface(out.value)))
+            on_done(found)
+            return 0
+
+        handler = Callback(
+            slots.IID_PROFILE_GET_BROWSER_EXTENSIONS_COMPLETED_HANDLER,
+            (_INVOKE_HRESULT_PTR, invoke),
+        )
+        self._handlers.append(handler)
+        self._it.call(
+            slots.PROFILE7_GETBROWSEREXTENSIONS,
+            (LPVOID,),
+            handler.pointer,
+            what="GetBrowserExtensions",
+        )
+
+    def release(self) -> None:
+        self._it.release()
 
 
 class WebView:
@@ -336,6 +492,31 @@ class WebView:
             return True
         finally:
             settings2.release()
+
+    # -- extensions ----------------------------------------------------------
+
+    def profile(self) -> Profile | None:
+        """The profile this view runs under, if the runtime is new enough.
+
+        Two versioned hops: ``ICoreWebView2_13`` to reach the profile at all,
+        then ``ICoreWebView2Profile7`` for the extension methods. Either being
+        absent means an older runtime, which is a "no extensions" answer rather
+        than an error.
+        """
+        versioned = self._it.query_interface(slots.IID_WEBVIEW_13)
+        if not versioned:
+            return None
+        try:
+            base = versioned.get_interface(slots.WEBVIEW_13_GET_PROFILE, "get_Profile")
+        finally:
+            versioned.release()
+        if not base:
+            return None
+        try:
+            seven = base.query_interface(slots.IID_PROFILE7)
+        finally:
+            base.release()
+        return Profile(seven) if seven else None
 
     # -- events --------------------------------------------------------------
 
@@ -523,6 +704,7 @@ def create_environment(
     user_data_folder: Path,
     loader: Path,
     extra_arguments: tuple[str, ...] = (),
+    extensions_enabled: bool = False,
     on_ready: Callable[[Environment | None, str], None],
 ) -> None:
     """Start a WebView2 environment. ``on_ready`` fires on the message loop.
@@ -552,7 +734,10 @@ def create_environment(
     create.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, LPVOID, LPVOID]
     create.restype = HRESULT
 
-    options = _EnvironmentOptions(" ".join((*CAPTURE_SAFE_ARGUMENTS, *extra_arguments)))
+    options = _EnvironmentOptions(
+        " ".join((*CAPTURE_SAFE_ARGUMENTS, *extra_arguments)),
+        extensions_enabled=extensions_enabled,
+    )
     handler: Callback
 
     def invoke(_this: int, hr: int, environment: int) -> int:

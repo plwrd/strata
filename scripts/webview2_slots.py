@@ -39,6 +39,17 @@ INTERFACES = (
     "ICoreWebView2",
     "ICoreWebView2Settings",
     "ICoreWebView2Settings2",
+    # Browser extensions: opted into at environment creation (Options6), then
+    # loaded per profile (Profile7), reached from the view via ICoreWebView2_13.
+    "ICoreWebView2EnvironmentOptions6",
+    "ICoreWebView2_13",
+    "ICoreWebView2Profile7",
+    "ICoreWebView2BrowserExtension",
+    "ICoreWebView2BrowserExtensionList",
+    "ICoreWebView2ProfileAddBrowserExtensionCompletedHandler",
+    "ICoreWebView2ProfileGetBrowserExtensionsCompletedHandler",
+    "ICoreWebView2BrowserExtensionEnableCompletedHandler",
+    "ICoreWebView2BrowserExtensionRemoveCompletedHandler",
     "ICoreWebView2NavigationStartingEventArgs",
     "ICoreWebView2NavigationCompletedEventArgs",
     "ICoreWebView2NewWindowRequestedEventArgs",
@@ -81,8 +92,11 @@ def read_slots(header: str, interface: str) -> list[str]:
 def constant_name(interface: str, method: str) -> str:
     """``ICoreWebView2Controller`` + ``put_Bounds`` -> ``CONTROLLER_PUT_BOUNDS``."""
     stem = interface.removeprefix("ICoreWebView2")
-    # The root interface is *just* the prefix, so it has no stem of its own.
     prefix = re.sub(r"(?<!^)(?=[A-Z])", "_", stem).upper().strip("_") if stem else "WEBVIEW"
+    # The root interface is *just* the prefix, and its later revisions are
+    # `ICoreWebView2_13` and friends — a bare number is not an identifier.
+    if not prefix or prefix[0].isdigit():
+        prefix = f"WEBVIEW_{prefix}" if prefix else "WEBVIEW"
     return f"{prefix}_{method.upper()}"
 
 
@@ -98,6 +112,13 @@ def read_target_version(options_header: str) -> str:
     return match.group(1) if match else ""
 
 
+# Some SDK interface names really are longer than the line limit. The waiver is
+# emitted only when a long line is actually produced, so ruff does not then
+# report the waiver itself as unused — a generated file should need no hand
+# maintenance in either direction.
+_LINT_WAIVER = "# ruff: noqa: E501  (generated: some SDK interface names are simply long)"
+
+
 def render(header: str, options_header: str) -> str:
     iids = read_iids(header)
     version = read_target_version(options_header)
@@ -108,7 +129,7 @@ def render(header: str, options_header: str) -> str:
         "Do not edit by hand — see that script for why these must not be transcribed.",
         '"""',
         "",
-        "# ruff: noqa: E501  (generated: some SDK interface names are simply long)",
+        _LINT_WAIVER,
         "",
         "",
         "from __future__ import annotations",
@@ -129,6 +150,8 @@ def render(header: str, options_header: str) -> str:
                 continue  # IUnknown is handled by com.Interface itself
             lines.append(f"{constant_name(interface, method)} = {index}")
         lines.append("")
+    if all(len(line) <= 100 for line in lines):
+        lines.remove(_LINT_WAIVER)
     return "\n".join(lines)
 
 
@@ -142,9 +165,11 @@ def main() -> None:
     options = main_header.with_name("WebView2EnvironmentOptions.h")
     if not options.is_file():
         raise SystemExit(f"expected {options.name} beside {main_header.name}")
-    OUTPUT.write_text(
-        render(header, options.read_text(encoding="utf-8", errors="replace")), encoding="utf-8"
-    )
+    rendered = render(header, options.read_text(encoding="utf-8", errors="replace"))
+    # A generator that can emit a file Python cannot parse should say so here,
+    # not at the import that happens to come first.
+    compile(rendered, str(OUTPUT), "exec")
+    OUTPUT.write_text(rendered, encoding="utf-8")
     print(f"wrote {OUTPUT}")
 
 

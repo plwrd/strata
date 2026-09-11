@@ -42,6 +42,7 @@ function seedSettings(completed: boolean): void {
       hide_from_taskbar: false,
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
+      browser_extensions: [] as string[],
       browser_executable_path: "",
       browser_profile_path: "",
       browser_debug_port: 9333,

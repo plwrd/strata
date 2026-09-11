@@ -30,7 +30,7 @@ process.
 from __future__ import annotations
 
 import ctypes
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from ctypes import wintypes
 from typing import Any
 
@@ -268,59 +268,115 @@ _RELEASE = ctypes.WINFUNCTYPE(ctypes.c_ulong, LPVOID)
 
 
 class Callback:
-    """A COM object implemented in Python: an IUnknown, plus its own methods.
+    """A COM object implemented in Python: IUnknown, plus one or more interfaces.
 
-    Lifetime is the entire point of this class. The vtable, the ``ctypes``
+    Lifetime is the first reason this class exists. The vtables, the ``ctypes``
     thunks and the object header must each stay referenced from Python for as
-    long as WebView2 holds the pointer; if any one of them is collected, the
+    long as WebView2 holds a pointer into them; if any one is collected, the
     next call from the browser process jumps into freed memory. Holding the
-    :class:`Callback` holds all three, so the rule for callers is just: keep the
-    Callback alive as long as whatever you handed it to.
+    :class:`Callback` holds all three, so the rule for callers is just: keep it
+    alive as long as whatever you handed it to.
+
+    The second reason is multiple interfaces. ``ICoreWebView2EnvironmentOptions``
+    is not one interface but a family — the base one carries the browser
+    arguments, ``…Options6`` carries the extensions switch — and the runtime
+    reaches the later ones by ``QueryInterface`` on the same object. So the
+    object lays out one vtable pointer per interface and hands back the address
+    of the matching field, which is exactly what a C++ object with multiple
+    bases looks like in memory. ``IUnknown`` always resolves to the first,
+    keeping COM's identity rule.
     """
 
     def __init__(self, iid: str, *methods: tuple[Any, Callable[..., Any]]) -> None:
-        self._iid_bytes = bytes(guid(iid))
+        self._build([(iid, methods)])
+
+    @classmethod
+    def implementing(
+        cls, *interfaces: tuple[str, Sequence[tuple[Any, Callable[..., Any]]]]
+    ) -> Callback:
+        """One object answering to several IIDs, in the order given.
+
+        The first is the identity: it is what :attr:`pointer` returns and what
+        a ``QueryInterface`` for ``IUnknown`` resolves to.
+        """
+        instance = cls.__new__(cls)
+        instance._build([(iid, tuple(methods)) for iid, methods in interfaces])
+        return instance
+
+    def _build(
+        self, interfaces: list[tuple[str, tuple[tuple[Any, Callable[..., Any]], ...]]]
+    ) -> None:
         self._unknown_bytes = bytes(guid(IID_IUNKNOWN))
+        self._thunks: list[Any] = []
+        self._vtables: list[Any] = []
 
-        fields: list[tuple[str, Any]] = [
-            ("QueryInterface", _QUERY_INTERFACE),
-            ("AddRef", _ADD_REF),
-            ("Release", _RELEASE),
-        ]
-        for index, (functype, _) in enumerate(methods):
-            fields.append((f"method{index}", functype))
-        vtable_type = type("Vtbl", (ctypes.Structure,), {"_fields_": fields})
-        object_type = type(
-            "ComObject",
-            (ctypes.Structure,),
-            {"_fields_": [("lpVtbl", ctypes.POINTER(vtable_type))]},
-        )
-
-        # Held on self, so none of them outlives its references.
-        self._thunks: list[Any] = [
+        # One IUnknown implementation, shared by every vtable. The thunks ignore
+        # `this` entirely — Python already knows which object it is — so the
+        # same three function pointers are correct at every offset.
+        unknown = [
             _QUERY_INTERFACE(self._query_interface),
             _ADD_REF(self._add_ref),
             _RELEASE(self._release),
         ]
-        self._thunks.extend(functype(handler) for functype, handler in methods)
+        self._thunks.extend(unknown)
 
-        self._vtable = vtable_type(*self._thunks)
-        self._object = object_type(ctypes.pointer(self._vtable))
+        object_fields: list[tuple[str, Any]] = []
+        for index, (_iid, methods) in enumerate(interfaces):
+            fields: list[tuple[str, Any]] = [
+                ("QueryInterface", _QUERY_INTERFACE),
+                ("AddRef", _ADD_REF),
+                ("Release", _RELEASE),
+            ]
+            for slot, (functype, _handler) in enumerate(methods):
+                fields.append((f"method{slot}", functype))
+            vtable_type = type(f"Vtbl{index}", (ctypes.Structure,), {"_fields_": fields})
+
+            entries = list(unknown)
+            for functype, handler in methods:
+                thunk = functype(handler)
+                self._thunks.append(thunk)
+                entries.append(thunk)
+
+            vtable = vtable_type(*entries)
+            self._vtables.append(vtable)
+            object_fields.append((f"lpVtbl{index}", ctypes.POINTER(vtable_type)))
+
+        object_type = type("ComObject", (ctypes.Structure,), {"_fields_": object_fields})
+        self._object = object_type(*(ctypes.pointer(v) for v in self._vtables))
+
+        base = ctypes.addressof(self._object)
+        self._by_iid: list[tuple[bytes, int]] = [
+            (bytes(guid(iid)), base + getattr(object_type, f"lpVtbl{index}").offset)
+            for index, (iid, _methods) in enumerate(interfaces)
+        ]
         self._refs = 1
 
     @property
     def pointer(self) -> int:
-        """The ``IUnknown*`` to hand to WebView2."""
-        return ctypes.addressof(self._object)
+        """The primary interface pointer — what to hand to WebView2."""
+        return self._by_iid[0][1]
+
+    def pointer_for(self, iid: str) -> int:
+        """The pointer for one of the interfaces, or 0 if not implemented."""
+        wanted = bytes(guid(iid))
+        for candidate, address in self._by_iid:
+            if candidate == wanted:
+                return address
+        return 0
 
     def _query_interface(self, _this: int, riid: Any, out: Any) -> int:
         if not out:
             return E_POINTER
         requested = bytes(GUID.from_address(ctypes.addressof(riid.contents)))
-        if requested in (self._iid_bytes, self._unknown_bytes):
-            out[0] = self.pointer
+        if requested == self._unknown_bytes:
+            out[0] = self._by_iid[0][1]
             self._refs += 1
             return S_OK
+        for candidate, address in self._by_iid:
+            if candidate == requested:
+                out[0] = address
+                self._refs += 1
+                return S_OK
         # Answering "yes" to an interface we do not implement is how a binding
         # hands the browser a vtable of the wrong shape.
         out[0] = None

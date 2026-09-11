@@ -203,3 +203,98 @@ def test_a_missing_loader_is_reported_not_guessed(tmp_path: pytest.TempPathFacto
             loader=Path(str(tmp_path)) / "absent" / sdk.LOADER_NAME,
             on_ready=lambda env, err: None,
         )
+
+
+# -- an object with more than one interface ------------------------------------
+
+
+def _two_interface_callback() -> com.Callback:
+    getter = ctypes.WINFUNCTYPE(com.HRESULT, com.LPVOID, ctypes.POINTER(com.BOOL))
+    setter = ctypes.WINFUNCTYPE(com.HRESULT, com.LPVOID, com.BOOL)
+    return com.Callback.implementing(
+        (sdk.slots.IID_ENVIRONMENT_OPTIONS, ((setter, lambda *a: 0),)),
+        (sdk.slots.IID_ENVIRONMENT_OPTIONS6, ((getter, lambda *a: 0),)),
+    )
+
+
+@windows_only
+def test_one_object_answers_to_each_interface_it_implements() -> None:
+    """How the runtime reaches `…Options6`: QueryInterface on the base object.
+
+    There is no other way to switch extensions on, so a binding that only ever
+    answers to one IID silently cannot support them.
+    """
+    callback = _two_interface_callback()
+    handle = com.Interface(callback.pointer)
+
+    assert handle.query_interface(sdk.slots.IID_ENVIRONMENT_OPTIONS)
+    assert handle.query_interface(sdk.slots.IID_ENVIRONMENT_OPTIONS6)
+    assert not handle.query_interface(sdk.slots.IID_SETTINGS2)
+
+
+@windows_only
+def test_each_interface_has_a_vtable_of_its_own() -> None:
+    """Distinct pointers, or the runtime calls the wrong interface's methods."""
+    callback = _two_interface_callback()
+
+    first = callback.pointer_for(sdk.slots.IID_ENVIRONMENT_OPTIONS)
+    second = callback.pointer_for(sdk.slots.IID_ENVIRONMENT_OPTIONS6)
+
+    assert first and second
+    assert first != second
+    assert callback.pointer_for("11111111-2222-3333-4444-555555555555") == 0
+
+
+@windows_only
+def test_iunknown_always_resolves_to_the_primary_interface() -> None:
+    """COM's identity rule: one object, one IUnknown, whichever face you hold."""
+    callback = _two_interface_callback()
+    primary = callback.pointer_for(sdk.slots.IID_ENVIRONMENT_OPTIONS)
+    secondary = callback.pointer_for(sdk.slots.IID_ENVIRONMENT_OPTIONS6)
+
+    from_first = com.Interface(primary).query_interface(com.IID_IUNKNOWN)
+    from_second = com.Interface(secondary).query_interface(com.IID_IUNKNOWN)
+
+    assert from_first.pointer == from_second.pointer == primary
+
+
+@windows_only
+def test_extensions_are_off_unless_asked_for() -> None:
+    """Read through the vtable, as the runtime reads it."""
+    options = sdk._EnvironmentOptions("")
+
+    reported = com.Interface(options.pointer).query_interface(sdk.slots.IID_ENVIRONMENT_OPTIONS6)
+
+    assert reported
+    assert (
+        reported.get_bool(sdk.slots.ENVIRONMENT_OPTIONS6_GET_AREBROWSEREXTENSIONSENABLED, "x")
+        is False
+    )
+
+
+@windows_only
+def test_extensions_are_reported_on_when_requested() -> None:
+    options = sdk._EnvironmentOptions("", extensions_enabled=True)
+
+    reported = com.Interface(options.pointer).query_interface(sdk.slots.IID_ENVIRONMENT_OPTIONS6)
+
+    assert (
+        reported.get_bool(sdk.slots.ENVIRONMENT_OPTIONS6_GET_AREBROWSEREXTENSIONSENABLED, "x")
+        is True
+    )
+
+
+@windows_only
+def test_the_base_options_still_work_alongside_the_second_interface() -> None:
+    """Adding an interface must not disturb the one creation already used."""
+    options = sdk._EnvironmentOptions("--flag", extensions_enabled=True)
+
+    handle = com.Interface(options.pointer)
+
+    assert (
+        handle.get_string(sdk.slots.ENVIRONMENT_OPTIONS_GET_ADDITIONALBROWSERARGUMENTS, "args")
+        == "--flag"
+    )
+    assert handle.get_string(
+        sdk.slots.ENVIRONMENT_OPTIONS_GET_TARGETCOMPATIBLEBROWSERVERSION, "version"
+    )

@@ -612,6 +612,10 @@ export const bridge = {
       call<{ settings: AppSettings }>("settings", "update_settings", {
         values,
       }),
+    // Opens a native folder picker and records the choice. Rejects with a
+    // CancelledError when the user closes the dialog, which callers ignore.
+    chooseExtension: () =>
+      call<{ settings: AppSettings }>("settings", "choose_browser_extension"),
   },
 
   operations: {

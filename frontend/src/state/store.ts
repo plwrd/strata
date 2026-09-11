@@ -206,6 +206,7 @@ export interface StrataState {
   setMode: (mode: AppMode) => void;
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
+  chooseBrowserExtension: () => Promise<void>;
 
   reloadGraph: () => Promise<void>;
   reloadTree: () => Promise<void>;
@@ -561,6 +562,18 @@ export const useStore = create<StrataState>((set, get) => ({
     const settings = (await bridge.settings.update(values)).settings;
     set({ settings });
     applyDocumentSettings(settings);
+  },
+
+  async chooseBrowserExtension() {
+    // The picker is native, so cancelling comes back as a rejection rather
+    // than an empty result. Cancelling is not an error the user needs told.
+    try {
+      const settings = (await bridge.settings.chooseExtension()).settings;
+      set({ settings });
+      applyDocumentSettings(settings);
+    } catch {
+      return;
+    }
   },
 
   async reloadGraph() {

@@ -436,16 +436,24 @@ class EmbeddedSource(QObject):
         # so here is the difference between a pane that looks merely empty and
         # one the user knows to switch away from.
         failure = str(getattr(self._pane, "failure_reason", "") or "")
+        loaded: list[str] = list(getattr(self._pane, "loaded_extensions", []))
+        problems: list[str] = list(getattr(self._pane, "extension_errors", []))
         if failure:
             detail = f"The browser pane could not start its engine. {failure}"
         elif showing:
             detail = f"The browser pane is open on {_host(tab.url) or 'a blank page'}."
         else:
             detail = "The browser pane is closed."
+        if loaded:
+            detail += f" Extensions: {', '.join(loaded)}."
+        # An extension the user added and that did not load is the case worth
+        # being loud about — silence here reads as "it is working".
+        if problems:
+            detail += " " + " ".join(problems)
         return BrowserStatus(
             backend=self.backend,
             running=showing and not failure,
-            supports_extensions=False,
+            supports_extensions=bool(loaded),
             mobile_mode=self._pane.is_mobile(),
             profile_path="",
             tab_count=1 if tab.url else 0,

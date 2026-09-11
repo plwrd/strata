@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,6 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from app.domain.browser import SEARCH_URLS
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.paths import replace_atomic
+
+# A research pane is not a browser install. More than a handful of extensions
+# is a sign the setting is being used as one, and each is third-party code with
+# sight of every page the pane visits.
+MAX_BROWSER_EXTENSIONS = 10
 
 logger = get_logger(__name__)
 
@@ -134,7 +140,8 @@ class AppSettings(BaseModel):
     # "embedded" is the browser pane inside the Strata window: no second
     # process, no loopback port, sign-ins kept in a profile of its own. It
     # cannot load Chrome extensions — Qt ships Chromium without the extensions
-    # subsystem — so "chrome" stays available for the pages that need them.
+    # subsystem — so "webview2" (Edge's engine, in the same window) and "chrome"
+    # stay available for the pages that need them.
     browser_backend: str = "embedded"
     browser_executable_path: str = ""
     browser_profile_path: str = ""
@@ -146,6 +153,12 @@ class AppSettings(BaseModel):
     # adjustable part. Embedded pane only.
     browser_blur_media: bool = False
     browser_blur_amount: int = 12
+    # Unpacked Chrome/Edge extension folders to load into the WebView2 pane.
+    # Folders, not `.crx` files: WebView2 has no store-install path, so this is
+    # a directory containing a manifest. Empty by default and deliberately
+    # opt-in per extension — an extension reads every page the pane visits, so
+    # this is the user adding third-party code to their own research session.
+    browser_extensions: list[str] = Field(default_factory=list)
     # Mobile mode: the browser pane serves a mobile user-agent so sites render
     # their touch/mobile layout. Synthetic touch events are advertised to pages
     # from the next launch (a process-global Chromium flag; see application.py).
@@ -201,6 +214,29 @@ class AppSettings(BaseModel):
         if not 1024 <= port <= 65535:
             raise ValueError("browser_debug_port must be between 1024 and 65535")
         return port
+
+    @field_validator("browser_extensions", mode="before")
+    @classmethod
+    def _clean_extensions(cls, value: Any) -> list[str]:
+        """Whitespace and duplicates out; order and case kept.
+
+        Existence is *not* checked here. A settings file must load on a machine
+        where an extension folder has been moved or deleted, and the pane says
+        which one is missing when it tries — refusing to start the app over it
+        would be the wrong trade.
+        """
+        if value is None:
+            return []
+        if isinstance(value, str) or not isinstance(value, Iterable):
+            raise ValueError("browser_extensions must be a list of folder paths")
+        cleaned: list[str] = []
+        for entry in value:
+            path = str(entry).strip()
+            if path and path not in cleaned:
+                cleaned.append(path)
+        if len(cleaned) > MAX_BROWSER_EXTENSIONS:
+            raise ValueError(f"browser_extensions holds at most {MAX_BROWSER_EXTENSIONS} folders")
+        return cleaned
 
     @field_validator("browser_blur_amount", mode="before")
     @classmethod

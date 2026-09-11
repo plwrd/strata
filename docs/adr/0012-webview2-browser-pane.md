@@ -60,8 +60,8 @@ Three parts, each load-bearing:
 ### Positive
 
 - In-pane H.264/AAC video, inside a window whose capture exclusion Strata controls.
-- The Chrome backend stops being the answer for video. It stays for users who want extensions, with
-  its capture limitation documented rather than implied.
+- The Chrome backend stops being the answer for video (and, per the addendum below, for most
+  extension use), with its capture limitation documented rather than implied.
 - No new runtime dependency: no CLR, no bundled browser. One 166 KB DLL.
 - WebView2's popups live in a `msedgewebview2.exe` that *Strata launches*, so
   `get_BrowserProcessId` gives the capture sweep a PID it can actually cover — the guarantee the
@@ -125,3 +125,44 @@ protect. See Context.
 - Strata needs the pane on macOS or Linux, where WebView2 does not exist.
 - Microsoft changes the Evergreen runtime's distribution such that it can no longer be assumed
   present.
+
+---
+
+## Addendum, 2026-09-10: browser extensions
+
+Recorded as an addendum rather than a body edit, per this directory's rule that an accepted ADR is
+not rewritten. Nothing above is reversed; one consequence is extended.
+
+WebView2 can load **unpacked** browser extensions, which the Qt pane cannot at any price — Qt ships
+Chromium with the extensions subsystem compiled out. Verified end to end against the installed
+runtime: an unpacked test extension loads, is reported back by the name in its manifest, and its
+content script runs in the page.
+
+Three API facts shape the implementation:
+
+- It is opted into at **environment creation** via `ICoreWebView2EnvironmentOptions6`, which the
+  runtime reaches by `QueryInterface` on the options object we pass in. That forced
+  `com.Callback` to support an object exposing several interfaces — one vtable pointer per
+  interface, `IUnknown` always resolving to the first, which is what a C++ object with multiple
+  bases looks like in memory.
+- Extensions are per **profile** (`ICoreWebView2Profile7`), reached from the view through
+  `ICoreWebView2_13`. An older runtime simply lacks one of those interfaces, which is a "no
+  extensions" answer rather than an error.
+- They are **folders, not `.crx` files**. There is no store-install path, so the setting is a list
+  of directories and the UI is a native folder picker.
+
+Consequences accepted:
+
+- **Third-party code now runs in the research pane, by explicit user action.** An extension sees
+  every page the pane visits and can send what it sees anywhere. It cannot reach the workspace —
+  the pane has no `QWebChannel` and no host object, which was already true and is now load-bearing
+  for a second reason. Mitigated by: off unless a folder is named, one explicit choice per
+  extension through a native dialog, a cap of ten, and the loaded names shown in the status.
+- A configured folder that has moved is reported, not skipped silently. A user who believes their
+  blocker is running when it is not is worse off than one who is told.
+- Extensions load when the browser process is created, so adding or removing one takes effect at
+  the next start. Stated in the UI rather than discovered.
+
+This also narrows what the Chrome backend is *for*: store-installed extensions and sign-in flows
+that refuse an embedded browser. Everything else it was carried for is now available inside a
+window Strata can keep out of a recording.

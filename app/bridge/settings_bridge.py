@@ -54,3 +54,39 @@ class SettingsBridge(QObject):
         # The blur radius is a setting; a live pane must pick up a change to it.
         self._services.browser.set_blur_amount(settings.browser_blur_amount)
         return SettingsResponse(settings=settings)
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def choose_browser_extension(self, _request: EmptyRequest) -> SettingsResponse:
+        """Let the *user* pick an unpacked extension folder, and remember it.
+
+        A native dialog rather than a text field, for the same reason the
+        workspace picker is one: the path has to exist and be a directory, and
+        a typo in a settings box is a worse way to find that out.
+
+        The folder is only recorded here — it is loaded when the pane next
+        starts, because WebView2 configures extensions at browser-process
+        creation and there is no way to add one to a running engine.
+        """
+        from PySide6.QtWidgets import QFileDialog
+
+        from app.domain.errors import CancelledError
+
+        directory = QFileDialog.getExistingDirectory(
+            None,
+            "Choose an unpacked extension folder (the one containing manifest.json)",
+            "",
+        )
+        if not directory:
+            raise CancelledError("No extension folder was chosen.")
+
+        current = list(self._services.settings.settings.browser_extensions)
+        if directory not in current:
+            current.append(directory)
+        return SettingsResponse(
+            settings=self._services.settings.update(
+                {
+                    "browser_extensions": current,
+                }
+            )
+        )

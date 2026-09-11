@@ -9,13 +9,14 @@ Two ways to put a page in front of you, one set of models:
   also cannot play H.264 or AAC — that Qt build carries no proprietary codecs.
 * **webview2** — the same pane, in the same window, rendered by the Microsoft
   Edge WebView2 runtime (Windows only). Chosen when video matters: Edge ships
-  the codecs Qt's build does not. Being inside Strata's own window, it stays
-  under the window's screen-capture exclusion — see ADR-0012.
+  the codecs Qt's build does not. It can also load unpacked browser extensions,
+  which the Qt pane cannot. Being inside Strata's own window, it stays under
+  the window's screen-capture exclusion — see ADR-0012.
 * **chrome** — the Chrome you already have, driven over the DevTools protocol
-  on a loopback port against a Strata-owned profile. For the pages neither
-  in-window view can do: anything that needs your extensions, and the sign-in
-  flows that refuse embedded browsers. It is a browser Strata does not own, so
-  it is the one backend that cannot be kept out of a screen recording.
+  on a loopback port against a Strata-owned profile. For the sign-in flows that
+  refuse embedded browsers, and for extensions installed from the store rather
+  than unpacked. It is a browser Strata does not own, so it is the one backend
+  that cannot be kept out of a screen recording.
 
 Both produce the same :class:`ScrapedPage` from the same extraction, so the
 research pipeline downstream cannot tell them apart — and neither can the parts

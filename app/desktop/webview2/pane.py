@@ -79,11 +79,20 @@ class WebView2Pane(QWidget):
         user_data_dir: Path,
         loader: Path,
         hide_for_sharing: bool,
+        extensions: tuple[Path, ...] = (),
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller: sdk.Controller | None = None
         self._environment: sdk.Environment | None = None
+        self._profile: sdk.Profile | None = None
+        self._requested_extensions = tuple(extensions)
+        # What actually loaded, and what did not. Reported rather than assumed:
+        # an extension folder can be moved or deleted between sessions, and a
+        # user who thinks their ad blocker is running when it is not is worse
+        # off than one who is told.
+        self.loaded_extensions: list[str] = []
+        self.extension_errors: list[str] = []
         self._pending_url = ""
         self._failure = ""
         self._blur_enabled = False
@@ -149,6 +158,11 @@ class WebView2Pane(QWidget):
                 user_data_folder=user_data_dir,
                 loader=loader,
                 extra_arguments=extra,
+                # Decided once, at creation: the browser process is configured
+                # here and there is no later switch. Off unless the user has
+                # actually named an extension, so the ordinary pane runs with
+                # the extension machinery disabled entirely.
+                extensions_enabled=bool(self._requested_extensions),
                 on_ready=self._on_environment,
             )
         except sdk.WebView2Unavailable as exc:
@@ -177,6 +191,7 @@ class WebView2Pane(QWidget):
         view.on_title_changed(self._refresh_title)
 
         self._apply_mobile_user_agent()
+        self._load_extensions()
         self._install_blur()
         self._sync_bounds()
         controller.set_visible(True)
@@ -186,6 +201,40 @@ class WebView2Pane(QWidget):
         if self._pending_url:
             url, self._pending_url = self._pending_url, ""
             self.load_url(url)
+
+    def _load_extensions(self) -> None:
+        """Hand the runtime each configured extension folder, one at a time."""
+        if not self._requested_extensions or self._controller is None:
+            return
+        profile = self._controller.webview.profile()
+        if profile is None:
+            self.extension_errors.append(
+                "This WebView2 runtime is too old to load browser extensions."
+            )
+            logger.warning("webview2.extensions_unsupported")
+            return
+        self._profile = profile
+        for folder in self._requested_extensions:
+            self._add_extension(profile, folder)
+
+    def _add_extension(self, profile: sdk.Profile, folder: Path) -> None:
+        if not folder.is_dir():
+            # An unpacked extension is a directory with a manifest. Saying which
+            # path is missing is the difference between a fixable message and
+            # "extensions do not work".
+            self.extension_errors.append(f"{folder} is not a folder.")
+            logger.warning("webview2.extension_missing", path=str(folder))
+            return
+
+        def done(name: str, error: str) -> None:
+            if error:
+                self.extension_errors.append(f"{folder.name} did not load ({error}).")
+                logger.warning("webview2.extension_failed", path=str(folder), error=error)
+                return
+            self.loaded_extensions.append(name or folder.name)
+            logger.info("webview2.extension_loaded", name=name or folder.name)
+
+        profile.add_extension(folder, done)
 
     def _fail(self, reason: str) -> None:
         self._failure = reason
@@ -388,6 +437,9 @@ class WebView2Pane(QWidget):
         Explicit, not ``__del__``: the controller must be closed while its host
         window still exists, and interpreter shutdown is too late for that.
         """
+        profile, self._profile = self._profile, None
+        if profile is not None:
+            profile.release()
         controller, self._controller = self._controller, None
         if controller is not None:
             controller.close()

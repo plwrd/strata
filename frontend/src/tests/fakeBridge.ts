@@ -636,6 +636,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           hide_from_taskbar: false,
           browser_control_enabled: false,
           browser_backend: "embedded",
+          browser_extensions: [],
           browser_executable_path: "",
           browser_profile_path: "",
           browser_debug_port: 9333,
@@ -645,6 +646,11 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           browser_mobile_mode: false,
         },
       }),
+      // The real one opens a native folder picker. The fake stands in for a
+      // user who cancelled, which is the branch the store has to survive.
+      choose_browser_extension: () => {
+        throw new Error("No extension folder was chosen.");
+      },
       update_settings: (payload) => ({
         // Recorded like every other write, so a test can assert what was asked
         // for and not only what came back.
@@ -677,6 +683,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             hide_from_taskbar: false,
             browser_control_enabled: false,
             browser_backend: "embedded",
+            browser_extensions: [],
             browser_executable_path: "",
             browser_profile_path: "",
             browser_debug_port: 9333,
