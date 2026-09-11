@@ -206,6 +206,7 @@ export interface StrataState {
   setSettingsOpen: (open: boolean) => void;
   /** Open or close the research browser pane (Ctrl/Cmd+Shift+B). */
   toggleBrowserPane: () => Promise<void>;
+  toggleBrowserBlur: () => Promise<void>;
   /** Hand a running plan job to the Changes panel and switch to it. */
   handOffPlanRequest: (requestId: string, layerIds: string[]) => void;
   /** Take the handed-off job, once. Null when there is none. */
@@ -544,6 +545,25 @@ export const useStore = create<StrataState>((set, get) => ({
       }
       if (status.running) await bridge.browser.closeBrowser();
       else await bridge.browser.launch();
+      set((state) => ({ browserRevision: state.browserRevision + 1 }));
+    } catch (error) {
+      set({ lastError: describeError(error) });
+    }
+  },
+  toggleBrowserBlur: async () => {
+    try {
+      const { status } = await bridge.browser.toggleBlur();
+      if (!status.blur_supported) {
+        // The key did something; it just could not do *this*. Silence is what
+        // made the shortcut feel broken.
+        set({
+          lastError:
+            status.backend === "chrome"
+              ? "Media blur only works in the built-in pane — Chrome is a browser Strata does not draw."
+              : "Open the research pane first (Ctrl/Cmd+Shift+B) — there is nothing to blur yet.",
+        });
+        return;
+      }
       set((state) => ({ browserRevision: state.browserRevision + 1 }));
     } catch (error) {
       set({ lastError: describeError(error) });

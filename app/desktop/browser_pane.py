@@ -371,6 +371,10 @@ class BrowserPane(QWidget):
     """Toolbar plus view. Owns the page; knows nothing about research."""
 
     urlChanged = Signal(str)
+    # The pane asks; the window decides. Blur state lives in the browser
+    # service, so the toolbar button routes through the same place the hotkey
+    # and the Research panel do rather than keeping a fourth copy.
+    blurToggleRequested = Signal()
 
     # Which engine is behind this pane. Read by `EmbeddedSource` and reported
     # to the user, because it decides whether video plays (see ADR-0012).
@@ -441,6 +445,20 @@ class BrowserPane(QWidget):
             button.clicked.connect(handler)
             toolbar.addWidget(button)
         toolbar.addWidget(self._address, 1)
+
+        # A blur control on the pane's own toolbar, not only in the panel and on
+        # a hotkey. This is the one control that is always reachable: a
+        # keyboard chord can be claimed by whatever has focus — the page, or in
+        # the WebView2 pane an Edge window Qt never sees the keys from — and the
+        # Research panel is on the other side of the splitter. A button beside
+        # the address bar is a mouse click away from wherever the user is
+        # looking.
+        self._blur_button = QPushButton("Blur", self)
+        self._blur_button.setToolTip("Blur images, video and canvas (Ctrl/Cmd+Shift+X)")
+        self._blur_button.setAccessibleName("Blur media")
+        self._blur_button.setCheckable(True)
+        self._blur_button.clicked.connect(lambda _checked: self.blurToggleRequested.emit())
+        toolbar.addWidget(self._blur_button)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -542,6 +560,8 @@ class BrowserPane(QWidget):
         """
         self._blur_enabled = bool(enabled)
         self._blur_amount = max(1, min(100, int(amount)))
+        self._blur_button.setChecked(self._blur_enabled)
+        self._blur_button.setText("Blurred" if self._blur_enabled else "Blur")
         self._install_blur_script()
         self._page.runJavaScript(blur_source(self._blur_enabled, self._blur_amount))
 

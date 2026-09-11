@@ -70,6 +70,10 @@ class WebView2Pane(QWidget):
     """Toolbar plus a WebView2. Owns the controller; knows nothing about research."""
 
     urlChanged = Signal(str)
+    # See the Qt pane: the pane asks, the window decides, and the state stays
+    # in one place. It matters more here — keyboard focus inside WebView2
+    # belongs to an Edge window, so a Qt shortcut never sees the keys at all.
+    blurToggleRequested = Signal()
 
     backend: BrowserBackend = "webview2"
 
@@ -121,6 +125,20 @@ class WebView2Pane(QWidget):
             button.clicked.connect(handler)
             toolbar.addWidget(button)
         toolbar.addWidget(self._address, 1)
+
+        # A blur control on the pane's own toolbar, not only in the panel and on
+        # a hotkey. This is the one control that is always reachable: a
+        # keyboard chord can be claimed by whatever has focus — the page, or in
+        # the WebView2 pane an Edge window Qt never sees the keys from — and the
+        # Research panel is on the other side of the splitter. A button beside
+        # the address bar is a mouse click away from wherever the user is
+        # looking.
+        self._blur_button = QPushButton("Blur", self)
+        self._blur_button.setToolTip("Blur images, video and canvas (Ctrl/Cmd+Shift+X)")
+        self._blur_button.setAccessibleName("Blur media")
+        self._blur_button.setCheckable(True)
+        self._blur_button.clicked.connect(lambda _checked: self.blurToggleRequested.emit())
+        toolbar.addWidget(self._blur_button)
 
         # The engine draws into this widget's HWND. It is native and keeps Qt
         # from creating native ancestors it does not need — the page is not a
@@ -377,6 +395,8 @@ class WebView2Pane(QWidget):
         """Blur (or unblur) media. Qt thread only."""
         self._blur_enabled = bool(enabled)
         self._blur_amount = max(1, min(100, int(amount)))
+        self._blur_button.setChecked(self._blur_enabled)
+        self._blur_button.setText("Blurred" if self._blur_enabled else "Blur")
         self._install_blur()
         if self._controller is not None:
             # Re-registering only affects the *next* document; restyle this one.

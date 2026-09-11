@@ -627,7 +627,8 @@ export const bridge = {
     // CancelledError when the user closes the dialog, which callers ignore.
     chooseExtension: () =>
       call<SettingsReply>("settings", "choose_browser_extension"),
-    chooseUserScript: () => call<SettingsReply>("settings", "choose_user_script"),
+    chooseUserScript: () =>
+      call<SettingsReply>("settings", "choose_user_script"),
   },
 
   operations: {
@@ -751,6 +752,15 @@ export const bridge = {
         {
           enabled,
         },
+      ),
+    // Flip it at the source. A toggle must not be a read followed by a write:
+    // the hotkey and the panel button can fire from different places, and each
+    // one computing `!(what I last saw)` from its own copy is how two presses
+    // cancel out and the blur looks unresponsive.
+    toggleBlur: () =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "toggle_blur",
       ),
     onBlur: (listener: (payload: string) => void) =>
       subscribe("browser", "blurEvent", listener),

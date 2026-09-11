@@ -471,8 +471,28 @@ def test_the_chrome_backend_does_not_support_blur(tmp_path: Path) -> None:
     service = _chrome(tmp_path, FakeCDP())
 
     assert service.blur_supported is False
-    # Toggling is a harmless no-op — there is no pane to restyle.
-    assert service.set_blur(True) is True
+    # And the state does not move. It used to: the call was a no-op that still
+    # recorded "blurred", so the panel showed a blurred badge over a Chrome
+    # window that was not blurred at all. A control that cannot act must not
+    # claim it did.
+    assert service.set_blur(True) is False
+    assert service.blur_state()[0] is False
+    assert service.toggle_blur() is False
+
+
+def test_a_refused_blur_still_answers(tmp_path: Path) -> None:
+    """The press did something: it told the UI nothing changed.
+
+    Silence is what made the hotkey feel broken — the user pressed it, nothing
+    happened, and nothing said why.
+    """
+    service = _chrome(tmp_path, FakeCDP())
+    heard: list[tuple[bool, int]] = []
+    service.on_blur_changed = lambda: heard.append(service.blur_state())
+
+    service.toggle_blur()
+
+    assert heard == [(False, 12)]
 
 
 def test_a_freshly_attached_pane_gets_the_starting_blur(tmp_path: Path) -> None:
@@ -605,3 +625,60 @@ def test_capture_exclusion_is_a_noop_when_chrome_is_not_running(tmp_path: Path) 
     service = _chrome(tmp_path, FakeCDP())
     # Not launched in this test, so there is no process to reach — must not raise.
     service.apply_capture_exclusion(True)
+
+
+# -- one state, several ways to flip it ----------------------------------------
+#
+# Reported: the blur shortcut does not work reliably. Three causes, all of them
+# real, and none of them in the blur script itself:
+#
+# 1. Qt WebEngine claims a chord for the page while an editable element has
+#    focus, so the Qt shortcut went missing exactly while the user was typing.
+#    Fixed in the web layer (`shortcuts.ts`), which sees the key either way.
+# 2. Keyboard focus inside the WebView2 pane belongs to an Edge window, so Qt
+#    never sees those keys at all. Fixed with a button on the pane's own
+#    toolbar, which no focus can intercept.
+# 3. Every caller computed `not (what I last saw)` from its own copy, so a
+#    hotkey press and a panel click close together cancelled out. Fixed here:
+#    the flip happens where the state lives.
+
+
+def test_toggling_twice_returns_to_where_it_started(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    assert service.toggle_blur() is True
+    assert pane.blur[0] is True
+    assert service.toggle_blur() is False
+    assert pane.blur[0] is False
+
+
+def test_a_toggle_is_not_a_read_then_a_write(tmp_path: Path) -> None:
+    """Two flips from two places land on 'back where it started', never on
+    'both of us thought it was off'."""
+    service = _service(tmp_path)
+    service.attach(FakePane())
+
+    # Whatever the callers last *saw*, the flips compose.
+    first = service.toggle_blur()
+    second = service.toggle_blur()
+    third = service.toggle_blur()
+
+    assert (first, second, third) == (True, False, True)
+    assert service.blur_state()[0] is True
+
+
+def test_every_path_notifies_so_no_caller_holds_a_stale_copy(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service.attach(FakePane())
+    heard: list[bool] = []
+    service.on_blur_changed = lambda: heard.append(service.blur_state()[0])
+
+    service.toggle_blur()
+    service.set_blur(False)
+    service.set_blur_amount(20)
+
+    # The amount change notifies too: the panel shows the radius alongside the
+    # toggle, and a silent change there is the same class of bug.
+    assert heard == [True, False, False]

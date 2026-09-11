@@ -351,13 +351,24 @@ everything on every page the pane opens, exactly as an extension would.
 
 ### Blurring media on a shared screen
 
-The pane can go soft. **Blur media** — the button in the Research panel, or
-`Ctrl/Cmd+Shift+X` from anywhere, including while you are typing in the page —
-blurs every image, video and canvas, and leaves the text sharp. So a page stays
-readable for research while a shoulder-surfer, a recording, or a screen share
-sees nothing worth seeing. The hotkey is application-wide on purpose: the moment
-you need it, the browser usually has the keyboard, where an ordinary web
-shortcut could not reach.
+The pane can go soft. **Blur media** blurs every image, video and canvas and
+leaves the text sharp, so a page stays readable for research while a
+shoulder-surfer, a recording, or a screen share sees nothing worth seeing.
+
+There are three ways to flip it, and they are all the same switch:
+
+* the **Blur** button on the pane's own toolbar, beside the address bar;
+* the **Blur media** button in the Research panel;
+* `Ctrl/Cmd+Shift+X`.
+
+The hotkey is handled twice — once by the app and once by the window — because
+a keyboard chord belongs to whatever has focus. While you are typing in a note,
+the editor's engine claims the key; when the Edge pane has focus, the keys go to
+Edge and never reach Strata at all. The button on the pane's toolbar is the one
+control nothing can intercept, which is why it is there. If you press the key
+and nothing happens, Strata now says why — usually "there is no pane open yet",
+or that you are on the Chrome backend, which is a browser Strata does not draw
+and therefore cannot blur.
 
 It blurs avatars and background-image thumbnails too, not only `<img>` tags —
 sites like x.com render those as styled `<div>`s — and it holds on pages that

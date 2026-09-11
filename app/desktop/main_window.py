@@ -174,8 +174,17 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence("F12"), self, self._toggle_devtools)
             QShortcut(QKeySequence("F5"), self, self._view.reload)
 
+        # Three ways in, because one is not enough. Qt WebEngine claims a chord
+        # for the page whenever an editable element has focus, and the WebView2
+        # pane's keyboard focus belongs to an Edge window Qt never sees keys
+        # from — so the native shortcut alone went missing exactly when someone
+        # was working. The web UI handles the same chord (see `shortcuts.ts`),
+        # and the pane carries a button that no focus can intercept.
         blur_shortcut = QShortcut(QKeySequence(BLUR_HOTKEY), self, self._toggle_blur)
         blur_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        request_blur = getattr(self._browser_pane, "blurToggleRequested", None)
+        if request_blur is not None:
+            request_blur.connect(self._toggle_blur)
 
         url = QUrl(dev_server) if dev_server else QUrl(APP_URL)
         logger.info("window.loading", dev=bool(dev_server))
@@ -264,9 +273,13 @@ class MainWindow(QMainWindow):
         )
 
     def _toggle_blur(self) -> None:
-        """Flip media blur in the pane. A no-op when there is nothing to blur."""
-        if self._services.browser.blur_supported:
-            self._services.browser.toggle_blur()
+        """Flip media blur in the pane.
+
+        No support check here: the service owns that decision and answers on the
+        same event either way, so the panel hears about a press that could not
+        take effect instead of the key appearing to do nothing at all.
+        """
+        self._services.browser.toggle_blur()
 
     def show_browser_pane(self, visible: bool) -> None:
         """Open or close the browser pane. Qt thread only."""

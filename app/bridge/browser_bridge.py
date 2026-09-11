@@ -204,6 +204,24 @@ class BrowserBridge(QObject):
         )
 
     @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def toggle_blur(self, _request: EmptyRequest) -> StatusResponse:
+        """Flip blur, whatever it is now.
+
+        Separate from `set_blur` because a *toggle* must not be a read followed
+        by a write. The hotkey, the pane's own button and the panel button can
+        all fire from different places at once, and each one computing
+        ``not (what I last saw)`` from its own copy is how two of them cancel out
+        and the blur appears not to respond. The state lives in one place; this
+        flips it there.
+        """
+        self._services.browser.toggle_blur()
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
     @bridge_method(MobileRequest)
     def set_mobile(self, request: MobileRequest) -> StatusResponse:
         """Serve sites their mobile layout by swapping the pane's user-agent."""

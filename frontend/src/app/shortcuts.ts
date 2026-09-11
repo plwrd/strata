@@ -70,5 +70,18 @@ export function handleGlobalShortcut(
     return true;
   }
 
+  // Ctrl/Cmd+Shift+X — blur the media in the research pane.
+  //
+  // Handled here *as well as* by the Qt application shortcut, and that is the
+  // fix rather than a duplicate: Qt WebEngine claims a chord for the page
+  // whenever the focus is on an editable element, so the native shortcut went
+  // missing exactly when someone was typing — which the guide promises is the
+  // one case it works in. A keydown on `window` sees it either way.
+  if (key === "x" && event.shiftKey) {
+    event.preventDefault();
+    void store.toggleBrowserBlur();
+    return true;
+  }
+
   return false;
 }

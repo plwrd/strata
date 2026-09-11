@@ -181,10 +181,16 @@ export function BrowserPanel(): JSX.Element {
   const toggleBlur = (): void => {
     // Optimistic: the button flips at once; `onBlur` confirms, and also catches
     // the application hotkey, which never comes through this handler.
-    const next = !blur;
-    setBlur(next);
+    //
+    // The *call* is a toggle, not `setBlur(!blur)`. This component's `blur` is a
+    // copy, and the hotkey changes the real one without passing through here —
+    // so a press and a click close together each sent "make it the opposite of
+    // what I last saw" and cancelled each other out. Flipping at the source
+    // cannot do that.
+    setBlur(!blur);
     void bridge.browser
-      .setBlur(next)
+      .toggleBlur()
+      .then(({ status }) => setBlur(status.blur_enabled))
       .catch((caught) => setError(describe(caught)));
   };
 

@@ -145,10 +145,14 @@ describe("BrowserPanel", () => {
     const button = await screen.findByRole("button", { name: "Blur media" });
     await userEvent.click(button);
 
-    // The click asked Python to blur.
+    // The click asked Python to *flip* it, rather than to set the opposite of
+    // what this component last saw — the panel and the hotkey change the same
+    // state, and two "make it the opposite" calls cancel out.
     await waitFor(() => {
-      const payload = captured.find((entry) => "enabled" in entry);
-      expect(payload?.["enabled"]).toBe(true);
+      const payload = captured.find(
+        (entry) => entry["method"] === "toggle_blur",
+      );
+      expect(payload).toBeDefined();
     });
     expect(
       await screen.findByRole("button", { name: "Media blurred" }),

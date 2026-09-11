@@ -539,6 +539,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   const versionsSupported = options.versionsSupported ?? true;
   const browserEnabled = options.browserEnabled ?? true;
   const browserBackend = options.browserBackend ?? "embedded";
+  // Blur is a live toggle, so the fake holds it: a stateless stub cannot tell a
+  // toggle from a set, which is the distinction under test.
+  let blurEnabled = false;
   const savedPrompts: SavedPrompt[] = (options.prompts ?? []).map((entry) => ({
     ...entry,
   }));
@@ -1408,11 +1411,38 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       }),
       set_blur: (payload) => {
         captured.push(payload);
-        const enabled = Boolean(payload["enabled"]);
+        blurEnabled = Boolean(payload["enabled"]);
         for (const listener of blurListeners) {
-          listener(JSON.stringify({ enabled, amount: 12, supported: true }));
+          listener(
+            JSON.stringify({
+              enabled: blurEnabled,
+              amount: 12,
+              supported: true,
+            }),
+          );
         }
-        return { status: { blur_enabled: enabled }, engines: [] };
+        return { status: { blur_enabled: blurEnabled }, engines: [] };
+      },
+      // The real one flips the state where it lives, so the fake holds state
+      // too — a toggle that always answered the same thing could not catch the
+      // bug this method exists for.
+      toggle_blur: (payload) => {
+        captured.push({ ...payload, method: "toggle_blur" });
+        blurEnabled = !blurEnabled;
+        const supported = browserBackend !== "chrome";
+        for (const listener of blurListeners) {
+          listener(
+            JSON.stringify({ enabled: blurEnabled, amount: 12, supported }),
+          );
+        }
+        return {
+          status: {
+            blur_enabled: blurEnabled,
+            blur_supported: supported,
+            backend: browserBackend,
+          },
+          engines: [],
+        };
       },
       set_mobile: (payload) => {
         captured.push(payload);

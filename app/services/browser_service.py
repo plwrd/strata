@@ -493,16 +493,42 @@ class BrowserService:
         return self._blur_enabled, self._blur_amount
 
     def set_blur(self, enabled: bool) -> bool:
+        """Set blur, and report what the state actually *is* afterwards.
+
+        A backend that cannot be restyled does not get its state flipped. The
+        Chrome backend is a browser Strata does not own, so there is nothing to
+        blur there — and recording "blurred" for it would put a badge on the
+        panel over a page that is not blurred at all. The same rule as the
+        capture status: never claim a protection that was not applied.
+        """
+        if not self.blur_supported:
+            logger.info("browser.blur_unsupported", backend=self.backend)
+            self._notify_blur()
+            return self._blur_enabled
         self._blur_enabled = bool(enabled)
         self._apply_blur()
         self._notify_blur()
         return self._blur_enabled
 
     def toggle_blur(self) -> bool:
+        """Flip blur at its source.
+
+        The one place the state lives, so a hotkey and a button pressed at the
+        same moment cannot each compute ``not (what I last saw)`` from a
+        different copy and cancel out.
+        """
         return self.set_blur(not self._blur_enabled)
 
     def set_blur_amount(self, amount: int) -> None:
-        """The amount lives in settings; this re-applies it to a live pane."""
+        """Re-apply a changed radius to a live pane.
+
+        The amount itself lives in settings (it survives a restart, unlike the
+        on/off, which is a live toggle). ``amount`` is accepted so the caller
+        reads naturally and so a future caller cannot pass one that is silently
+        ignored — it must match what was persisted.
+        """
+        if int(amount) != self._blur_amount:
+            logger.info("browser.blur_amount_mismatch", passed=int(amount))
         self._apply_blur()
         self._notify_blur()
 
