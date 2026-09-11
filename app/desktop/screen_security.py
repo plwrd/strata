@@ -44,6 +44,24 @@ excluded is not counted, an unsupported platform says ``UNSUPPORTED`` rather
 than ``True``, and the aggregate of several windows is the *weakest* of them.
 A screen-privacy control that overstates itself is worse than one that is
 absent: the user acts on it.
+
+**Another process's window cannot be excluded — only closed or reported.**
+``SetWindowDisplayAffinity`` is refused with ``ERROR_ACCESS_DENIED`` for any
+window the calling process does not own (measured on Windows 11 26200 against
+a process this one had launched; the affinity *read* works, the write does
+not). So the "sweep the engine process by PID" strategy that used to cover
+WebView2's browser process and the launched Chrome never excluded a single
+window: every ``<select>`` dropdown, tooltip, ``alert()`` and permission bubble
+the research pane opened was in the recording, and the sweep's return value
+said nothing about it. What *can* be done from outside is
+``PostMessage(WM_CLOSE)`` — not subject to the ownership check — and counting
+what is on screen. For WebView2, whose browser process has no top-level window
+worth keeping (the page itself draws inside our window), a popup that appears
+is closed on the message-loop turn we hear about it (:class:`CaptureGuard`),
+and every window the :func:`foreign_windows_uncovered` sweep still finds is
+reported as a failure. For the Chrome backend, whose windows *are* the
+browser, they are reported and left alone: that backend cannot be hidden, and
+the status must say so.
 """
 
 from __future__ import annotations
@@ -62,6 +80,7 @@ WDA_NONE = 0x00000000
 WDA_MONITOR = 0x00000001
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
 GA_ROOT = 2
+WM_CLOSE = 0x0010
 
 
 class CaptureState(str, Enum):
@@ -205,6 +224,15 @@ def _user32() -> Any:
         ]
         user32.GetWindowDisplayAffinity.restype = wintypes.BOOL
         user32.EnumWindows.restype = wintypes.BOOL
+        user32.PostMessageW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        user32.PostMessageW.restype = wintypes.BOOL
+        user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetClassNameW.restype = ctypes.c_int
         user32.SetWinEventHook.restype = wintypes.HANDLE
         user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
         user32.UnhookWinEvent.restype = wintypes.BOOL
@@ -320,6 +348,91 @@ def process_is_running(pid: int) -> bool:
         return code.value == 259  # STILL_ACTIVE
     finally:
         kernel32.CloseHandle(handle)
+
+
+def foreign_windows_uncovered(pid: int) -> int:
+    """How many visible top-level windows of ``pid`` are in a recording right now.
+
+    For a process that is not ours. Its windows cannot be excluded from here
+    (the write is refused; see the module docstring), so the only honest thing
+    to do with them is count the ones that are on screen without an affinity
+    and let the reported state carry that number: one such window is a
+    ``FAILED`` protection, however well covered our own windows are.
+    """
+    if not _is_windows() or pid <= 0:
+        return 0
+    user32 = _user32()
+    return sum(
+        1
+        for hwnd in _visible_top_level_windows(user32, pid)
+        if _read_affinity(user32, hwnd) not in (WDA_EXCLUDEFROMCAPTURE, WDA_MONITOR)
+    )
+
+
+def close_foreign_windows(pid: int) -> int:
+    """Ask every visible top-level window of ``pid`` to close. Returns how many.
+
+    The backstop under :class:`CaptureGuard` for an engine process whose
+    top-level windows are all popups — WebView2's browser process draws the
+    page inside *our* window, so anything it puts on screen in its own right is
+    a dropdown, a tooltip, a dialog or a bubble, and each is a window Windows
+    will not let us exclude. ``WM_CLOSE`` is posted, not sent: a synchronous
+    send into another process's message loop is a hang waiting for a stuck
+    renderer.
+    """
+    if not _is_windows() or pid <= 0:
+        return 0
+    user32 = _user32()
+    closed = 0
+    for hwnd in _visible_top_level_windows(user32, pid):
+        if _close_window(user32, hwnd, pid=pid):
+            closed += 1
+    return closed
+
+
+def _close_window(user32: Any, hwnd: int, *, pid: int) -> bool:
+    if not user32.PostMessageW(hwnd, WM_CLOSE, 0, 0):
+        return False
+    # Warning, not debug: this is the "strange event" a user asks about after
+    # a recording. The class name says what it was (``Chrome_WidgetWin_1`` for
+    # a Chromium popup) without reading the window's contents.
+    logger.warning("screen_security.foreign_window_closed", pid=pid, cls=_class_name(user32, hwnd))
+    return True
+
+
+def _class_name(user32: Any, hwnd: int) -> str:
+    import ctypes
+
+    try:
+        buffer = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, buffer, 64)
+        return str(buffer.value)
+    except Exception:  # pragma: no cover - a stand-in library in tests
+        return ""
+
+
+def _visible_top_level_windows(user32: Any, pid: int) -> list[int]:
+    """Every visible top-level window ``pid`` owns (``EnumWindows`` is top-level only)."""
+    import ctypes
+    from ctypes import wintypes
+
+    found: list[int] = []
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _each(hwnd: int, _lparam: int) -> bool:
+        try:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == pid:
+                found.append(int(hwnd))
+        except Exception:  # pragma: no cover - a callback must never raise
+            return True
+        return True
+
+    user32.EnumWindows(enum_proc(_each), 0)
+    return found
 
 
 def _windows_exclude_by_pid(pid: int, *, enabled: bool, include_hidden: bool) -> int:
@@ -461,6 +574,9 @@ class CaptureGuard:
     def __init__(self) -> None:
         self._enabled = False
         self._hooks: dict[int, Any] = {}
+        # Processes whose every top-level window is a popup we would rather
+        # close than show: see `watch(..., popups_only=True)`.
+        self._popups_only: set[int] = set()
         # ctypes callbacks must outlive the hook; a collected thunk would be a
         # jump into freed memory on the next window that opens anywhere.
         self._proc: Any = None
@@ -478,10 +594,19 @@ class CaptureGuard:
         """
         self._enabled = enabled
 
-    def watch(self, pid: int) -> bool:
-        """Start catching new windows in ``pid``. Idempotent per process."""
+    def watch(self, pid: int, *, popups_only: bool = False) -> bool:
+        """Start catching new windows in ``pid``. Idempotent per process.
+
+        ``popups_only`` says the process is an engine whose page is drawn in
+        *our* window, so a top-level window of its own can only be a popup —
+        and, being another process's, one we cannot exclude. Those are closed
+        as they appear rather than left in the recording. Our own process is
+        never that: its windows get the affinity.
+        """
         if not _is_windows() or pid <= 0 or pid in self._hooks:
             return False
+        if popups_only:
+            self._popups_only.add(pid)
         user32 = _user32()
         if self._proc is None:
             self._proc = self._make_callback()
@@ -522,6 +647,7 @@ class CaptureGuard:
     def forget(self, pid: int) -> None:
         """Drop the hook for a process that has gone."""
         hook = self._hooks.pop(pid, None)
+        self._popups_only.discard(pid)
         if hook is None or not _is_windows():
             return
         _user32().UnhookWinEvent(hook)
@@ -547,7 +673,7 @@ class CaptureGuard:
 
         def _on_event(
             _hook: int,
-            _event: int,
+            event: int,
             hwnd: int,
             id_object: int,
             id_child: int,
@@ -558,11 +684,33 @@ class CaptureGuard:
             if id_object != OBJID_WINDOW or id_child != CHILDID_SELF or not hwnd:
                 return
             try:
-                _apply_affinity_to_hwnd(int(hwnd), enabled=self._enabled)
+                self._handle_window(int(event), int(hwnd))
             except Exception:  # pragma: no cover - a callback must never raise
                 return
 
         return proto(_on_event)
+
+    def _handle_window(self, event: int, hwnd: int) -> None:
+        if self._popups_only and self._enabled and event == EVENT_OBJECT_SHOW:
+            user32 = _user32()
+            owner = _owner_pid(user32, hwnd)
+            root = int(user32.GetAncestor(hwnd, GA_ROOT) or 0) or hwnd
+            # Top-level and the engine's own: a popup. (The engine's *child*
+            # window inside our pane has our window as its root, and that root
+            # takes the affinity like any window of ours.)
+            if owner in self._popups_only and root == hwnd:
+                _close_window(user32, hwnd, pid=owner)
+                return
+        _apply_affinity_to_hwnd(hwnd, enabled=self._enabled)
+
+
+def _owner_pid(user32: Any, hwnd: int) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    owner = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+    return int(owner.value)
 
 
 def _apply_affinity_to_hwnd(hwnd: int, *, enabled: bool) -> bool:

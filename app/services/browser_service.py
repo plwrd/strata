@@ -38,7 +38,7 @@ from typing import Protocol, cast
 from urllib.parse import quote_plus, urlsplit
 
 from app.desktop.capture_flags import capture_flags
-from app.desktop.screen_security import set_process_windows_excluded_from_capture
+from app.desktop.screen_security import close_foreign_windows, foreign_windows_uncovered
 from app.domain.browser import (
     IN_WINDOW_BACKENDS,
     SEARCH_URLS,
@@ -359,15 +359,20 @@ class ChromeSource:
             return 0
         return int(process.pid)
 
-    def apply_capture_exclusion(self, enabled: bool) -> None:
-        """Hide (or reveal) the launched Chrome's windows from screen capture.
+    def apply_capture_exclusion(self, enabled: bool) -> int:
+        """How many of the launched Chrome's windows are in a recording.
 
-        Best-effort: covers only the process Strata started, and a window that
-        has not appeared yet is picked up by the next call.
+        Not "hide them": Windows refuses a display affinity on a window owned
+        by another process, so the sweep this used to run never excluded one.
+        Chrome's windows *are* the browser, so closing them is not an option
+        either. What is left is the truth — the count feeds the reported
+        capture state, so "hidden for sharing" reads ``failed`` while a Chrome
+        window is on screen instead of a tick over a window in every recording.
         """
         pid = self.process_id
-        if pid:
-            set_process_windows_excluded_from_capture(pid, enabled=enabled)
+        if not pid or not enabled:
+            return 0
+        return foreign_windows_uncovered(pid)
 
     def _clear_history(self) -> None:
         """Drop browsing history from the Strata-owned profile; keep cookies.
@@ -544,22 +549,43 @@ class BrowserService:
 
     # -- capture exclusion (Chrome backend only) -----------------------------
 
-    def apply_capture_exclusion(self, enabled: bool) -> None:
-        """Reach the browser windows that are not Strata's own.
+    def apply_capture_exclusion(self, enabled: bool) -> int:
+        """Deal with the browser windows that are not Strata's own.
+
+        Returns how many were on screen, uncovered, when this ran — the number
+        the window folds into the reported capture state, so one such window
+        makes the status say ``failed`` rather than ``excluded``.
 
         The Qt pane is drawn into a Strata window and is covered by that
-        window's exclusion. The other two are not: Chrome is a separate browser
-        entirely, and WebView2 renders in our window but puts its popups and
-        menus in an ``msedgewebview2.exe`` of its own. Both need the sweep — the
-        difference is that the WebView2 process is one Strata started and can
-        therefore account for, which is the whole reason it is preferred.
+        window's exclusion. The other two are not, and neither can be excluded
+        from here: Windows refuses ``SetWindowDisplayAffinity`` on a window
+        another process owns. What differs is what can be done about it.
+        WebView2 renders the page in our window and only ever puts *popups* —
+        dropdowns, tooltips, dialogs, bubbles — in its ``msedgewebview2.exe``,
+        so those are closed (the hook in ``CaptureGuard`` does it as they
+        appear; this sweep catches what the hook missed). Chrome's windows are
+        the browser itself, so they are counted and left alone.
         """
         if self.backend == "chrome":
-            self._chrome.apply_capture_exclusion(enabled)
-            return
+            return self._chrome.apply_capture_exclusion(enabled)
         pid = self.engine_process_id
-        if pid:
-            set_process_windows_excluded_from_capture(pid, enabled=enabled, include_hidden=True)
+        if not pid or not enabled:
+            return 0
+        uncovered = foreign_windows_uncovered(pid)
+        if uncovered:
+            close_foreign_windows(pid)
+        return uncovered
+
+    @property
+    def engine_popups_closable(self) -> bool:
+        """Whether every top-level window of the engine process is disposable.
+
+        True for WebView2: its page lives in our window, so a window of its own
+        is a popup, and one we cannot exclude — closing it is the only way to
+        keep it out of a recording. False for Chrome (its windows are the
+        browser) and for the Qt pane (its popups are ours and get the affinity).
+        """
+        return self.backend == "webview2"
 
     @property
     def engine_process_id(self) -> int:

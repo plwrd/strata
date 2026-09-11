@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from app.desktop.browser_pane import MOBILE_USER_AGENT, PANE_TARGET_ID, blur_source
 from app.desktop.webview2 import sdk
+from app.desktop.webview2.com import ComError
 from app.domain.browser import BrowserBackend, BrowserTab
 from app.infrastructure.logging.logger import get_logger
 from app.services.browser_service import extraction_script
@@ -49,6 +50,60 @@ from app.services.browser_service import extraction_script
 logger = get_logger(__name__)
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+
+def popup_free_select_source() -> str:
+    """A ``<select>`` that opens in the page instead of in a window of its own.
+
+    Chromium draws a dropdown's option list as a separate top-level window of
+    the browser process. Under WebView2 that process is not ours, Windows will
+    not let us exclude its windows from capture, and the ``CaptureGuard``
+    therefore closes the popup the moment it appears — which would leave a
+    mouse user with a dropdown that opens and vanishes. This turns the click
+    into an in-page listbox instead (``size`` above one is rendered inline, in
+    our window, under our affinity) and collapses it again on a choice, on
+    Escape, or when focus leaves. Keyboard selection on a closed ``<select>``
+    is untouched. Installed only while "hidden for sharing" is on.
+    """
+    return """
+(() => {
+  if (window.__strataSelect) return;
+  window.__strataSelect = true;
+  const expand = (el) => {
+    if (el.multiple || el.disabled || el.dataset.strataOpen) return;
+    el.dataset.strataOpen = "1";
+    const hadSize = el.hasAttribute("size");
+    const size = el.size;
+    el.size = Math.min(Math.max(el.options.length, 2), 8);
+    const collapse = () => {
+      if (!el.dataset.strataOpen) return;
+      delete el.dataset.strataOpen;
+      if (hadSize) el.size = size; else el.removeAttribute("size");
+      el.removeEventListener("change", collapse);
+      el.removeEventListener("blur", collapse);
+      el.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => { if (e.key === "Escape" || e.key === "Enter") collapse(); };
+    el.addEventListener("change", collapse);
+    el.addEventListener("blur", collapse);
+    el.addEventListener("keydown", onKey);
+  };
+  const isClosedSelect = (t) =>
+    t instanceof HTMLSelectElement && !t.multiple && !t.disabled && !t.dataset.strataOpen;
+  document.addEventListener("mousedown", (e) => {
+    if (!isClosedSelect(e.target)) return;
+    e.preventDefault();
+    e.target.focus();
+    expand(e.target);
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (!isClosedSelect(e.target)) return;
+    const opens = e.key === " " || e.key === "F4" ||
+      (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp"));
+    if (opens) { e.preventDefault(); expand(e.target); }
+  }, true);
+})();
+"""
 
 
 def _unwrap(raw: str) -> object:
@@ -102,6 +157,9 @@ class WebView2Pane(QWidget):
         self._blur_enabled = False
         self._blur_amount = 12
         self._mobile = False
+        # Decided at creation, like the software-decode flag: the popup guard
+        # is installed into every document from the first one.
+        self._hide_for_sharing = hide_for_sharing
         # Updated from the engine's own events, so `current()` answers without a
         # COM round-trip on a path the service calls from a read.
         self._url = ""
@@ -202,15 +260,30 @@ class WebView2Pane(QWidget):
             return
         self._controller = controller
         view = controller.webview
-        view.apply_settings(dev_tools=False, context_menus=False, status_bar=False)
+        # Every browser-process window this engine could open, switched off:
+        # each would be a top-level window Strata cannot exclude from capture.
+        view.apply_settings(
+            dev_tools=False,
+            context_menus=False,
+            status_bar=False,
+            script_dialogs=False,
+            zoom_control=False,
+            browser_accelerator_keys=False,
+        )
+        view.deny_permission_requests()
+        if not view.cancel_downloads():
+            logger.warning("webview2.downloads_not_cancellable")
         view.on_navigation_starting(self._allow)
         view.on_new_window_requested(self._open_here)
         view.on_source_changed(self._refresh_url)
         view.on_title_changed(self._refresh_title)
 
         self._apply_mobile_user_agent()
+        self._quiet_profile()
         self._load_extensions()
         self._install_blur()
+        if self._hide_for_sharing:
+            view.add_script_on_document_created(popup_free_select_source())
         self._sync_bounds()
         controller.set_visible(True)
         self._message.hide()
@@ -220,16 +293,36 @@ class WebView2Pane(QWidget):
             url, self._pending_url = self._pending_url, ""
             self.load_url(url)
 
+    def _quiet_profile(self) -> None:
+        """Turn off the profile-level UI that opens browser-process bubbles.
+
+        Autofill and password-save prompts. An old runtime without a profile
+        interface keeps its defaults; the capture guard closes those bubbles
+        as they appear, which is the fallback for everything on this path.
+        """
+        profile = self._profile_interface()
+        if profile is None:
+            return
+        try:
+            profile.set_autofill(enabled=False)
+        except ComError as exc:
+            logger.warning("webview2.autofill_not_disabled", hr=exc.hr)
+
+    def _profile_interface(self) -> sdk.Profile | None:
+        """The view's profile, fetched once and released at shutdown."""
+        if self._profile is None and self._controller is not None:
+            self._profile = self._controller.webview.profile()
+        return self._profile
+
     def _load_extensions(self) -> None:
         """Hand the runtime each configured extension folder, one at a time."""
         if not self._requested_extensions or self._controller is None:
             return
-        profile = self._controller.webview.profile()
+        profile = self._profile_interface()
         if profile is None:
             self.addon_errors.append("This WebView2 runtime is too old to load browser extensions.")
             logger.warning("webview2.extensions_unsupported")
             return
-        self._profile = profile
         for folder in self._requested_extensions:
             self._add_extension(profile, folder)
 

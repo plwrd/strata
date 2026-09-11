@@ -624,7 +624,26 @@ def test_a_user_supplied_profile_history_is_left_alone(tmp_path: Path) -> None:
 def test_capture_exclusion_is_a_noop_when_chrome_is_not_running(tmp_path: Path) -> None:
     service = _chrome(tmp_path, FakeCDP())
     # Not launched in this test, so there is no process to reach — must not raise.
-    service.apply_capture_exclusion(True)
+    assert service.apply_capture_exclusion(True) == 0
+
+
+def test_a_running_chrome_is_reported_not_claimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows refuses a capture affinity on another process's window, so the
+    launched Chrome cannot be hidden — and its windows *are* the browser, so
+    they cannot be closed either. What is left is to say so: the count of
+    windows on screen is what makes the status read ``failed``."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "app.services.browser_service.foreign_windows_uncovered", lambda pid: 1 if pid == 555 else 0
+    )
+    service = _chrome(tmp_path, FakeCDP())
+    service._chrome._process = SimpleNamespace(pid=555, poll=lambda: None)  # type: ignore[assignment]
+
+    assert service.apply_capture_exclusion(True) == 1
+    assert service.apply_capture_exclusion(False) == 0
 
 
 # -- one state, several ways to flip it ----------------------------------------

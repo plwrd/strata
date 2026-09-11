@@ -143,75 +143,111 @@ def test_blur_is_not_offered_for_a_browser_we_do_not_own(tmp_path: Path) -> None
 # -- capture exclusion ---------------------------------------------------------
 
 
-def test_exclusion_reaches_the_engine_process(
+def _foreign(monkeypatch: pytest.MonkeyPatch, *, on_screen: int) -> tuple[list[int], list[int]]:
+    """Stand in for the two things `screen_security` can do to another process's
+    windows: count the visible ones, and ask them to close."""
+    counted: list[int] = []
+    closed: list[int] = []
+
+    def _count(pid: int) -> int:
+        counted.append(pid)
+        return on_screen
+
+    def _close(pid: int) -> int:
+        closed.append(pid)
+        return on_screen
+
+    monkeypatch.setattr("app.services.browser_service.foreign_windows_uncovered", _count)
+    monkeypatch.setattr("app.services.browser_service.close_foreign_windows", _close)
+    return counted, closed
+
+
+def test_engine_popups_are_closed_and_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """WebView2's popups live in its own process, not in ours.
-
-    The window's display affinity covers the pane's pixels but not a menu the
-    browser process opened, so that PID has to be swept in its own right.
-    """
-    swept: list[tuple[int, bool, bool]] = []
-    monkeypatch.setattr(
-        "app.services.browser_service.set_process_windows_excluded_from_capture",
-        lambda pid, *, enabled, include_hidden=False: swept.append((pid, enabled, include_hidden)),
-    )
+    """WebView2's popups live in its own process, which Windows will not let us
+    exclude from capture (``SetWindowDisplayAffinity`` is refused for a window
+    another process owns). A dropdown that is on screen is therefore in the
+    recording: it is closed, and — because it *was* there — reported."""
+    counted, closed = _foreign(monkeypatch, on_screen=2)
     service = _service(tmp_path, backend="webview2")
     service.attach(FakePane("webview2", browser_process_id=4321))
 
-    service.apply_capture_exclusion(True)
+    assert service.apply_capture_exclusion(True) == 2
 
-    assert swept == [(4321, True, True)]
+    assert counted == [4321]
+    assert closed == [4321]
 
 
-def test_exclusion_covers_hidden_windows_too(
+def test_nothing_on_screen_means_nothing_to_close(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A popup exists before it is shown; a visible-only sweep is always late."""
-    swept: list[Any] = []
-    monkeypatch.setattr(
-        "app.services.browser_service.set_process_windows_excluded_from_capture",
-        lambda pid, *, enabled, include_hidden=False: swept.append(include_hidden),
-    )
+    """The steady state: no popup, no close, nothing to report."""
+    counted, closed = _foreign(monkeypatch, on_screen=0)
     service = _service(tmp_path, backend="webview2")
-    service.attach(FakePane("webview2", browser_process_id=99))
+    service.attach(FakePane("webview2", browser_process_id=4321))
 
-    service.apply_capture_exclusion(True)
+    assert service.apply_capture_exclusion(True) == 0
 
-    assert swept == [True]
+    assert counted == [4321]
+    assert closed == []
 
 
 def test_exclusion_is_a_noop_before_the_engine_starts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    swept: list[Any] = []
-    monkeypatch.setattr(
-        "app.services.browser_service.set_process_windows_excluded_from_capture",
-        lambda pid, **kwargs: swept.append(pid),
-    )
+    counted, closed = _foreign(monkeypatch, on_screen=5)
     service = _service(tmp_path, backend="webview2")
     service.attach(FakePane("webview2", browser_process_id=0))
 
-    service.apply_capture_exclusion(True)
+    assert service.apply_capture_exclusion(True) == 0
 
-    assert swept == []
+    assert counted == []
+    assert closed == []
+
+
+def test_hiding_off_leaves_the_engine_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Off means off: a popup is the user's business when nothing is hidden."""
+    counted, closed = _foreign(monkeypatch, on_screen=5)
+    service = _service(tmp_path, backend="webview2")
+    service.attach(FakePane("webview2", browser_process_id=4321))
+
+    assert service.apply_capture_exclusion(False) == 0
+
+    assert counted == []
+    assert closed == []
 
 
 def test_the_qt_pane_needs_no_process_sweep(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """It draws into a Strata window, which the window's own affinity covers."""
-    swept: list[Any] = []
-    monkeypatch.setattr(
-        "app.services.browser_service.set_process_windows_excluded_from_capture",
-        lambda pid, **kwargs: swept.append(pid),
-    )
+    counted, closed = _foreign(monkeypatch, on_screen=5)
     service = _service(tmp_path, backend="embedded")
     service.attach(FakePane("embedded"))
 
-    service.apply_capture_exclusion(True)
+    assert service.apply_capture_exclusion(True) == 0
 
-    assert swept == []
+    assert counted == []
+    assert closed == []
+
+
+def test_only_webview2_popups_are_disposable(tmp_path: Path) -> None:
+    """Closing is right for an engine whose page lives in *our* window, so any
+    window of its own is a popup. Chrome's windows are the browser; the Qt
+    pane's popups are ours and get the affinity instead."""
+    webview2 = _service(tmp_path, backend="webview2")
+    webview2.attach(FakePane("webview2"))
+    assert webview2.engine_popups_closable is True
+
+    qt = _service(tmp_path, backend="embedded")
+    qt.attach(FakePane("embedded"))
+    assert qt.engine_popups_closable is False
+
+    chrome = _service(tmp_path, backend="chrome")
+    assert chrome.engine_popups_closable is False
 
 
 # -- the Qt-side adapter -------------------------------------------------------
@@ -266,6 +302,22 @@ def test_embedded_source_still_reports_the_qt_pane() -> None:
     source = EmbeddedSource(FakeWidgetPane("embedded"), lambda visible: None)
 
     assert source.status().backend == "embedded"
+
+
+def test_the_adapter_forwards_the_engine_pid() -> None:
+    """The window asks the *service* for the engine pid, and the service asks
+    whatever was attached — which in the running app is this adapter, not the
+    pane. Without the forward, the pid read as 0 and the popup guard never
+    watched the browser process at all."""
+    pytest.importorskip("PySide6.QtWebEngineWidgets")
+    from app.desktop.browser_pane import EmbeddedSource
+
+    pane = FakeWidgetPane("webview2")
+    pane.browser_process_id = 4321  # type: ignore[attr-defined]
+    assert EmbeddedSource(pane, lambda visible: None).browser_process_id == 4321
+
+    # The Qt pane has no process of its own and no such attribute.
+    assert EmbeddedSource(FakeWidgetPane("embedded"), lambda visible: None).browser_process_id == 0
 
 
 def test_a_failed_engine_says_so_in_the_status() -> None:
@@ -420,3 +472,20 @@ def test_a_chrome_that_has_exited_reports_no_pid(
     monkeypatch.setattr(service._chrome, "_process", _Exited(), raising=False)
 
     assert service.engine_process_id == 0
+
+
+# -- the popup-free <select> ---------------------------------------------------
+
+
+def test_the_select_guard_opens_in_page_and_puts_the_size_back() -> None:
+    """A dropdown's option list is a window of the browser process — one Strata
+    cannot exclude and therefore closes on sight. The in-page listbox is what a
+    mouse user gets instead, and it must leave the element as it found it."""
+    pytest.importorskip("PySide6.QtWebEngineWidgets")
+    from app.desktop.webview2.pane import popup_free_select_source
+
+    source = popup_free_select_source()
+    assert "preventDefault()" in source  # the native popup never opens
+    assert 'removeAttribute("size")' in source  # a select without a size gets none back
+    assert "el.size = size" in source  # one with a size gets its own back
+    assert "__strataSelect" in source  # installed once per document

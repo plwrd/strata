@@ -414,12 +414,19 @@ class MainWindow(QMainWindow):
         Not just the main window: a minimize/restore, the taskbar ex-style cycle,
         or a newly shown dialog can each leave a surface uncovered, so every
         current top-level window is re-excluded.
+
+        The reported state is the weakest of two answers: our own windows,
+        and whatever the engine process has on screen that is not ours to
+        exclude. A WebView2 popup or a Chrome window in a recording is a
+        ``failed`` protection even while every Strata window is excluded.
         """
         state = set_windows_excluded_from_capture(
             self._top_level_windows(), enabled=self._hide_for_sharing
         )
+        uncovered = self._sweep_own_windows()
+        if self._hide_for_sharing and uncovered:
+            state = weakest([state, CaptureState.FAILED])
         self._set_capture_state(CaptureState.OFF if not self._hide_for_sharing else state)
-        self._sweep_own_windows()
 
     def _set_capture_state(self, state: CaptureState) -> None:
         """Record the state, logging only when it actually changes.
@@ -452,7 +459,9 @@ class MainWindow(QMainWindow):
         """
         pid = self._services.browser.engine_process_id
         if pid > 0:
-            self._capture_guard.watch(pid)
+            self._capture_guard.watch(
+                pid, popups_only=self._services.browser.engine_popups_closable
+            )
 
     def _prune_dead_engines(self) -> None:
         """Unhook engine processes that have exited.
@@ -463,7 +472,7 @@ class MainWindow(QMainWindow):
         """
         self._capture_guard.drop_dead_processes(keep=os.getpid())
 
-    def _sweep_own_windows(self) -> None:
+    def _sweep_own_windows(self) -> int:
         """Exclude every window this process owns, whatever created it.
 
         The Qt-object hooks only see what Qt models. The bundled Chromium makes
@@ -471,6 +480,10 @@ class MainWindow(QMainWindow):
         ``QWidget`` or a ``QWindow``, so they were never excluded and showed up in
         a recording on their own. A PID sweep does not need to know what a window
         is, only that it is ours.
+
+        Returns how many *engine* windows were on screen uncovered — windows of
+        another process, which no sweep of ours can exclude (see
+        ``screen_security``); the caller folds that into the reported state.
         """
         self._capture_guard.set_enabled(self._hide_for_sharing)
         self._prune_dead_engines()
@@ -479,12 +492,18 @@ class MainWindow(QMainWindow):
         # The research engine may render in a process of its own — WebView2's
         # browser process, or a launched Chrome. Its menus and dropdowns are
         # that process's windows, so a sweep of ours cannot reach them.
-        self._services.browser.apply_capture_exclusion(self._hide_for_sharing)
+        return int(self._services.browser.apply_capture_exclusion(self._hide_for_sharing) or 0)
 
     def _tick_capture_sweep(self) -> None:
-        """Heartbeat sweep: only while hiding, and only for windows we own."""
+        """Heartbeat: only while hiding.
+
+        The full re-apply, not the own-window sweep alone, so the reported
+        state *recovers* once an engine popup that downgraded it has gone.
+        Steady state is reads only — a window already at the right affinity is
+        never written again.
+        """
         if self._hide_for_sharing:
-            self._sweep_own_windows()
+            self._reapply_hide_for_sharing()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         # Cheap early-outs first — this runs for every app event.

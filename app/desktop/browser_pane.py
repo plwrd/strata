@@ -687,6 +687,20 @@ class EmbeddedSource(QObject):
             detail=detail,
         )
 
+    @property
+    def browser_process_id(self) -> int:
+        """The engine's own process, or 0: what the capture guard has to watch.
+
+        The WebView2 pane knows it; the Qt pane has none. Not forwarding it was
+        how the engine pid read as 0 in the running app while every unit test
+        (which attaches a bare pane, not this adapter) said the popups were
+        covered.
+        """
+        try:
+            return int(getattr(self._pane, "browser_process_id", 0) or 0)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            return 0
+
     def ensure_ready(self) -> BrowserStatus:
         # Called from the Qt thread (a bridge slot) — showing a widget from a
         # worker thread would be a crash waiting to happen, and nothing here

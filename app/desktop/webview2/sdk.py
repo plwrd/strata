@@ -155,6 +155,9 @@ _GET_BOOL = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.POINTER(BOOL))
 _PUT_BOOL = ctypes.WINFUNCTYPE(HRESULT, LPVOID, BOOL)
 _INVOKE_HRESULT = ctypes.WINFUNCTYPE(HRESULT, LPVOID, HRESULT)
 
+# COREWEBVIEW2_PERMISSION_STATE: DEFAULT = 0, ALLOW = 1, DENY = 2.
+COREWEBVIEW2_PERMISSION_STATE_DENY = 2
+
 
 class _EnvironmentOptions:
     """``ICoreWebView2EnvironmentOptions``, implemented here.
@@ -309,6 +312,20 @@ class Profile:
     @property
     def supports_extensions(self) -> bool:
         return bool(self._it)
+
+    def set_autofill(self, *, enabled: bool) -> None:
+        """Form autofill and the "save password?" prompt, together.
+
+        Both surface as bubbles owned by the browser process — windows Strata
+        cannot exclude from capture — and both would keep what a researched
+        page was typed into. Off in the research pane.
+        """
+        self._it.put_bool(
+            slots.PROFILE7_PUT_ISGENERALAUTOFILLENABLED, enabled, "put_IsGeneralAutofillEnabled"
+        )
+        self._it.put_bool(
+            slots.PROFILE7_PUT_ISPASSWORDAUTOSAVEENABLED, enabled, "put_IsPasswordAutosaveEnabled"
+        )
 
     def add_extension(self, folder: Path, on_done: Callable[[str, str], None]) -> None:
         """Load an unpacked extension. ``on_done(name, error)``."""
@@ -473,7 +490,25 @@ class WebView:
 
     # -- settings ------------------------------------------------------------
 
-    def apply_settings(self, *, dev_tools: bool, context_menus: bool, status_bar: bool) -> None:
+    def apply_settings(
+        self,
+        *,
+        dev_tools: bool,
+        context_menus: bool,
+        status_bar: bool,
+        script_dialogs: bool = False,
+        zoom_control: bool = False,
+        browser_accelerator_keys: bool = False,
+    ) -> None:
+        """Switch off the browser UI that would open a window of the engine's own.
+
+        Every one of these — devtools, the context menu, ``alert()``, the zoom
+        bubble, and the accelerators for print, find and "view source" — puts a
+        top-level window in ``msedgewebview2.exe``. That window is not ours,
+        Windows refuses to let us exclude it from capture, and so it is in the
+        recording of a pane that is otherwise hidden. Off by default here;
+        the ``CaptureGuard`` closes whatever still gets through.
+        """
         if not self._settings:
             return
         self._settings.put_bool(slots.SETTINGS_PUT_AREDEVTOOLSENABLED, dev_tools, "AreDevTools")
@@ -481,6 +516,22 @@ class WebView:
             slots.SETTINGS_PUT_AREDEFAULTCONTEXTMENUSENABLED, context_menus, "ContextMenus"
         )
         self._settings.put_bool(slots.SETTINGS_PUT_ISSTATUSBARENABLED, status_bar, "StatusBar")
+        self._settings.put_bool(
+            slots.SETTINGS_PUT_AREDEFAULTSCRIPTDIALOGSENABLED, script_dialogs, "ScriptDialogs"
+        )
+        self._settings.put_bool(
+            slots.SETTINGS_PUT_ISZOOMCONTROLENABLED, zoom_control, "ZoomControl"
+        )
+        settings3 = self._settings.query_interface(slots.IID_SETTINGS3)
+        if settings3:
+            try:
+                settings3.put_bool(
+                    slots.SETTINGS3_PUT_AREBROWSERACCELERATORKEYSENABLED,
+                    browser_accelerator_keys,
+                    "BrowserAcceleratorKeys",
+                )
+            finally:
+                settings3.release()
         # A researched page must not be able to reach the host: Strata installs
         # no host object and no web-message channel on this view, and turning
         # the transport off says so to the engine as well as to the reader.
@@ -562,6 +613,60 @@ class WebView:
             invoke,
         )
 
+    def deny_permission_requests(self) -> None:
+        """Answer every permission prompt with "deny" before it is shown.
+
+        Camera, microphone, location, notifications, clipboard: each request
+        would otherwise raise a bubble that belongs to the browser process and
+        is therefore in any recording of the pane. A research pane has no use
+        for any of them, and a silent refusal is the answer a page gets.
+        """
+
+        def invoke(_this: int, _sender: int, args: int) -> int:
+            Interface(args).call(
+                slots.PERMISSION_REQUESTED_EVENT_ARGS_PUT_STATE,
+                (ctypes.c_int,),
+                COREWEBVIEW2_PERMISSION_STATE_DENY,
+                what="put_State",
+            )
+            return 0
+
+        self._add_event(
+            slots.WEBVIEW_ADD_PERMISSIONREQUESTED,
+            slots.IID_PERMISSION_REQUESTED_EVENT_HANDLER,
+            invoke,
+        )
+
+    def cancel_downloads(self) -> bool:
+        """Refuse every download. False when the runtime is too old to ask.
+
+        A download opens the engine's own dialog — a window of the browser
+        process, in every recording — and writes to the user's disk from a
+        pane whose whole boundary is that it does not. Cancelled and marked
+        handled, so neither the dialog nor the file appears.
+        """
+        versioned = self._it.query_interface(slots.IID_WEBVIEW_13)
+        if not versioned:
+            return False
+
+        def invoke(_this: int, _sender: int, args: int) -> int:
+            event = Interface(args)
+            event.put_bool(slots.DOWNLOAD_STARTING_EVENT_ARGS_PUT_CANCEL, True, "put_Cancel")
+            event.put_bool(slots.DOWNLOAD_STARTING_EVENT_ARGS_PUT_HANDLED, True, "put_Handled")
+            return 0
+
+        try:
+            self._add_event(
+                slots.WEBVIEW_13_ADD_DOWNLOADSTARTING,
+                slots.IID_DOWNLOAD_STARTING_EVENT_HANDLER,
+                invoke,
+                on=versioned,
+            )
+        finally:
+            # The registration lives on the object, not on this QI'd pointer.
+            versioned.release()
+        return True
+
     def on_source_changed(self, callback: Callable[[], None]) -> None:
         def invoke(_this: int, _sender: int, _args: int) -> int:
             callback()
@@ -597,13 +702,20 @@ class WebView:
             invoke,
         )
 
-    def _add_event(self, slot: int, iid: str, invoke: Callable[..., int]) -> None:
+    def _add_event(
+        self,
+        slot: int,
+        iid: str,
+        invoke: Callable[..., int],
+        *,
+        on: Interface | None = None,
+    ) -> None:
         from app.desktop.webview2.com import EventRegistrationToken
 
         handler = Callback(iid, (_INVOKE_SENDER_ARGS, invoke))
         self._handlers.append(handler)  # never removed: registered for our lifetime
         token = EventRegistrationToken()
-        self._it.call(
+        (on if on is not None else self._it).call(
             slot,
             (LPVOID, ctypes.POINTER(EventRegistrationToken)),
             handler.pointer,

@@ -440,6 +440,9 @@ def test_every_prototype_this_module_uses_is_declared() -> None:
     assert user32.IsWindowVisible.argtypes[0] is wintypes.HWND
     assert user32.GetWindowThreadProcessId.argtypes[0] is wintypes.HWND
     assert user32.SetWinEventHook.restype is wintypes.HANDLE
+    # Posted into another process: an undeclared HWND here is a message to
+    # the wrong window, and an unclosed popup in the recording.
+    assert user32.PostMessageW.argtypes[0] is wintypes.HWND
 
 
 @windows_only
@@ -696,3 +699,193 @@ def test_a_new_window_is_still_covered(monkeypatch: pytest.MonkeyPatch) -> None:
     user32 = _fake_enum(monkeypatch, {0x10: (42, True), 0x20: (42, True)})
     assert set_process_windows_excluded_from_capture(42, enabled=True) == 2
     assert user32.SetWindowDisplayAffinity.call_count == 2
+
+
+# -- windows of another process ------------------------------------------------
+#
+# Measured, not assumed: `SetWindowDisplayAffinity` is refused with
+# ERROR_ACCESS_DENIED for a window the calling process does not own — even one
+# it launched. So the engine process's popups (WebView2's `<select>` dropdowns,
+# tooltips, dialogs) can never be *excluded* from here. They can be closed, and
+# they can be counted; the tests below pin that those are the two things done.
+
+
+def _foreign_user32(
+    monkeypatch: pytest.MonkeyPatch, *, owner: int, root: int | None = None
+) -> MagicMock:
+    """A user32 where every window belongs to ``owner`` and roots at ``root``."""
+    user32 = _affinity_user32()
+    user32.SetWinEventHook.return_value = 1
+    user32.GetAncestor.side_effect = lambda hwnd, _flag: root if root is not None else hwnd
+    user32.PostMessageW.return_value = 1
+
+    def _pid(_hwnd: object, out: Any) -> int:
+        out._obj.value = owner
+        return 1
+
+    user32.GetWindowThreadProcessId.side_effect = _pid
+    monkeypatch.setattr(ctypes, "windll", MagicMock(user32=user32))
+    return user32
+
+
+@windows_only
+def test_an_engine_popup_is_closed_the_moment_it_shows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import EVENT_OBJECT_SHOW, WM_CLOSE, CaptureGuard
+
+    user32 = _foreign_user32(monkeypatch, owner=4321)
+    guard = CaptureGuard()
+    guard.set_enabled(True)
+    assert guard.watch(4321, popups_only=True)
+
+    guard._handle_window(EVENT_OBJECT_SHOW, 0x55)
+
+    user32.PostMessageW.assert_called_once_with(0x55, WM_CLOSE, 0, 0)
+    # Not even attempted: the write would be refused, and a refused write is
+    # not what keeps the popup out of the recording — the close is.
+    user32.SetWindowDisplayAffinity.assert_not_called()
+
+
+@windows_only
+def test_a_popup_is_the_users_business_while_hiding_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.desktop.screen_security import EVENT_OBJECT_SHOW, CaptureGuard
+
+    user32 = _foreign_user32(monkeypatch, owner=4321)
+    guard = CaptureGuard()
+    guard.set_enabled(False)
+    guard.watch(4321, popups_only=True)
+
+    guard._handle_window(EVENT_OBJECT_SHOW, 0x55)
+
+    user32.PostMessageW.assert_not_called()
+
+
+@windows_only
+def test_a_window_that_exists_but_is_not_shown_is_left_to_appear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chromium creates helper windows it never shows; closing those at
+    creation would be closing the engine. Only a *shown* top-level is a popup."""
+    from app.desktop.screen_security import EVENT_OBJECT_CREATE, CaptureGuard
+
+    user32 = _foreign_user32(monkeypatch, owner=4321)
+    guard = CaptureGuard()
+    guard.set_enabled(True)
+    guard.watch(4321, popups_only=True)
+
+    guard._handle_window(EVENT_OBJECT_CREATE, 0x55)
+
+    user32.PostMessageW.assert_not_called()
+
+
+@windows_only
+def test_the_engines_child_inside_our_window_is_covered_by_our_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The page itself is a child HWND of the engine's, parented into our pane.
+    Its root is our window, which takes the affinity like any window of ours —
+    closing it would close the page."""
+    from app.desktop.screen_security import EVENT_OBJECT_SHOW, CaptureGuard
+
+    user32 = _foreign_user32(monkeypatch, owner=4321, root=0xF00)
+    guard = CaptureGuard()
+    guard.set_enabled(True)
+    guard.watch(4321, popups_only=True)
+
+    guard._handle_window(EVENT_OBJECT_SHOW, 0x55)
+
+    user32.PostMessageW.assert_not_called()
+    hwnd, affinity = user32.SetWindowDisplayAffinity.call_args[0]
+    assert hwnd == 0xF00
+    assert affinity == WDA_EXCLUDEFROMCAPTURE
+
+
+@windows_only
+def test_a_process_we_merely_watch_keeps_its_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Our own process is watched without ``popups_only``: its windows get the
+    affinity, never a close."""
+    from app.desktop.screen_security import EVENT_OBJECT_SHOW, CaptureGuard
+
+    user32 = _foreign_user32(monkeypatch, owner=4321)
+    guard = CaptureGuard()
+    guard.set_enabled(True)
+    guard.watch(4321)
+
+    guard._handle_window(EVENT_OBJECT_SHOW, 0x55)
+
+    user32.PostMessageW.assert_not_called()
+    user32.SetWindowDisplayAffinity.assert_called()
+
+
+@windows_only
+def test_forgetting_a_process_forgets_that_its_windows_were_disposable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Process ids are reused. A pid that was once WebView2's must not have its
+    successor's windows closed on sight."""
+    from app.desktop.screen_security import EVENT_OBJECT_SHOW, CaptureGuard
+
+    user32 = _foreign_user32(monkeypatch, owner=4321)
+    guard = CaptureGuard()
+    guard.set_enabled(True)
+    guard.watch(4321, popups_only=True)
+    guard.forget(4321)
+    guard.watch(4321)  # the number came back as some other process
+
+    guard._handle_window(EVENT_OBJECT_SHOW, 0x55)
+
+    user32.PostMessageW.assert_not_called()
+
+
+@windows_only
+def test_foreign_windows_on_screen_are_counted_not_claimed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.desktop.screen_security import foreign_windows_uncovered
+
+    user32 = _fake_enum(
+        monkeypatch,
+        {0x10: (4321, True), 0x20: (4321, False), 0x30: (99, True)},
+    )
+    # A visible one of the engine's; the hidden one and the stranger's do not count.
+    assert foreign_windows_uncovered(4321) == 1
+    user32.SetWindowDisplayAffinity.assert_not_called()
+
+
+@windows_only
+def test_a_foreign_window_that_somehow_has_the_affinity_is_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The count is of windows *in the recording*; one the engine excluded for
+    itself is not."""
+    from app.desktop.screen_security import foreign_windows_uncovered
+
+    user32 = _fake_enum(monkeypatch, {0x10: (4321, True)})
+    user32.SetWindowDisplayAffinity(0x10, WDA_EXCLUDEFROMCAPTURE)  # as if the engine had
+    assert foreign_windows_uncovered(4321) == 0
+
+
+@windows_only
+def test_closing_foreign_windows_posts_wm_close_to_each_visible_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.desktop.screen_security import WM_CLOSE, close_foreign_windows
+
+    user32 = _fake_enum(
+        monkeypatch,
+        {0x10: (4321, True), 0x20: (4321, False), 0x30: (99, True)},
+    )
+    user32.PostMessageW.return_value = 1
+
+    assert close_foreign_windows(4321) == 1
+
+    user32.PostMessageW.assert_called_once_with(0x10, WM_CLOSE, 0, 0)
+
+
+def test_foreign_window_handling_is_a_noop_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.desktop.screen_security import close_foreign_windows, foreign_windows_uncovered
+
+    monkeypatch.setattr(screen_security.sys, "platform", "linux")
+    assert foreign_windows_uncovered(4321) == 0
+    assert close_foreign_windows(4321) == 0

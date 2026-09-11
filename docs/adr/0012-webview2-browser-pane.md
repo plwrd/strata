@@ -21,10 +21,10 @@ assumed — `tests/e2e/test_codec_rationale.py` runs `canPlayType` and gets:
 **Two: the workaround for that is incompatible with screen-capture protection.** The previous answer
 was a "Chrome backend" that launches the user's *own* Chrome on a loopback DevTools port. It plays
 everything — and it cannot be hidden from a recording. Strata excludes windows with
-`SetWindowDisplayAffinity`, which is per top-level HWND; Strata can sweep the windows of the process
-it launched, but a browser opens more windows over its lifetime, in processes Strata did not start,
-and a "Hidden for sharing" that silently stops covering the pane is worse than one that never
-claimed to.
+`SetWindowDisplayAffinity`, which is per top-level HWND — and which Windows refuses for a window
+owned by another process, *including one Strata launched* (measured later: `ERROR_ACCESS_DENIED`).
+A separate browser's windows can therefore never be hidden, only reported, and a "Hidden for
+sharing" that silently stops covering the pane is worse than one that never claimed to.
 
 *Hidden for sharing* is on by default and is the setting users are told to trust before they share a
 screen. Video is a convenience. Where they conflict, protection wins — so the Chrome backend cannot
@@ -63,9 +63,11 @@ Three parts, each load-bearing:
 - The Chrome backend stops being the answer for video (and, per the addendum below, for most
   extension use), with its capture limitation documented rather than implied.
 - No new runtime dependency: no CLR, no bundled browser. One 166 KB DLL.
-- WebView2's popups live in a `msedgewebview2.exe` that *Strata launches*, so
-  `get_BrowserProcessId` gives the capture sweep a PID it can actually cover — the guarantee the
-  Chrome backend could not make.
+- WebView2's page is drawn inside *our* window, so it is under our affinity. Its popups live in
+  a `msedgewebview2.exe` that Strata launches; `get_BrowserProcessId` names that process, which
+  is what lets Strata *close* a popup the moment it appears and count what is left. (The
+  original expectation — that the PID sweep could set the affinity on those popups — was wrong:
+  Windows refuses the call for another process's window. See the amendment below.)
 
 ### Negative
 
@@ -77,6 +79,19 @@ Three parts, each load-bearing:
 - Windows only. macOS and Linux keep the Qt pane and its codec limits.
 - The user-data folder is a second cookie store to reason about in the threat model (T-34), on the
   same footing as the Qt pane's.
+
+### Amendment (2026-09-11): another process's window cannot be excluded
+
+`SetWindowDisplayAffinity` fails with `ERROR_ACCESS_DENIED` on any window the calling process
+does not own, launched-by-us or not. The by-PID sweep therefore never covered a WebView2 popup
+(nor a Chrome window). The pane is kept capture-safe by removing every source of a
+browser-process window instead — script dialogs, zoom control, browser accelerator keys,
+autofill and password-save bubbles off; permission requests denied; downloads cancelled; a
+`<select>` opened as an in-page listbox while hiding is on — and by closing anything that still
+appears (`WM_CLOSE` is not subject to the ownership check) on the message-loop turn it shows,
+with the reported state saying `failed` for any tick such a window was on screen. The
+residual is honest: a popup can paint for a few milliseconds before the close lands, and a
+future WebView2 feature that opens a window of its own is a leak until it is switched off here.
 
 ### Neutral
 

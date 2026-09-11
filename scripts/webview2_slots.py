@@ -39,6 +39,14 @@ INTERFACES = (
     "ICoreWebView2",
     "ICoreWebView2Settings",
     "ICoreWebView2Settings2",
+    # Browser-process UI that Strata switches off: each of these otherwise opens
+    # a top-level window owned by msedgewebview2.exe, which Windows refuses to
+    # let another process exclude from capture (see screen_security).
+    "ICoreWebView2Settings3",
+    "ICoreWebView2PermissionRequestedEventArgs",
+    "ICoreWebView2PermissionRequestedEventHandler",
+    "ICoreWebView2DownloadStartingEventArgs",
+    "ICoreWebView2DownloadStartingEventHandler",
     # Browser extensions: opted into at environment creation (Options6), then
     # loaded per profile (Profile7), reached from the view via ICoreWebView2_13.
     "ICoreWebView2EnvironmentOptions6",

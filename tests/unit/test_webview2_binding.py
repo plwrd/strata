@@ -11,6 +11,7 @@ from __future__ import annotations
 import ctypes
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -298,3 +299,77 @@ def test_the_base_options_still_work_alongside_the_second_interface() -> None:
     assert handle.get_string(
         sdk.slots.ENVIRONMENT_OPTIONS_GET_TARGETCOMPATIBLEBROWSERVERSION, "version"
     )
+
+
+# -- browser UI that opens windows of its own ----------------------------------
+
+
+class _FakeSettings:
+    """``ICoreWebView2Settings`` as a dictionary of what was written."""
+
+    def __init__(self, *, has_settings3: bool = True) -> None:
+        self.written: dict[int, bool] = {}
+        self.has_settings3 = has_settings3
+        self.released = 0
+
+    def __bool__(self) -> bool:
+        return True
+
+    def put_bool(self, slot: int, value: bool, what: str) -> None:
+        self.written[slot] = value
+
+    def query_interface(self, iid: str) -> Any:
+        from app.desktop.webview2.com import Interface
+
+        return self if self.has_settings3 else Interface(0)
+
+    def release(self) -> None:
+        self.released += 1
+
+
+def _view_with(settings: _FakeSettings) -> Any:
+    from app.desktop.webview2.sdk import WebView
+
+    view = WebView.__new__(WebView)
+    view._settings = settings
+    view._handlers = []
+    return view
+
+
+def test_every_browser_ui_that_opens_its_own_window_is_off_by_default() -> None:
+    """Each of these puts a top-level window in msedgewebview2.exe — a window
+    Windows will not let Strata exclude from capture. ``alert()``, the zoom
+    bubble and the print/find/devtools accelerators join devtools, the context
+    menu and the status bar."""
+    from app.desktop.webview2 import _slots as slots
+
+    settings = _FakeSettings()
+    _view_with(settings).apply_settings(dev_tools=False, context_menus=False, status_bar=False)
+
+    assert settings.written[slots.SETTINGS_PUT_AREDEFAULTSCRIPTDIALOGSENABLED] is False
+    assert settings.written[slots.SETTINGS_PUT_ISZOOMCONTROLENABLED] is False
+    assert settings.written[slots.SETTINGS3_PUT_AREBROWSERACCELERATORKEYSENABLED] is False
+    assert settings.released == 1  # the QI'd Settings3 is not leaked
+
+
+def test_an_old_runtime_without_settings3_still_gets_the_rest() -> None:
+    from app.desktop.webview2 import _slots as slots
+
+    settings = _FakeSettings(has_settings3=False)
+    _view_with(settings).apply_settings(dev_tools=False, context_menus=False, status_bar=False)
+
+    assert settings.written[slots.SETTINGS_PUT_AREDEFAULTSCRIPTDIALOGSENABLED] is False
+    assert slots.SETTINGS3_PUT_AREBROWSERACCELERATORKEYSENABLED not in settings.written
+
+
+def test_the_new_interfaces_are_generated_not_transcribed() -> None:
+    """The slot numbers come from WebView2.h via ``scripts/webview2_slots.py``;
+    these pin the ones the popup fix depends on against a regeneration that
+    drops an interface from the list."""
+    from app.desktop.webview2 import _slots as slots
+
+    assert slots.SETTINGS3_PUT_AREBROWSERACCELERATORKEYSENABLED == 24
+    assert slots.PERMISSION_REQUESTED_EVENT_ARGS_PUT_STATE == 7
+    assert slots.DOWNLOAD_STARTING_EVENT_ARGS_PUT_CANCEL == 5
+    assert slots.DOWNLOAD_STARTING_EVENT_ARGS_PUT_HANDLED == 9
+    assert slots.WEBVIEW_13_ADD_DOWNLOADSTARTING == 75
