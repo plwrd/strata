@@ -23,12 +23,14 @@ than the research feature disappearing.
 
 from __future__ import annotations
 
+import ctypes
 import json
+import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QMoveEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -44,12 +46,96 @@ from app.desktop.browser_pane import MOBILE_USER_AGENT, PANE_TARGET_ID, blur_sou
 from app.desktop.webview2 import sdk
 from app.desktop.webview2.com import ComError
 from app.domain.browser import BrowserBackend, BrowserTab
+from app.domain.errors import StrataError
 from app.infrastructure.logging.logger import get_logger
 from app.services.browser_service import extraction_script
+from app.services.web_archive_service import (
+    VAULT_HOST,
+    VAULT_ORIGIN,
+    Cookie,
+    PageCapture,
+    SaveResult,
+    classify_media_url,
+)
+
+if TYPE_CHECKING:
+    from app.services.web_archive_service import WebArchiveService
 
 logger = get_logger(__name__)
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+# Ctrl+Alt+F: save the page (and its plain-file videos) into the encrypted
+# archive. Seen as a WebView2 accelerator while the page has focus, and as a
+# Qt shortcut (see MainWindow) while anything else in Strata does.
+ARCHIVE_HOTKEY = "Ctrl+Alt+F"
+_VK_F = 0x46
+_VK_SHIFT, _VK_CONTROL, _VK_MENU = 0x10, 0x11, 0x12
+_MAX_MEDIA_PER_PAGE = 20
+
+
+def media_probe_source() -> str:
+    """Find the page's ``<video>``/``<audio>`` sources, without touching them.
+
+    One candidate per element: its playing source if that is a plain http(s)
+    file, else its first ``<source>`` that is. An element that only plays a
+    ``blob:`` (a player assembling a stream itself) or an HLS/DASH manifest is
+    counted as *streamed*, so the save can say what it did not take.
+    """
+    return """
+(() => {
+  const files = [];
+  let streamed = 0;
+  const resolve = (u) => {
+    try { return new URL(u, location.href).href; } catch (e) { return ""; }
+  };
+  const isStream = (u) => u.startsWith("blob:") || /\\.(m3u8|mpd)(\\?|#|$)/i.test(u);
+  const pages = [];
+  const host = location.hostname.replace(/^(www|m|mobile)\\./, "");
+  const onX = host === "x.com" || host === "twitter.com";
+  const onYouTube = host === "youtube.com" || host === "youtu.be";
+  // The post a video belongs to, on X: its permalink is the link around <time>.
+  const postOf = (el) => {
+    const article = el.closest("article");
+    const link = article && article.querySelector('a[href*="/status/"] time');
+    return link ? link.closest("a").href.replace(/\\/(photo|video)\\/\\d+$/, "") : "";
+  };
+  document.querySelectorAll("video, audio").forEach((el) => {
+    const candidates = [el.currentSrc, el.src,
+      ...Array.from(el.querySelectorAll("source")).map((s) => s.src)]
+      .filter(Boolean).map(resolve).filter(Boolean);
+    const file = candidates.find((u) => /^https?:/i.test(u) && !isStream(u));
+    if (file && !onYouTube) { if (!files.includes(file)) files.push(file); return; }
+    if (!file && !candidates.some(isStream) && !onX && !onYouTube) return;
+    // On an X timeline, only what is on screen: a feed holds dozens of videos
+    // the user never looked at.
+    const onPost = /\\/status\\/\\d+/.test(location.pathname);
+    const box = el.getBoundingClientRect();
+    if (onX && !onPost && !(box.bottom > 0 && box.top < innerHeight && box.width > 0)) return;
+    streamed += 1;
+    // YouTube is handled below: only a watch page names one video, and the
+    // home feed's previews must not be sent off as "the" video.
+    const page = onYouTube ? "" : onX ? (postOf(el) || (onPost ? location.href : ""))
+      : location.href;
+    if (page && !pages.includes(page)) pages.push(page);
+  });
+  // A YouTube watch or Shorts page is a video page even before it plays.
+  if (onYouTube && /^\\/(watch|shorts\\/|embed\\/)|^\\/[\\w-]{11}$/.test(location.pathname)
+      && !pages.includes(location.href)) pages.push(location.href);
+  return JSON.stringify({ media: files, streamed, pages: pages.slice(0, 5),
+                          ua: navigator.userAgent });
+})();
+"""
+
+
+def _modifiers_down() -> tuple[bool, bool, bool]:
+    """(ctrl, alt, shift) as the keyboard has them right now."""
+    state = ctypes.windll.user32.GetKeyState
+    return (
+        bool(state(_VK_CONTROL) & 0x8000),
+        bool(state(_VK_MENU) & 0x8000),
+        bool(state(_VK_SHIFT) & 0x8000),
+    )
 
 
 def popup_free_select_source() -> str:
@@ -121,6 +207,35 @@ def _unwrap(raw: str) -> object:
     return unwrapped if isinstance(unwrapped, str) else raw
 
 
+def _with_cookies(capture: PageCapture, raw: str | None) -> PageCapture:
+    """Attach the cookies DevTools reported. The service matches them per URL."""
+    try:
+        listed = json.loads(raw or "{}").get("cookies") or []
+    except (TypeError, ValueError, AttributeError):
+        listed = []
+    cookies = tuple(
+        Cookie(
+            name=str(item.get("name", "")),
+            value=str(item.get("value", "")),
+            domain=str(item.get("domain", "")),
+            path=str(item.get("path", "/")) or "/",
+            secure=bool(item.get("secure", False)),
+        )
+        for item in listed
+        if isinstance(item, dict) and item.get("name")
+    )
+    return PageCapture(
+        url=capture.url,
+        title=capture.title,
+        mhtml=capture.mhtml,
+        media_urls=capture.media_urls,
+        streamed_media=capture.streamed_media,
+        user_agent=capture.user_agent,
+        cookies=cookies,
+        stream_pages=capture.stream_pages,
+    )
+
+
 class WebView2Pane(QWidget):
     """Toolbar plus a WebView2. Owns the controller; knows nothing about research."""
 
@@ -129,6 +244,10 @@ class WebView2Pane(QWidget):
     # in one place. It matters more here — keyboard focus inside WebView2
     # belongs to an Edge window, so a Qt shortcut never sees the keys at all.
     blurToggleRequested = Signal()
+    # Worker thread -> Qt thread. Emitted from the save thread; the automatic
+    # connection queues them, so the slots always run where widgets live.
+    _archiveProgress = Signal(str)
+    _archiveFinished = Signal(object)
 
     backend: BrowserBackend = "webview2"
 
@@ -139,9 +258,17 @@ class WebView2Pane(QWidget):
         loader: Path,
         hide_for_sharing: bool,
         extensions: tuple[Path, ...] = (),
+        web_archive: WebArchiveService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._archive = web_archive
+        self._saving = False
+        # The vault answers only a document the *pane* opened. A web page
+        # cannot navigate or embed its way in: requests for the vault host are
+        # refused unless the pane itself just asked for it, or is already
+        # showing a vault page (whose CSP allows no script to do anything).
+        self._vault_requested = False
         self._controller: sdk.Controller | None = None
         self._environment: sdk.Environment | None = None
         self._profile: sdk.Profile | None = None
@@ -198,6 +325,32 @@ class WebView2Pane(QWidget):
         self._blur_button.clicked.connect(lambda _checked: self.blurToggleRequested.emit())
         toolbar.addWidget(self._blur_button)
 
+        self._save_button = QPushButton("Save", self)
+        self._save_button.setToolTip(
+            f"Save this page and its videos, encrypted, for offline reading ({ARCHIVE_HOTKEY})"
+        )
+        self._save_button.setAccessibleName("Save page to encrypted archive")
+        self._save_button.clicked.connect(self.save_page)
+        toolbar.addWidget(self._save_button)
+
+        self._library_button = QPushButton("Saved", self)
+        self._library_button.setToolTip("Open saved pages (encrypted, readable offline)")
+        self._library_button.setAccessibleName("Open saved pages")
+        self._library_button.clicked.connect(self.open_library)
+        toolbar.addWidget(self._library_button)
+        if self._archive is None:
+            self._save_button.setEnabled(False)
+            self._library_button.setEnabled(False)
+
+        self._archive_status = QLabel(self)
+        self._archive_status.setWordWrap(True)
+        self._archive_status.hide()
+        self._archive_status_timer = QTimer(self)
+        self._archive_status_timer.setSingleShot(True)
+        self._archive_status_timer.timeout.connect(self._archive_status.hide)
+        self._archiveProgress.connect(self._show_archive_status)
+        self._archiveFinished.connect(self._on_archive_finished)
+
         # The engine draws into this widget's HWND. It is native and keeps Qt
         # from creating native ancestors it does not need — the page is not a
         # Qt surface and Qt must not try to compose it.
@@ -221,6 +374,7 @@ class WebView2Pane(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
         layout.addLayout(toolbar)
+        layout.addWidget(self._archive_status)
         layout.addLayout(self._stack, 1)
 
         self._start(user_data_dir=user_data_dir, loader=loader, hide_for_sharing=hide_for_sharing)
@@ -285,6 +439,9 @@ class WebView2Pane(QWidget):
         view.on_new_window_requested(self._open_here)
         view.on_source_changed(self._refresh_url)
         view.on_title_changed(self._refresh_title)
+        controller.on_accelerator_key(self._on_accelerator)
+        if self._archive is not None and self._environment is not None:
+            view.serve(self._environment, f"{VAULT_ORIGIN}/*", self._serve_vault)
 
         self._apply_mobile_user_agent()
         self._quiet_profile()
@@ -483,6 +640,7 @@ class WebView2Pane(QWidget):
         if self._controller is None:
             return
         self._url = self._controller.webview.source
+        self._vault_requested = False
         self._address.setText(self._url)
         self.urlChanged.emit(self._url)
 
@@ -547,6 +705,151 @@ class WebView2Pane(QWidget):
         self._controller.webview.execute_script(
             extraction_script(), lambda raw: deliver(_unwrap(raw))
         )
+
+    # -- encrypted archive (Ctrl+Alt+F) ---------------------------------------
+
+    def _on_accelerator(self, key: int) -> bool:
+        """The page has focus, so the shortcut arrives here, not at Qt."""
+        if key != _VK_F:
+            return False
+        ctrl, alt, shift = _modifiers_down()
+        if not (ctrl and alt) or shift:
+            return False
+        # Out of the COM callback before doing anything with the engine.
+        QTimer.singleShot(0, self.save_page)
+        return True
+
+    def _show_archive_status(self, text: str, *, linger_ms: int = 0) -> None:
+        self._archive_status.setText(text)
+        self._archive_status.show()
+        if linger_ms:
+            self._archive_status_timer.start(linger_ms)
+        else:
+            self._archive_status_timer.stop()
+
+    def open_library(self) -> None:
+        """Show the saved pages. Works offline: nothing here touches the network."""
+        if self._archive is None:
+            return
+        self._vault_requested = True
+        self.load_url(f"{VAULT_ORIGIN}/")
+
+    def save_page(self) -> None:
+        """Snapshot the page and hand it to the archive on a worker thread."""
+        if self._archive is None or self._controller is None:
+            return
+        if self._saving:
+            self._show_archive_status("Already saving — one page at a time.", linger_ms=4000)
+            return
+        host = urlsplit(self._url).hostname or ""
+        if host == VAULT_HOST:
+            self._show_archive_status("This is already a saved page.", linger_ms=4000)
+            return
+        if urlsplit(self._url).scheme.lower() not in _ALLOWED_SCHEMES:
+            self._show_archive_status("Open a web page first, then save it.", linger_ms=4000)
+            return
+        self._saving = True
+        self._save_button.setEnabled(False)
+        self._show_archive_status("Saving page…")
+        url, title = self._url, self._title
+        view = self._controller.webview
+        view.execute_script(
+            media_probe_source(), lambda raw: self._after_probe(view, url, title, raw)
+        )
+
+    def _after_probe(self, view: sdk.WebView, url: str, title: str, raw: str) -> None:
+        try:
+            probe = json.loads(str(_unwrap(raw)))
+        except (TypeError, ValueError):
+            probe = {}
+        media = [
+            str(item)
+            for item in (probe.get("media") or [])[:_MAX_MEDIA_PER_PAGE]
+            if classify_media_url(str(item)) == "file"
+        ]
+        streamed = int(probe.get("streamed") or 0)
+        agent = str(probe.get("ua") or "")
+        pages = [
+            str(item)
+            for item in (probe.get("pages") or [])[:5]
+            if urlsplit(str(item)).scheme in _ALLOWED_SCHEMES
+        ]
+
+        def snapshot(result: str | None) -> None:
+            if not result:
+                self._finish_save(None, "The page could not be captured.")
+                return
+            try:
+                mhtml = str(json.loads(result)["data"])
+            except (KeyError, TypeError, ValueError):
+                self._finish_save(None, "The page could not be captured.")
+                return
+            capture = PageCapture(
+                url=url,
+                title=title,
+                mhtml=mhtml,
+                media_urls=tuple(media),
+                streamed_media=streamed,
+                user_agent=agent,
+                stream_pages=tuple(pages),
+            )
+            if not media and not pages:
+                self._start_save(capture)
+                return
+            # The session the extractor and downloads need: cookies for the
+            # video files and for the pages behind streamed video (YouTube's
+            # bot check is passed by exactly this). Held in memory only.
+            view.call_devtools(
+                "Network.getCookies",
+                json.dumps({"urls": [*media, *pages]}),
+                lambda cookies: self._start_save(_with_cookies(capture, cookies)),
+            )
+
+        view.call_devtools("Page.captureSnapshot", json.dumps({"format": "mhtml"}), snapshot)
+
+    def _start_save(self, capture: PageCapture) -> None:
+        archive = self._archive
+        assert archive is not None
+
+        def work() -> None:
+            try:
+                result = archive.save(capture, progress=self._archiveProgress.emit)
+            except StrataError as exc:
+                self._archiveFinished.emit(str(exc))
+            except Exception:
+                logger.exception("webview2.archive_save_failed")
+                self._archiveFinished.emit("The page could not be saved.")
+            else:
+                self._archiveFinished.emit(result)
+
+        # A thread, not the Qt loop: a video download can take minutes, and
+        # every chunk is encrypted before it is written.
+        threading.Thread(target=work, name="web-archive-save", daemon=True).start()
+
+    def _on_archive_finished(self, outcome: object) -> None:
+        if isinstance(outcome, SaveResult):
+            self._finish_save(outcome.summary(), "")
+        else:
+            self._finish_save(None, str(outcome))
+
+    def _finish_save(self, message: str | None, error: str) -> None:
+        self._saving = False
+        self._save_button.setEnabled(self._archive is not None)
+        if error:
+            self._show_archive_status(f"Not saved: {error}", linger_ms=10000)
+        else:
+            self._show_archive_status(message or "Saved.", linger_ms=8000)
+
+    def _serve_vault(self, method: str, uri: str, range_header: str) -> sdk.VaultReply:
+        """Answer a request for the vault — only for a document the pane opened."""
+        from app.services.web_archive_service import BytesSource
+
+        showing_vault = (urlsplit(self._url).hostname or "") == VAULT_HOST
+        if self._archive is None or not (self._vault_requested or showing_vault):
+            logger.info("webview2.vault_request_refused")
+            return sdk.VaultReply(403, "Forbidden", "Cache-Control: no-store", BytesSource(b""))
+        reply = self._archive.respond(method, uri, range_header)
+        return sdk.VaultReply(reply.status, reply.reason, reply.header_block(), reply.body)
 
     # -- teardown ------------------------------------------------------------
 

@@ -70,6 +70,19 @@ INTERFACES = (
     "ICoreWebView2NewWindowRequestedEventHandler",
     "ICoreWebView2DocumentTitleChangedEventHandler",
     "ICoreWebView2SourceChangedEventHandler",
+    # The encrypted web archive (Ctrl+Alt+F): the shortcut arrives as an
+    # accelerator because keyboard focus inside the pane belongs to Edge; the
+    # snapshot and cookies come over the DevTools protocol; saved items are
+    # served back out of the vault by answering WebResourceRequested with a
+    # stream that decrypts as it is read.
+    "ICoreWebView2AcceleratorKeyPressedEventArgs",
+    "ICoreWebView2AcceleratorKeyPressedEventHandler",
+    "ICoreWebView2CallDevToolsProtocolMethodCompletedHandler",
+    "ICoreWebView2WebResourceRequestedEventArgs",
+    "ICoreWebView2WebResourceRequestedEventHandler",
+    "ICoreWebView2WebResourceRequest",
+    "ICoreWebView2WebResourceResponse",
+    "ICoreWebView2HttpRequestHeaders",
 )
 
 

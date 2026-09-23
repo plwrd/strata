@@ -234,6 +234,17 @@ class AppSettings(BaseModel):
     # their touch/mobile layout. Synthetic touch events are advertised to pages
     # from the next launch (a process-global Chromium flag; see application.py).
     browser_mobile_mode: bool = False
+    # The encrypted web archive (Ctrl+Alt+F in the WebView2 pane). Saved pages
+    # and videos go into a private layer, encrypted as they are written.
+    # `web_archive_layer_id` picks the layer; empty means "the first unlocked
+    # private layer". The size cap is per video, so one runaway stream cannot
+    # fill the disk.
+    web_archive_layer_id: str = ""
+    web_archive_max_media_mb: int = 4096
+    # Streamed video (YouTube, X): found with yt-dlp, joined by ffmpeg. An empty
+    # path means "ffmpeg on PATH"; the height caps the quality chosen.
+    web_archive_ffmpeg_path: str = ""
+    web_archive_max_height: int = 1080
 
     # -- Onboarding ----------------------------------------------------------
     #
@@ -322,6 +333,24 @@ class AppSettings(BaseModel):
             if host and " " not in host and host not in hosts:
                 hosts.append(host)
         return hosts
+
+    @field_validator("web_archive_max_media_mb", mode="before")
+    @classmethod
+    def _clamp_archive_cap(cls, value: Any) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("web_archive_max_media_mb must be a number") from exc
+        return max(1, min(number, 1_048_576))
+
+    @field_validator("web_archive_max_height", mode="before")
+    @classmethod
+    def _clamp_archive_height(cls, value: Any) -> int:
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("web_archive_max_height must be a number") from exc
+        return max(144, min(number, 4320))
 
     @field_validator("browser_blur_amount", mode="before")
     @classmethod

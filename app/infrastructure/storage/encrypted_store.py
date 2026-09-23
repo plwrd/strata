@@ -34,14 +34,21 @@ from app.infrastructure.encryption.container import (
     TYPE_ATTACHMENT,
     TYPE_MANIFEST,
     TYPE_NOTE,
+    TYPE_WEB_MEDIA,
+    TYPE_WEB_PAGE,
     open_sealed,
     seal,
 )
 from app.infrastructure.encryption.primitives import DecryptionError
+from app.infrastructure.encryption.stream import StreamReader, StreamWriter
 from app.infrastructure.storage.paths import replace_atomic
 
 OBJECTS_DIR = "objects"
 MANIFEST_FORMAT_VERSION = 1
+
+# Manifest kinds stored as encrypted *streams* rather than one-shot objects:
+# the web archive's page snapshots and saved videos.
+STREAM_KINDS = {"web_page": TYPE_WEB_PAGE, "web_media": TYPE_WEB_MEDIA}
 
 
 def new_raw_object_id() -> bytes:
@@ -113,7 +120,9 @@ class Manifest:
     def to_bytes(self) -> bytes:
         payload = {
             "format_version": self.format_version,
-            "entries": [entry.to_json() for entry in self.entries.values()],
+            # `list(...)` first: a web-archive save commits from a worker
+            # thread, and iterating a dict another thread inserts into raises.
+            "entries": [entry.to_json() for entry in list(self.entries.values())],
         }
         return json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
@@ -316,6 +325,60 @@ class EncryptedLayerStore:
     def read_attachment(self, key: bytes, object_id: str) -> bytes:
         return self._read_object(key, object_id, TYPE_ATTACHMENT)
 
+    # -- streams (web archive) -----------------------------------------------
+
+    def open_stream_writer(self, key: bytes, object_id: str, object_type: int) -> StreamWriter:
+        """A writer that encrypts as it is fed. Nothing plaintext reaches disk."""
+        return StreamWriter(
+            self._object_path(object_id),
+            key=key,
+            layer_id=self.layer_id,
+            object_id=bytes.fromhex(object_id),
+            object_type=object_type,
+            pad=self.padding,
+        )
+
+    def open_stream_reader(self, key: bytes, object_id: str, object_type: int) -> StreamReader:
+        path = self._object_path(object_id)
+        if not path.is_file():
+            raise NotFoundError("Knowledge object not found.")
+        return StreamReader(
+            path,
+            key=key,
+            layer_id=self.layer_id,
+            object_id=bytes.fromhex(object_id),
+            expected_type=object_type,
+        )
+
+    def delete_object(self, object_id: str) -> None:
+        self._delete_object(object_id)
+
+    def _rotate_stream(
+        self, old_key: bytes, new_key: bytes, object_id: str, object_type: int, done: bool
+    ) -> None:
+        """Re-encrypt a stream chunk by chunk — never the whole video in memory."""
+        if done:
+            # Already rewritten before a crash; prove it opens, and move on.
+            self.open_stream_reader(new_key, object_id, object_type).close()
+            return
+        try:
+            reader = self.open_stream_reader(old_key, object_id, object_type)
+        except DecryptionError:
+            # Rewritten, but the crash came before the journal recorded it.
+            self.open_stream_reader(new_key, object_id, object_type).close()
+            return
+        writer = self.open_stream_writer(new_key, object_id, object_type)
+        try:
+            with reader:
+                for piece in reader.iter_chunks():
+                    writer.write(piece)
+        except BaseException:
+            writer.abort()
+            raise
+        # Only after the reader has let go: Windows will not replace a file
+        # that is still open.
+        writer.finish()
+
     # -- rotation ------------------------------------------------------------
 
     def rotate(
@@ -342,6 +405,21 @@ class EncryptedLayerStore:
         rewritten = 0
 
         for entry in manifest.entries.values():
+            stream_type = STREAM_KINDS.get(entry.kind)
+            if stream_type is not None:
+                self._rotate_stream(
+                    old_key,
+                    new_key,
+                    entry.object_id,
+                    stream_type,
+                    done=entry.object_id in completed,
+                )
+                if entry.object_id not in completed:
+                    completed.add(entry.object_id)
+                    if on_progress is not None:
+                        on_progress(entry.object_id)
+                rewritten += 1
+                continue
             object_type = {
                 "note": TYPE_NOTE,
                 "attachment": TYPE_ATTACHMENT,

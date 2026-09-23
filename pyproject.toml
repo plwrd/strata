@@ -25,6 +25,9 @@ dependencies = [
     "httpx==0.28.1",
     "structlog==24.4.0",
     "PyYAML==6.0.3",
+    # Streamed video in the encrypted web archive (YouTube, X): finds the real
+    # streams behind a player. Sites change often; keep this current.
+    "yt-dlp[default]==2026.8.19",
 ]
 
 [project.optional-dependencies]
@@ -85,7 +88,7 @@ mypy_path = "."
 exclude = ['^build/', '^dist/', '^frontend/']
 
 [[tool.mypy.overrides]]
-module = ["PySide6.*", "keyring.*", "networkx.*", "nacl.*", "argon2.*"]
+module = ["PySide6.*", "keyring.*", "networkx.*", "nacl.*", "argon2.*", "yt_dlp.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

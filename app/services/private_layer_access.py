@@ -13,6 +13,7 @@ not exist. Losing the reverse would look like data loss.
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,13 @@ from typing import Any
 from app.domain.errors import ConflictError, InvalidRequestError, NotFoundError
 from app.domain.note import FolderNode, Note
 from app.infrastructure.encryption.layer_header import LayerHeader
+from app.infrastructure.encryption.stream import StreamReader, StreamWriter
 from app.infrastructure.storage.encrypted_store import (
+    STREAM_KINDS,
     EncryptedLayerStore,
     Manifest,
     ManifestEntry,
+    new_raw_object_id,
 )
 from app.infrastructure.storage.paths import safe_filename
 
@@ -47,15 +51,23 @@ class PrivateLayerAccess:
         self._header = header
         self._store = EncryptedLayerStore(layer_id, root, padding=header.padding_enabled)
         self._manifest: Manifest | None = None
+        # The web archive saves on a worker thread; notes are edited on another.
+        # Both end in a manifest commit, and two interleaved commits could each
+        # write a manifest missing the other's entry.
+        self._commit_lock = threading.RLock()
 
     @property
     def manifest(self) -> Manifest:
-        if self._manifest is None:
-            self._manifest = self._store.read_manifest(self._key, self._header.manifest_object_id)
-        return self._manifest
+        with self._commit_lock:
+            if self._manifest is None:
+                self._manifest = self._store.read_manifest(
+                    self._key, self._header.manifest_object_id
+                )
+            return self._manifest
 
     def _commit(self) -> None:
-        self._store.write_manifest(self._key, self._header.manifest_object_id, self.manifest)
+        with self._commit_lock:
+            self._store.write_manifest(self._key, self._header.manifest_object_id, self.manifest)
 
     def _live(self, kind: str | None = None) -> list[ManifestEntry]:
         return [
@@ -347,6 +359,82 @@ class PrivateLayerAccess:
 
     def read_attachment(self, object_id: str) -> bytes:
         return self._store.read_attachment(self._key, object_id)
+
+    # -- web archive ---------------------------------------------------------
+
+    def begin_stream(self, kind: str) -> tuple[str, StreamWriter]:
+        """A fresh object id and a writer that encrypts as it is fed.
+
+        Nothing is in the manifest until :meth:`commit_stream`; an abandoned
+        write leaves no entry, and ``StreamWriter.abort`` removes its bytes.
+        """
+        object_type = STREAM_KINDS[kind]
+        object_id = new_raw_object_id().hex()
+        return object_id, self._store.open_stream_writer(self._key, object_id, object_type)
+
+    def commit_stream(
+        self,
+        object_id: str,
+        *,
+        kind: str,
+        title: str,
+        filename: str,
+        size_bytes: int,
+        properties: dict[str, Any],
+    ) -> ManifestEntry:
+        timestamp = _now()
+        entry = ManifestEntry(
+            object_id=object_id,
+            kind=kind,
+            title=title,
+            filename=filename,
+            properties=dict(properties),
+            created_at=timestamp,
+            updated_at=timestamp,
+            size_bytes=size_bytes,
+        )
+        with self._commit_lock:
+            self.manifest.entries[object_id] = entry
+            self._commit()
+        return entry
+
+    def update_stream_properties(self, object_id: str, properties: dict[str, Any]) -> None:
+        with self._commit_lock:
+            entry = self._require_stream(object_id)
+            entry.properties = {**entry.properties, **properties}
+            entry.updated_at = _now()
+            self._commit()
+
+    def list_streams(self) -> list[ManifestEntry]:
+        with self._commit_lock:
+            return [
+                entry
+                for entry in self.manifest.entries.values()
+                if entry.kind in STREAM_KINDS and entry.trashed_at is None
+            ]
+
+    def stream_entry(self, object_id: str) -> ManifestEntry:
+        with self._commit_lock:
+            return self._require_stream(object_id)
+
+    def open_stream(self, object_id: str) -> StreamReader:
+        entry = self.stream_entry(object_id)
+        return self._store.open_stream_reader(self._key, object_id, STREAM_KINDS[entry.kind])
+
+    def delete_stream(self, object_id: str) -> None:
+        """Remove the entry, then the ciphertext (the manifest-first rule, reversed:
+        an orphaned blob is harmless, an entry pointing at nothing is not)."""
+        with self._commit_lock:
+            self._require_stream(object_id)
+            del self.manifest.entries[object_id]
+            self._commit()
+        self._store.delete_object(object_id)
+
+    def _require_stream(self, object_id: str) -> ManifestEntry:
+        entry = self.manifest.entries.get(object_id)
+        if entry is None or entry.kind not in STREAM_KINDS or entry.trashed_at is not None:
+            raise NotFoundError("Saved item not found.")
+        return entry
 
     # -- helpers -------------------------------------------------------------
 

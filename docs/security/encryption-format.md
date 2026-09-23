@@ -179,6 +179,56 @@ a note", never *which* note or what it is about.
 > presence blob (ADR-0006). `OBJECT_TYPES` is the authority a reader should
 > check; an unknown type is refused, never best-effort parsed. Reconciling the
 > two numberings is a format change and needs its own ADR.
+>
+> `9` web page snapshot and `10` saved video are **stream objects** (§3.7), not
+> container objects: they are numbered in `container.py` so the space stays one
+> registry, but they are deliberately *not* in `OBJECT_TYPES`, so `seal` can
+> never produce one and `open_sealed` can never accept one.
+
+### 3.7 Stream objects (web archive)
+
+The container above is one-shot: the whole plaintext is in memory and sealed in
+one call, capped at 256 MiB. A saved video is large and arrives from the network
+a buffer at a time, so the web archive (Ctrl+Alt+F in the browser pane) uses a
+second, chunked format — `app/infrastructure/encryption/stream.py`. The rule it
+exists to keep: **plaintext is never written to disk.** Each chunk is encrypted
+in memory as it arrives and only ciphertext is written; a reader decrypts only
+the chunks a request covers, into memory.
+
+```
+offset  size  field
+0       7     magic          "STRATAS"
+7       1     format_version u8 (1)
+8       1     alg            u8 (1 = XChaCha20-Poly1305)
+9       1     object_type    u8 (9 = web page, 10 = saved video)
+10      1     flags          u8 (bit 0: final chunk padded to a full chunk)
+11      16    layer_binding  BLAKE2b-128(layer_id)
+27      16    object_id
+43      4     chunk_size     u32 BE (4 KiB–8 MiB; 256 KiB by default)
+47      16    nonce_prefix   random per object
+63      ..    chunks, each ciphertext || 16-byte tag
+```
+
+This is the STREAM construction (Hoang–Reyhanitabar–Rogaway–Vizár):
+
+- chunk nonce = `nonce_prefix || u64_be(index)` — unique per object without any
+  persisted counter;
+- chunk AAD = `header || u64_be(index) || u8(is_final)` — binds layer, object,
+  type and chunk size as in §3.2, stops chunks being reordered or moved between
+  objects, and makes truncation at a chunk boundary fail (the new last chunk
+  was sealed "not final");
+- every chunk but the last holds exactly `chunk_size` bytes; the last holds
+  `data || zero padding || u32_be(len(data))`. With padding (the layer default)
+  the final chunk is always full, so the file size reveals the length to
+  `chunk_size` granularity.
+
+Writes go to `<id>.tmp` (ciphertext) and are renamed into place on completion;
+an aborted or crashed save leaves at most a ciphertext `.tmp`, which readers
+ignore. Key rotation (§6.2) re-encrypts stream objects chunk by chunk.
+
+Serving a saved item back to the browser pane decrypts on demand and every
+response carries `Cache-Control: no-store`, so the engine does not write the
+decrypted bytes into its own HTTP cache.
 
 ### 3.5 `flags` bitfield
 

@@ -28,10 +28,12 @@ from __future__ import annotations
 
 import ctypes
 import sys
+import threading
+import time
 from collections.abc import Callable
 from ctypes import wintypes
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from app.desktop.capture_flags import CAPTURE_SAFE_ARGUMENTS as _SHARED_CAPTURE_ARGUMENTS
 from app.desktop.capture_flags import (
@@ -41,14 +43,18 @@ from app.desktop.capture_flags import SOFTWARE_DECODE_ARGUMENT as _SOFTWARE_DECO
 from app.desktop.webview2 import _slots as slots
 from app.desktop.webview2.com import (
     BOOL,
+    E_POINTER,
     HRESULT,
     LPVOID,
     RECT,
+    S_OK,
     Callback,
     ComError,
+    EventRegistrationToken,
     Interface,
     alloc_string,
     co_initialize,
+    take_string,
 )
 from app.infrastructure.logging.logger import get_logger
 
@@ -161,6 +167,254 @@ _INVOKE_HRESULT = ctypes.WINFUNCTYPE(HRESULT, LPVOID, HRESULT)
 
 # COREWEBVIEW2_PERMISSION_STATE: DEFAULT = 0, ALLOW = 1, DENY = 2.
 COREWEBVIEW2_PERMISSION_STATE_DENY = 2
+# COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL: documents, media, images, everything.
+WEB_RESOURCE_CONTEXT_ALL = 0
+# COREWEBVIEW2_KEY_EVENT_KIND: KEY_DOWN = 0, KEY_UP = 1, SYSTEM_KEY_DOWN = 2, ...
+KEY_EVENT_KEY_DOWN = 0
+KEY_EVENT_SYSTEM_KEY_DOWN = 2
+
+_S_FALSE = 1
+_E_NOTIMPL = 0x80004001 - 0x100000000
+_E_FAIL = 0x80004005 - 0x100000000
+_STG_E_ACCESSDENIED = 0x80030005 - 0x100000000
+_STG_E_INVALIDFUNCTION = 0x80030001 - 0x100000000
+
+IID_ISEQUENTIAL_STREAM = "0c733a30-2a1c-11ce-ade5-00aa0044773d"
+IID_ISTREAM = "0000000c-0000-0000-c000-000000000046"
+# A marker interface with no methods: "call me from any thread". Without it
+# COM may marshal every Read back to the UI thread, so a playing video would
+# decrypt on the thread that also draws the editor.
+IID_IAGILE_OBJECT = "94ea2b94-e9cc-49e0-c0ff-ee64ca8f5b90"
+
+
+class _FILETIME(ctypes.Structure):
+    _fields_ = [("low", ctypes.c_uint32), ("high", ctypes.c_uint32)]
+
+
+class _STATSTG(ctypes.Structure):
+    _fields_ = [
+        ("pwcsName", LPVOID),
+        ("type", ctypes.c_uint32),
+        ("cbSize", ctypes.c_uint64),
+        ("mtime", _FILETIME),
+        ("ctime", _FILETIME),
+        ("atime", _FILETIME),
+        ("grfMode", ctypes.c_uint32),
+        ("grfLocksSupported", ctypes.c_uint32),
+        ("clsid", ctypes.c_ubyte * 16),
+        ("grfStateBits", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+    ]
+
+
+_READ = ctypes.WINFUNCTYPE(HRESULT, LPVOID, LPVOID, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong))
+_WRITE = ctypes.WINFUNCTYPE(HRESULT, LPVOID, LPVOID, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong))
+_SEEK = ctypes.WINFUNCTYPE(
+    HRESULT, LPVOID, ctypes.c_longlong, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulonglong)
+)
+_SET_SIZE = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.c_ulonglong)
+_COPY_TO = ctypes.WINFUNCTYPE(
+    HRESULT,
+    LPVOID,
+    LPVOID,
+    ctypes.c_ulonglong,
+    ctypes.POINTER(ctypes.c_ulonglong),
+    ctypes.POINTER(ctypes.c_ulonglong),
+)
+_COMMIT = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.c_ulong)
+_REVERT = ctypes.WINFUNCTYPE(HRESULT, LPVOID)
+_LOCK_REGION = ctypes.WINFUNCTYPE(
+    HRESULT, LPVOID, ctypes.c_ulonglong, ctypes.c_ulonglong, ctypes.c_ulong
+)
+_STAT = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.POINTER(_STATSTG), ctypes.c_ulong)
+_CLONE = ctypes.WINFUNCTYPE(HRESULT, LPVOID, ctypes.POINTER(LPVOID))
+
+
+class StreamBody(Protocol):
+    """What a :class:`ReadStream` reads from: a size and random access.
+
+    The web archive's decrypting reader is one of these, so the engine pulls
+    plaintext through memory a chunk at a time - there is never a decrypted
+    file for it to read instead.
+    """
+
+    @property
+    def size(self) -> int: ...
+
+    def read_at(self, offset: int, length: int) -> bytes: ...
+
+    def close(self) -> None: ...
+
+
+# Streams WebView2 still holds, and ones it has let go of. A released stream is
+# not freed at once: its Release thunk may still be returning on the engine's
+# thread, so it is kept a few seconds more and then dropped (`_prune_streams`).
+_LIVE_STREAMS: set[ReadStream] = set()
+_DEAD_STREAMS: list[tuple[float, ReadStream]] = []
+_STREAMS_LOCK = threading.Lock()
+_DEAD_GRACE_SECONDS = 10.0
+
+
+def _prune_streams() -> None:
+    cutoff = time.monotonic() - _DEAD_GRACE_SECONDS
+    with _STREAMS_LOCK:
+        _DEAD_STREAMS[:] = [(when, stream) for when, stream in _DEAD_STREAMS if when > cutoff]
+
+
+class ReadStream(Callback):
+    """A read-only, seekable ``IStream`` over a :class:`StreamBody`.
+
+    This is how a saved video reaches the player without a plaintext file:
+    WebView2 calls ``Read`` and ``Seek`` on it - from its own threads - and
+    each ``Read`` decrypts just the bytes asked for. Reference counting is
+    real here (unlike the completion handlers, which live as long as their
+    owner): when the engine's last reference goes, the body is closed.
+    """
+
+    _body: StreamBody
+    _position: int
+    _lock: threading.Lock
+    _closed: bool
+
+    @classmethod
+    def over(cls, body: StreamBody) -> ReadStream:
+        _prune_streams()
+        stream = cls.__new__(cls)
+        stream._body = body
+        stream._position = 0
+        stream._lock = threading.Lock()
+        stream._closed = False
+        read_write = ((_READ, stream._read), (_WRITE, stream._write))
+        full = (
+            *read_write,
+            (_SEEK, stream._seek),
+            (_SET_SIZE, stream._set_size),
+            (_COPY_TO, stream._copy_to),
+            (_COMMIT, stream._commit),
+            (_REVERT, stream._revert),
+            (_LOCK_REGION, stream._lock_region),
+            (_LOCK_REGION, stream._lock_region),  # UnlockRegion: same shape
+            (_STAT, stream._stat),
+            (_CLONE, stream._clone),
+        )
+        stream._build(
+            [
+                (IID_ISTREAM, full),
+                (IID_ISEQUENTIAL_STREAM, read_write),
+                (IID_IAGILE_OBJECT, ()),
+            ]
+        )
+        with _STREAMS_LOCK:
+            _LIVE_STREAMS.add(stream)
+        return stream
+
+    # -- reference counting ---------------------------------------------------
+
+    def _add_ref(self, _this: int) -> int:
+        with self._lock:
+            self._refs += 1
+            return self._refs
+
+    def _release(self, _this: int) -> int:
+        with self._lock:
+            self._refs = max(0, self._refs - 1)
+            remaining = self._refs
+        if remaining == 0:
+            self._finish()
+        return remaining
+
+    def release_own(self) -> None:
+        """Drop the reference Python took at creation."""
+        self._release(0)
+
+    def _finish(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._body.close()
+        except Exception:  # pragma: no cover - closing must not fault the engine
+            logger.exception("webview2.stream_close_failed")
+        with _STREAMS_LOCK:
+            _LIVE_STREAMS.discard(self)
+            _DEAD_STREAMS.append((time.monotonic(), self))
+
+    # -- IStream --------------------------------------------------------------
+
+    def _read(self, _this: int, buffer: int, wanted: int, read: Any) -> int:
+        try:
+            with self._lock:
+                start = self._position
+            data = self._body.read_at(start, int(wanted))
+            if data:
+                ctypes.memmove(buffer, data, len(data))
+            with self._lock:
+                self._position = start + len(data)
+            if read:
+                read[0] = len(data)
+            return S_OK if len(data) == wanted else _S_FALSE
+        except Exception:
+            # Locked mid-playback, or the file went away: an error, never
+            # stale or partial plaintext presented as the real thing.
+            if read:
+                read[0] = 0
+            return _E_FAIL
+
+    def _write(self, _this: int, _buffer: int, _size: int, written: Any) -> int:
+        if written:
+            written[0] = 0
+        return _STG_E_ACCESSDENIED
+
+    def _seek(self, _this: int, move: int, origin: int, new_position: Any) -> int:
+        with self._lock:
+            base = {0: 0, 1: self._position, 2: self._body.size}.get(int(origin))
+            if base is None:
+                return _STG_E_INVALIDFUNCTION
+            target = base + int(move)
+            if target < 0:
+                return _STG_E_INVALIDFUNCTION
+            self._position = target
+        if new_position:
+            new_position[0] = target
+        return S_OK
+
+    def _set_size(self, _this: int, _size: int) -> int:
+        return _STG_E_ACCESSDENIED
+
+    def _copy_to(self, _this: int, _target: int, _size: int, _read: Any, _written: Any) -> int:
+        return _E_NOTIMPL
+
+    def _commit(self, _this: int, _flags: int) -> int:
+        return S_OK
+
+    def _revert(self, _this: int) -> int:
+        return S_OK
+
+    def _lock_region(self, _this: int, _offset: int, _size: int, _kind: int) -> int:
+        return _STG_E_INVALIDFUNCTION
+
+    def _stat(self, _this: int, stat: Any, _flag: int) -> int:
+        if not stat:
+            return E_POINTER
+        ctypes.memset(stat, 0, ctypes.sizeof(_STATSTG))
+        stat[0].type = 2  # STGTY_STREAM
+        stat[0].cbSize = int(self._body.size)
+        return S_OK
+
+    def _clone(self, _this: int, out: Any) -> int:
+        if out:
+            out[0] = None
+        return _E_NOTIMPL
+
+
+class VaultReply:
+    """What the pane hands back for an intercepted request."""
+
+    def __init__(self, status: int, reason: str, headers: str, body: StreamBody) -> None:
+        self.status = status
+        self.reason = reason
+        self.headers = headers
+        self.body = body
 
 
 class _EnvironmentOptions:
@@ -398,6 +652,29 @@ class Profile:
         self._it.release()
 
 
+def _header(headers: Interface, name: str) -> str:
+    """One request header, or "" when absent (``GetHeader`` errors then)."""
+    present = BOOL()
+    headers.call(
+        slots.HTTP_REQUEST_HEADERS_CONTAINS,
+        (wintypes.LPCWSTR, ctypes.POINTER(BOOL)),
+        name,
+        ctypes.byref(present),
+        what="Contains",
+    )
+    if not present.value:
+        return ""
+    out = LPVOID()
+    headers.call(
+        slots.HTTP_REQUEST_HEADERS_GETHEADER,
+        (wintypes.LPCWSTR, ctypes.POINTER(LPVOID)),
+        name,
+        ctypes.byref(out),
+        what="GetHeader",
+    )
+    return take_string(out)
+
+
 class WebView:
     """``ICoreWebView2`` — the page itself."""
 
@@ -468,6 +745,114 @@ class WebView:
             handler.pointer,
             what="ExecuteScript",
         )
+
+    def call_devtools(
+        self, method: str, params: str, on_result: Callable[[str | None], None]
+    ) -> None:
+        """One DevTools-protocol call; ``on_result`` gets its JSON, or None.
+
+        Works with the DevTools *window* switched off (``apply_settings``):
+        that setting governs the UI, not the protocol, and the protocol is how
+        the web archive takes a page snapshot and reads the cookies a video
+        download needs.
+        """
+        handler: Callback
+
+        def invoke(_this: int, hr: int, result: str | None) -> int:
+            self._handlers.remove(handler)
+            on_result(None if hr < 0 else result)
+            return 0
+
+        handler = Callback(
+            slots.IID_CALL_DEV_TOOLS_PROTOCOL_METHOD_COMPLETED_HANDLER,
+            (_INVOKE_HRESULT_STR, invoke),
+        )
+        self._handlers.append(handler)
+        self._it.call(
+            slots.WEBVIEW_CALLDEVTOOLSPROTOCOLMETHOD,
+            (wintypes.LPCWSTR, wintypes.LPCWSTR, LPVOID),
+            method,
+            params,
+            handler.pointer,
+            what="CallDevToolsProtocolMethod",
+        )
+
+    def serve(
+        self,
+        environment: Environment,
+        uri_filter: str,
+        responder: Callable[[str, str, str], VaultReply | None],
+    ) -> None:
+        """Answer every request matching ``uri_filter`` from Python.
+
+        ``responder(method, uri, range_header)`` returns the reply, or None to
+        let the request continue (for the vault's reserved host, that means it
+        fails: the name can never resolve). The body is handed to the engine as
+        a :class:`ReadStream`, so it is read - and decrypted - on demand.
+        """
+        self._it.call(
+            slots.WEBVIEW_ADDWEBRESOURCEREQUESTEDFILTER,
+            (wintypes.LPCWSTR, ctypes.c_int),
+            uri_filter,
+            WEB_RESOURCE_CONTEXT_ALL,
+            what="AddWebResourceRequestedFilter",
+        )
+
+        def invoke(_this: int, _sender: int, args: int) -> int:
+            try:
+                self._answer(environment, Interface(args), responder)
+            except Exception:
+                # A fault here must not unwind into the engine.
+                logger.exception("webview2.serve_failed")
+            return 0
+
+        self._add_event(
+            slots.WEBVIEW_ADD_WEBRESOURCEREQUESTED,
+            slots.IID_WEB_RESOURCE_REQUESTED_EVENT_HANDLER,
+            invoke,
+        )
+
+    @staticmethod
+    def _answer(
+        environment: Environment,
+        event: Interface,
+        responder: Callable[[str, str, str], VaultReply | None],
+    ) -> None:
+        request = event.get_interface(
+            slots.WEB_RESOURCE_REQUESTED_EVENT_ARGS_GET_REQUEST, "get_Request"
+        )
+        try:
+            uri = request.get_string(slots.WEB_RESOURCE_REQUEST_GET_URI, "get_Uri")
+            method = request.get_string(slots.WEB_RESOURCE_REQUEST_GET_METHOD, "get_Method")
+            headers = request.get_interface(slots.WEB_RESOURCE_REQUEST_GET_HEADERS, "get_Headers")
+            try:
+                range_header = _header(headers, "Range")
+            finally:
+                headers.release()
+        finally:
+            request.release()
+
+        reply = responder(method, uri, range_header)
+        if reply is None:
+            return
+        stream = ReadStream.over(reply.body)
+        try:
+            response = environment.create_response(
+                stream.pointer, reply.status, reply.reason, reply.headers
+            )
+            try:
+                event.call(
+                    slots.WEB_RESOURCE_REQUESTED_EVENT_ARGS_PUT_RESPONSE,
+                    (LPVOID,),
+                    response.pointer,
+                    what="put_Response",
+                )
+            finally:
+                response.release()
+        finally:
+            # The response holds its own reference now; ours goes, so the
+            # engine's last Release is what closes the body.
+            stream.release_own()
 
     def add_script_on_document_created(self, source: str) -> None:
         """Inject ``source`` into every future document, before its own scripts."""
@@ -714,8 +1099,6 @@ class WebView:
         *,
         on: Interface | None = None,
     ) -> None:
-        from app.desktop.webview2.com import EventRegistrationToken
-
         handler = Callback(iid, (_INVOKE_SENDER_ARGS, invoke))
         self._handlers.append(handler)  # never removed: registered for our lifetime
         token = EventRegistrationToken()
@@ -737,6 +1120,7 @@ class Controller:
 
     def __init__(self, interface: Interface) -> None:
         self._it = interface
+        self._handlers: list[Any] = []
         self.webview = WebView(
             interface.get_interface(slots.CONTROLLER_GET_COREWEBVIEW2, "get_CoreWebView2")
         )
@@ -748,6 +1132,47 @@ class Controller:
 
     def set_visible(self, visible: bool) -> None:
         self._it.put_bool(slots.CONTROLLER_PUT_ISVISIBLE, visible, "put_IsVisible")
+
+    def on_accelerator_key(self, callback: Callable[[int], bool]) -> None:
+        """``callback(virtual_key) -> handled`` for every key-down with a modifier.
+
+        The only way to see a shortcut while the page has focus: that focus
+        belongs to an Edge window, and Qt never receives the keys. Returning
+        True marks the key handled so the page does not also act on it.
+        """
+
+        def invoke(_this: int, _sender: int, args: int) -> int:
+            event = Interface(args)
+            kind = ctypes.c_int()
+            event.call(
+                slots.ACCELERATOR_KEY_PRESSED_EVENT_ARGS_GET_KEYEVENTKIND,
+                (ctypes.POINTER(ctypes.c_int),),
+                ctypes.byref(kind),
+                what="get_KeyEventKind",
+            )
+            if kind.value not in (KEY_EVENT_KEY_DOWN, KEY_EVENT_SYSTEM_KEY_DOWN):
+                return 0
+            key = event.get_uint32(
+                slots.ACCELERATOR_KEY_PRESSED_EVENT_ARGS_GET_VIRTUALKEY, "get_VirtualKey"
+            )
+            if callback(key):
+                event.put_bool(
+                    slots.ACCELERATOR_KEY_PRESSED_EVENT_ARGS_PUT_HANDLED, True, "put_Handled"
+                )
+            return 0
+
+        handler = Callback(
+            slots.IID_ACCELERATOR_KEY_PRESSED_EVENT_HANDLER, (_INVOKE_SENDER_ARGS, invoke)
+        )
+        self._handlers.append(handler)  # registered for the controller's lifetime
+        token = EventRegistrationToken()
+        self._it.call(
+            slots.CONTROLLER_ADD_ACCELERATORKEYPRESSED,
+            (LPVOID, ctypes.POINTER(EventRegistrationToken)),
+            handler.pointer,
+            ctypes.byref(token),
+            what="add_AcceleratorKeyPressed",
+        )
 
     def notify_moved(self) -> None:
         """Tell WebView2 the host window moved, so popups land in the right place."""
@@ -778,6 +1203,21 @@ class Environment:
         return self._it.get_string(
             slots.ENVIRONMENT_GET_BROWSERVERSIONSTRING, "get_BrowserVersionString"
         )
+
+    def create_response(self, stream: int, status: int, reason: str, headers: str) -> Interface:
+        """``CreateWebResourceResponse`` over one of our streams."""
+        out = LPVOID()
+        self._it.call(
+            slots.ENVIRONMENT_CREATEWEBRESOURCERESPONSE,
+            (LPVOID, ctypes.c_int, wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.POINTER(LPVOID)),
+            stream,
+            status,
+            reason,
+            headers,
+            ctypes.byref(out),
+            what="CreateWebResourceResponse",
+        )
+        return Interface(out.value)
 
     def create_controller(
         self, hwnd: int, on_ready: Callable[[Controller | None, str], None]

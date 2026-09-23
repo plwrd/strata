@@ -60,6 +60,9 @@ BROWSER_SPLIT = (960, 640)
 # Toggles media blur in the browser pane. Application-scoped, so it fires while
 # the researched page has keyboard focus — where a web-layer shortcut cannot.
 BLUR_HOTKEY = "Ctrl+Shift+X"
+# Save the page in the browser pane to the encrypted archive (see
+# `app.services.web_archive_service`). Kept in step with the pane's own copy.
+ARCHIVE_HOTKEY = "Ctrl+Alt+F"
 # How often to re-sweep every window this process owns while "hidden for
 # sharing" is on. The per-window hooks below are the fast path; this is the net
 # under them, for a window Qt never told us about (see `_sweep_own_windows`).
@@ -186,6 +189,13 @@ class MainWindow(QMainWindow):
         if request_blur is not None:
             request_blur.connect(self._toggle_blur)
 
+        # Save to the encrypted archive. The WebView2 pane sees the chord itself
+        # while the page has focus (an accelerator — Qt never gets those keys);
+        # this covers the address bar and the rest of the window. Only the
+        # WebView2 pane can save: it is the engine with a snapshot API.
+        archive_shortcut = QShortcut(QKeySequence(ARCHIVE_HOTKEY), self, self._save_to_archive)
+        archive_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+
         url = QUrl(dev_server) if dev_server else QUrl(APP_URL)
         logger.info("window.loading", dev=bool(dev_server))
         self._view.load(url)
@@ -269,6 +279,7 @@ class MainWindow(QMainWindow):
             extensions=tuple(
                 Path(folder) for folder in services.settings.settings.browser_extensions
             ),
+            web_archive=services.web_archive,
             parent=self,
         )
 
@@ -280,6 +291,13 @@ class MainWindow(QMainWindow):
         take effect instead of the key appearing to do nothing at all.
         """
         self._services.browser.toggle_blur()
+
+    def _save_to_archive(self) -> None:
+        save = getattr(self._browser_pane, "save_page", None)
+        if callable(save) and self._browser_pane.isVisible():
+            save()
+        else:
+            logger.info("web_archive.shortcut_unavailable")
 
     def show_browser_pane(self, visible: bool) -> None:
         """Open or close the browser pane. Qt thread only."""
