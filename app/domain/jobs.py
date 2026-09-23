@@ -24,6 +24,7 @@ JobType = Literal[
     "embedding",
     "sync",
     "key_rotation",
+    "web_archive",
 ]
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]

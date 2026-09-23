@@ -296,6 +296,7 @@ class MainWindow(QMainWindow):
                 Path(folder) for folder in services.settings.settings.browser_extensions
             ),
             web_archive=services.web_archive,
+            jobs=services.jobs,
             parent=self,
         )
 

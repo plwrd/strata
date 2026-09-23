@@ -227,7 +227,9 @@ class _FakeExtractor(StreamExtractor):
     def unavailable_reason(self) -> str:
         return ""
 
-    def extract(self, page_url: str, cookies: Any, user_agent: str = "") -> ExtractedStream:
+    def extract(
+        self, page_url: str, cookies: Any, user_agent: str = "", *, cancelled: Any = None
+    ) -> ExtractedStream:
         self.pages.append(page_url)
         self.cookies = list(cookies)
         return ExtractedStream("Northwind briefing", page_url, 12.0, [("https://v/1", {})], 720)
@@ -336,3 +338,42 @@ def test_real_ffmpeg_pipe_leaves_no_file(tmp_path: Path, monkeypatch: pytest.Mon
     out = subprocess.run(command, capture_output=True, check=True).stdout  # noqa: S603
     assert out[4:8] == b"ftyp" and b"moof" in out
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cancelling_a_stream_keeps_the_page_and_removes_the_partial(
+    services: Services,
+) -> None:
+    service, layer_id = _archive(services, _FakeExtractor())
+    ticks = {"n": 0}
+
+    def progress(message: str) -> None:
+        if message.startswith("Encrypting video"):
+            ticks["n"] += 1
+
+    result = service.save(_capture(), progress=progress, cancelled=lambda: ticks["n"] >= 2)
+    assert result.cancelled and result.media_saved == []
+    assert "Cancelled" in result.summary()
+    assert [i["kind"] for i in service.list_saved()] == ["web_page"]
+    root = services.paths.default_workspace / "layers" / layer_id
+    assert not list(root.rglob("*.tmp"))
+
+
+def test_saves_run_one_at_a_time(services: Services) -> None:
+    import threading
+
+    service, _layer = _archive(services, _FakeExtractor())
+    service.save_slot.acquire()  # a save "already running"
+    messages: list[str] = []
+    done = threading.Event()
+
+    def second() -> None:
+        service.save(_capture(), progress=messages.append)
+        done.set()
+
+    worker = threading.Thread(target=second)
+    worker.start()
+    assert not done.wait(0.5)  # waiting, not running
+    assert messages == ["Waiting for the previous save\u2026"]
+    service.save_slot.release()
+    assert done.wait(30)
+    worker.join()

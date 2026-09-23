@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -146,7 +147,12 @@ class StreamExtractor:
     # -- finding the streams --------------------------------------------------
 
     def extract(
-        self, page_url: str, cookies: Iterable[StreamCookie], user_agent: str = ""
+        self,
+        page_url: str,
+        cookies: Iterable[StreamCookie],
+        user_agent: str = "",
+        *,
+        cancelled: Callable[[], bool] = lambda: False,
     ) -> ExtractedStream:
         """Find the video behind ``page_url`` — in a confined worker process.
 
@@ -172,14 +178,34 @@ class StreamExtractor:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
+        process = confined.process
+        chunks: list[bytes] = []
+
+        def pump() -> None:
+            assert process.stdin is not None and process.stdout is not None
+            try:
+                process.stdin.write(request)
+                process.stdin.close()
+            except OSError:
+                pass  # the worker died; its (empty) reply says so
+            chunks.append(process.stdout.read(_MAX_REPLY + 1))
+
+        # Pipes on a thread, so this loop can watch for a cancel and a timeout
+        # without the reply ever filling a pipe buffer nobody is reading.
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
+        deadline = time.monotonic() + _WORKER_TIMEOUT
         try:
-            out, _err = confined.process.communicate(request, timeout=_WORKER_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            confined.process.kill()
-            raise ProviderError("Finding the video took too long.") from None
+            while reader.is_alive():
+                reader.join(timeout=0.2)
+                if cancelled():
+                    raise ProviderError("Cancelled.")
+                if time.monotonic() > deadline:
+                    raise ProviderError("Finding the video took too long.")
         finally:
-            confined.close()
-        return _parse_worker_reply(out, page_url)
+            confined.close()  # kills the worker (and any JS runtime) if still running
+            process.wait(timeout=10)
+        return _parse_worker_reply(b"".join(chunks), page_url)
 
     def _worker_argv(self) -> list[str]:
         if self._worker_command is not None:

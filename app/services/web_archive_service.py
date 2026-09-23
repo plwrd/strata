@@ -152,6 +152,13 @@ class PageCapture:
     stream_pages: tuple[str, ...] = ()
 
 
+class SaveCancelled(StrataError):
+    """The user cancelled a save. Whatever was not finished is removed."""
+
+    def __init__(self) -> None:
+        super().__init__("The save was cancelled.")
+
+
 @dataclass
 class SaveResult:
     layer_name: str
@@ -159,8 +166,18 @@ class SaveResult:
     media_saved: list[tuple[str, int]] = field(default_factory=list)
     media_failed: list[tuple[str, str]] = field(default_factory=list)
     streamed_skipped: int = 0
+    cancelled: bool = False
 
     def summary(self) -> str:
+        if self.cancelled and not self.page_id:
+            return "Cancelled. Nothing was saved."
+        if self.cancelled:
+            kept = len(self.media_saved)
+            return (
+                "Cancelled. The page was kept"
+                + (f" with {kept} video{'s' if kept != 1 else ''}" if kept else "")
+                + "; nothing unfinished was left behind."
+            )
         parts = ["Page saved"]
         if self.media_saved:
             total = sum(size for _title, size in self.media_saved)
@@ -507,6 +524,10 @@ class WebArchiveService:
         # generation at the time. Until the key is rotated past it, an old
         # disk copy could still be decrypted, and the library says so.
         self._rotation_due: dict[str, int] = {}
+        self._cancelled: Callable[[], bool] = lambda: False
+        # One save at a time: queued saves wait here, so two downloads never
+        # compete for the disk or interleave their progress.
+        self.save_slot = threading.Lock()
 
     @staticmethod
     def _default_client() -> httpx.Client:
@@ -588,8 +609,12 @@ class WebArchiveService:
         return self._workspace.private_access(layer_id)
 
     def _still_unlocked(self, layer_id: str) -> None:
+        """Checked between chunks: the layer must still be unlocked, and the
+        user must not have cancelled."""
         if not self._encryption.is_unlocked(layer_id):
             raise LayerLockedError("The layer was locked while saving.")
+        if self._cancelled():
+            raise SaveCancelled()
 
     # -- saving ---------------------------------------------------------------
 
@@ -598,15 +623,40 @@ class WebArchiveService:
         capture: PageCapture,
         *,
         progress: Callable[[str], None] = lambda _message: None,
+        cancelled: Callable[[], bool] = lambda: False,
     ) -> SaveResult:
-        """Save a page and its plain-file media. Blocking: call off the UI thread."""
+        """Save a page and its media. Blocking: call off the UI thread.
+
+        ``cancelled`` is polled between chunks; a cancel stops the item in
+        progress (its partial, encrypted file is removed) and skips the rest.
+        The page itself, once written, is kept. Saves run one at a time.
+        """
+        if not self.save_slot.acquire(blocking=False):
+            progress("Waiting for the previous save…")
+            self.save_slot.acquire()
+        try:
+            return self._save(capture, progress, cancelled)
+        finally:
+            self._cancelled = lambda: False
+            self.save_slot.release()
+
+    def _save(
+        self,
+        capture: PageCapture,
+        progress: Callable[[str], None],
+        cancelled: Callable[[], bool],
+    ) -> SaveResult:
         if urlsplit(capture.url).scheme not in ("http", "https"):
             raise InvalidRequestError("Only web pages can be saved.")
         layer_id, layer_name = self.target_layer()
         access = self._access(layer_id)
+        self._cancelled = cancelled
 
         progress("Encrypting page…")
-        page_id = self._save_page(access, layer_id, capture)
+        try:
+            page_id = self._save_page(access, layer_id, capture)
+        except SaveCancelled:
+            return SaveResult(layer_name=layer_name, page_id="", cancelled=True)
         result = SaveResult(
             layer_name=layer_name,
             page_id=page_id,
@@ -621,10 +671,15 @@ class WebArchiveService:
             if url in seen or classify_media_url(url) != "file":
                 continue
             seen.add(url)
+            if result.cancelled:
+                break
             try:
                 media_id, title, size = self._save_media(
                     access, layer_id, capture, url, page_id, progress
                 )
+            except SaveCancelled:
+                result.cancelled = True
+                continue
             except LayerLockedError:
                 raise
             except (httpx.HTTPError, StrataError, OSError) as exc:
@@ -636,10 +691,15 @@ class WebArchiveService:
             result.media_saved.append((title, size))
 
         for stream_page in dict.fromkeys(capture.stream_pages):
+            if result.cancelled:
+                break
             try:
                 media_id, title, size = self._save_stream(
                     access, layer_id, capture, stream_page, page_id, progress
                 )
+            except SaveCancelled:
+                result.cancelled = True
+                continue
             except LayerLockedError:
                 raise
             except (StrataError, OSError) as exc:
@@ -657,7 +717,10 @@ class WebArchiveService:
             if note_id:
                 updates["note_id"] = note_id
         if updates:
-            self._still_unlocked(layer_id)
+            # The lock only: a cancel has already stopped the downloads, and what
+            # did finish still has to be linked to its page.
+            if not self._encryption.is_unlocked(layer_id):
+                raise LayerLockedError("The layer was locked while saving.")
             access.update_stream_properties(page_id, updates)
         self._on_change()
         logger.info(
@@ -766,9 +829,9 @@ class WebArchiveService:
                         raise InvalidRequestError("The video is larger than the size limit.")
                     if declared:
                         percent = writer.bytes_written * 100 // declared
-                        progress(f"Encrypting video {name[:40]}… {percent}%")
+                        progress(f"Encrypting video… {percent}%")
                     else:
-                        progress(f"Encrypting video {name[:40]}… {_human(writer.bytes_written)}")
+                        progress(f"Encrypting video… {_human(writer.bytes_written)}")
             size = writer.bytes_written
 
         self._still_unlocked(layer_id)
@@ -805,11 +868,14 @@ class WebArchiveService:
         cookies = [
             StreamCookie(c.name, c.value, c.domain, c.path, c.secure) for c in capture.cookies
         ]
-        found = self._extractor.extract(stream_page, cookies, capture.user_agent)
+        found = self._extractor.extract(
+            stream_page, cookies, capture.user_agent, cancelled=self._cancelled
+        )
+        if self._cancelled():
+            raise SaveCancelled()
         for track_url, _headers in found.tracks:
             self._guard(track_url)
         cap = self._settings.settings.web_archive_max_media_mb * 1024 * 1024
-        label = found.title[:40]
 
         object_id, writer = access.begin_stream("web_media")
         with writer:
@@ -823,9 +889,9 @@ class WebArchiveService:
             def report(seconds: float) -> None:
                 if found.duration:
                     percent = min(99, int(seconds * 100 / found.duration))
-                    progress(f"Encrypting video {label}… {percent}%")
+                    progress(f"Encrypting video… {percent}%")
                 else:
-                    progress(f"Encrypting video {label}… {_human(writer.bytes_written)}")
+                    progress(f"Encrypting video… {_human(writer.bytes_written)}")
 
             self._extractor.run(found, take, report)
             size = writer.bytes_written

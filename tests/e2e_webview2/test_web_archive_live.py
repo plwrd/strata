@@ -102,6 +102,7 @@ def rig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
         loader=loader,
         hide_for_sharing=False,
         web_archive=services.web_archive,
+        jobs=services.jobs,
         parent=host,
     )
     QVBoxLayout(host).addWidget(pane)
@@ -154,6 +155,9 @@ def test_save_read_offline_play_seek_and_lock(rig: dict[str, Any]) -> None:
     pane.save_page()
     assert wait(lambda: not pane._saving, 90)
     assert "1 video" in pane._archive_status.text(), pane._archive_status.text()
+    # It ran as a background job, visible (and cancellable) in Strata's job list.
+    jobs = [j for j in services.jobs.list_jobs() if j.type == "web_archive"]
+    assert jobs and jobs[-1].status == "succeeded" and jobs[-1].privacy == "private"
 
     items = services.web_archive.list_saved()
     page = next(i for i in items if i["kind"] == "web_page")
@@ -174,7 +178,11 @@ def test_save_read_offline_play_seek_and_lock(rig: dict[str, Any]) -> None:
     pane._vault_requested = True
     pane.load_url(services.web_archive.page_entry_url(page["id"]))
     assert wait(lambda: "BLUEJAY" in str(js("document.body.innerText") or ""), 15)
-    assert js("getComputedStyle(document.querySelector('h1')).color") == "rgb(170, 0, 0)"
+    # The stylesheet is a separate (vault) request; give it time to apply.
+    assert wait(
+        lambda: js("getComputedStyle(document.querySelector('h1')).color") == "rgb(170, 0, 0)",
+        10,
+    ), js("getComputedStyle(document.querySelector('h1')).color")
 
     pane._vault_requested = True
     pane.load_url(f"{VAULT_ORIGIN}/watch/{video['id']}")

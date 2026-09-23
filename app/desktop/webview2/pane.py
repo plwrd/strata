@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import re
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,6 +60,7 @@ from app.services.web_archive_service import (
 )
 
 if TYPE_CHECKING:
+    from app.services.job_service import JobService
     from app.services.web_archive_service import WebArchiveService
 
 logger = get_logger(__name__)
@@ -261,11 +263,15 @@ class WebView2Pane(QWidget):
         hide_for_sharing: bool,
         extensions: tuple[Path, ...] = (),
         web_archive: WebArchiveService | None = None,
+        jobs: JobService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._archive = web_archive
-        self._saving = False
+        self._jobs = jobs
+        self._saves_in_flight = 0
+        self._job_ids: list[str] = []
+        self._thread_cancel: threading.Event | None = None
         # The vault answers only a document the *pane* opened. A web page
         # cannot navigate or embed its way in: requests for the vault host are
         # refused unless the pane itself just asked for it, or is already
@@ -334,6 +340,13 @@ class WebView2Pane(QWidget):
         self._save_button.setAccessibleName("Save page to encrypted archive")
         self._save_button.clicked.connect(self.save_page)
         toolbar.addWidget(self._save_button)
+
+        self._cancel_button = QPushButton("Cancel", self)
+        self._cancel_button.setToolTip("Cancel the save in progress (queued saves continue)")
+        self._cancel_button.setAccessibleName("Cancel saving")
+        self._cancel_button.clicked.connect(self.cancel_save)
+        self._cancel_button.hide()
+        toolbar.addWidget(self._cancel_button)
 
         self._library_button = QPushButton("Saved", self)
         self._library_button.setToolTip("Open saved pages (encrypted, readable offline)")
@@ -764,12 +777,18 @@ class WebView2Pane(QWidget):
         self._vault_requested = True
         self.load_url(f"{VAULT_ORIGIN}/")
 
+    @property
+    def _saving(self) -> bool:
+        """True while any save is being captured, queued or running."""
+        return self._saves_in_flight > 0
+
     def save_page(self) -> None:
-        """Snapshot the page and hand it to the archive on a worker thread."""
+        """Capture the page now; the save itself queues behind any running one.
+
+        The capture (snapshot, video list, cookies) is taken at the moment of
+        the press, so navigating on while earlier saves finish is safe.
+        """
         if self._archive is None or self._controller is None:
-            return
-        if self._saving:
-            self._show_archive_status("Already saving — one page at a time.", linger_ms=4000)
             return
         host = urlsplit(self._url).hostname or ""
         if host == VAULT_HOST:
@@ -778,14 +797,29 @@ class WebView2Pane(QWidget):
         if urlsplit(self._url).scheme.lower() not in _ALLOWED_SCHEMES:
             self._show_archive_status("Open a web page first, then save it.", linger_ms=4000)
             return
-        self._saving = True
-        self._save_button.setEnabled(False)
-        self._show_archive_status("Saving page…")
+        self._saves_in_flight += 1
+        self._refresh_save_controls()
+        self._show_archive_status(self._queue_text("Saving page…"))
         url, title = self._url, self._title
         view = self._controller.webview
         view.execute_script(
             media_probe_source(), lambda raw: self._after_probe(view, url, title, raw)
         )
+
+    def _queue_text(self, message: str) -> str:
+        waiting = self._saves_in_flight - 1
+        return message + (f" ({waiting} more queued)" if waiting > 0 else "")
+
+    def _refresh_save_controls(self) -> None:
+        self._cancel_button.setVisible(self._saving)
+
+    def cancel_save(self) -> None:
+        """Cancel the save that is running now; queued ones continue."""
+        if self._jobs is not None and self._job_ids:
+            self._jobs.cancel(self._job_ids[0])
+        elif self._thread_cancel is not None:
+            self._thread_cancel.set()
+        self._show_archive_status("Cancelling…")
 
     def _after_probe(self, view: sdk.WebView, url: str, title: str, raw: str) -> None:
         try:
@@ -841,32 +875,66 @@ class WebView2Pane(QWidget):
         archive = self._archive
         assert archive is not None
 
-        def work() -> None:
+        def attempt(progress: Any, cancelled: Any) -> object:
             try:
-                result = archive.save(capture, progress=self._archiveProgress.emit)
+                return archive.save(capture, progress=progress, cancelled=cancelled)
             except StrataError as exc:
-                self._archiveFinished.emit(str(exc))
+                return str(exc)
             except Exception:
                 logger.exception("webview2.archive_save_failed")
-                self._archiveFinished.emit("The page could not be saved.")
-            else:
-                self._archiveFinished.emit(result)
+                return "The page could not be saved."
 
-        # A thread, not the Qt loop: a video download can take minutes, and
-        # every chunk is encrypted before it is written.
-        threading.Thread(target=work, name="web-archive-save", daemon=True).start()
+        if self._jobs is None:
+            # No job service (a bare pane): a plain thread, cancellable by event.
+            cancel = threading.Event()
+            self._thread_cancel = cancel
+
+            def work_thread() -> None:
+                outcome = attempt(
+                    lambda m: self._archiveProgress.emit(self._queue_text(m)), cancel.is_set
+                )
+                self._archiveFinished.emit(outcome)
+
+            threading.Thread(target=work_thread, name="web-archive-save", daemon=True).start()
+            return
+
+        # A background job: it shows in Strata's job list with progress and a
+        # cancel button. Title and detail stay generic - job details are also
+        # logged, and a page title is private content.
+        def work(handle: Any) -> dict[str, Any]:
+            def progress(message: str) -> None:
+                match = re.search(r"(\d+)%", message)
+                handle.progress(int(match.group(1)) / 100 if match else 0.0, message)
+                self._archiveProgress.emit(self._queue_text(message))
+
+            outcome = attempt(progress, lambda: handle.is_cancelled)
+            self._archiveFinished.emit(outcome)
+            return {"saved": isinstance(outcome, SaveResult) and not outcome.cancelled}
+
+        record = self._jobs.submit(
+            job_type="web_archive",
+            title="Save page to encrypted archive",
+            work=work,
+            privacy="private",
+        )
+        self._job_ids.append(record.id)
 
     def _on_archive_finished(self, outcome: object) -> None:
+        if self._job_ids:
+            self._job_ids.pop(0)
+        self._thread_cancel = None
         if isinstance(outcome, SaveResult):
             self._finish_save(outcome.summary(), "")
         else:
             self._finish_save(None, str(outcome))
 
     def _finish_save(self, message: str | None, error: str) -> None:
-        self._saving = False
-        self._save_button.setEnabled(self._archive is not None)
+        self._saves_in_flight = max(0, self._saves_in_flight - 1)
+        self._refresh_save_controls()
         if error:
             self._show_archive_status(f"Not saved: {error}", linger_ms=10000)
+        elif self._saving:
+            self._show_archive_status(self._queue_text(message or "Saved."))
         else:
             self._show_archive_status(message or "Saved.", linger_ms=8000)
 
