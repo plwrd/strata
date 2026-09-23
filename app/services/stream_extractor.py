@@ -85,6 +85,14 @@ class ExtractedStream:
     height: int = 0
 
 
+def bundled_tool(name: str) -> str:
+    """A helper the Windows installer ships (packaging/tools/<name>/<name>.exe), or ""."""
+    from app.bootstrap import resource_root
+
+    candidate = resource_root() / "packaging" / "tools" / name / f"{name}.exe"
+    return str(candidate) if candidate.is_file() else ""
+
+
 def _cookie_jar(cookies: Iterable[StreamCookie]) -> http.cookiejar.CookieJar:
     jar = http.cookiejar.CookieJar()
     for c in cookies:
@@ -129,10 +137,11 @@ class StreamExtractor:
     # -- availability ---------------------------------------------------------
 
     def ffmpeg(self) -> str:
+        """The configured ffmpeg, else the one the installer bundles, else PATH."""
         configured = self._ffmpeg_path().strip()
         if configured:
             return configured if shutil.which(configured) else ""
-        return shutil.which("ffmpeg") or ""
+        return bundled_tool("ffmpeg") or shutil.which("ffmpeg") or ""
 
     def unavailable_reason(self) -> str:
         """Why streamed video cannot be saved on this machine, or ""."""
@@ -164,6 +173,7 @@ class StreamExtractor:
         """
         request = json.dumps(
             {
+                "deno_path": bundled_tool("deno"),
                 "page_url": page_url,
                 "cookies": [c.__dict__ for c in cookies],
                 "user_agent": user_agent,
@@ -312,7 +322,12 @@ class StreamExtractor:
 
 
 def extract_in_process(
-    page_url: str, cookies: Iterable[StreamCookie], user_agent: str = "", max_height: int = 1080
+    page_url: str,
+    cookies: Iterable[StreamCookie],
+    user_agent: str = "",
+    max_height: int = 1080,
+    *,
+    deno_path: str = "",
 ) -> ExtractedStream:
     """Ask yt-dlp what video is behind ``page_url``. Blocking; network.
 
@@ -330,7 +345,8 @@ def extract_in_process(
         "cachedir": False,
         "format": _FORMAT.format(h=max(144, int(max_height))),
         # YouTube's signature challenge needs a JavaScript runtime.
-        "js_runtimes": {"deno": {}, "node": {}},
+        # The bundled Deno when there is one; else whatever is installed.
+        "js_runtimes": {"deno": {"path": deno_path}} if deno_path else {"deno": {}, "node": {}},
         "logger": _QuietLogger(),
     }
     if user_agent:
@@ -438,6 +454,7 @@ def worker_main(stdin: Any = None, stdout: Any = None) -> int:
             [StreamCookie(**c) for c in request.get("cookies") or []],
             str(request.get("user_agent") or ""),
             int(request.get("max_height") or 1080),
+            deno_path=str(request.get("deno_path") or ""),
         )
         reply: dict[str, Any] = {
             "title": found.title,

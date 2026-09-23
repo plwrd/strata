@@ -80,3 +80,8 @@ humazie/dashboard/test-results/
 humazie/dashboard/playwright-report/
 humazie/test-results/
 humazie/playwright-report/
+
+# Bundled helper tools, fetched and SHA-256-verified at build time by
+# packaging/tools/fetch_tools.py - never committed.
+packaging/tools/ffmpeg/
+packaging/tools/deno/

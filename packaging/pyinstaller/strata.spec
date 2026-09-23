@@ -37,6 +37,16 @@ WEBVIEW2_LOADER = ROOT / "packaging" / "webview2" / "WebView2Loader.dll"
 if WEBVIEW2_LOADER.is_file():
     datas.append((str(WEBVIEW2_LOADER), "packaging/webview2"))
 
+# ffmpeg (LGPL) and Deno for streamed video in the encrypted web archive,
+# fetched and checksum-verified by packaging/tools/fetch_tools.py. Optional:
+# without them the archive still saves pages and plain videos, and says why a
+# YouTube/X video was skipped. Their licences ship beside them.
+for tool in ("ffmpeg", "deno"):
+    folder = ROOT / "packaging" / "tools" / tool
+    if folder.is_dir():
+        for item in folder.iterdir():
+            datas.append((str(item), f"packaging/tools/{tool}"))
+
 hiddenimports = [
     "app.bridge.workspace_bridge",
     "app.bridge.layer_bridge",
