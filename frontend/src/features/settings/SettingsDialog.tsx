@@ -313,7 +313,11 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
     applySettings,
     chooseBrowserExtension,
     chooseUserScript,
+    layers,
   } = useStore();
+  const privateLayers = layers.filter(
+    (layer) => layer.visibility === "private",
+  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -664,6 +668,53 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
 
           <section
             className="settings-dialog__section"
+            aria-labelledby="settings-autolock"
+          >
+            <h3 id="settings-autolock" className="settings-dialog__heading">
+              Auto-lock
+            </h3>
+            <label className="composer__field">
+              <span className="label">
+                Lock private layers after{" "}
+                {(settings?.auto_lock_minutes ?? 15) === 0
+                  ? "— never"
+                  : `${settings?.auto_lock_minutes ?? 15} idle minutes`}
+              </span>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={1440}
+                value={settings?.auto_lock_minutes ?? 15}
+                aria-label="Auto-lock after idle minutes"
+                onChange={(event) =>
+                  void applySettings({
+                    auto_lock_minutes: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.auto_lock_on_system_lock ?? true}
+                onChange={(event) =>
+                  void applySettings({
+                    auto_lock_on_system_lock: event.target.checked,
+                  })
+                }
+              />
+              <span>Also lock when Windows locks or the computer sleeps</span>
+            </label>
+            <p className="settings-dialog__hint">
+              Locking removes the keys from memory. Idle means no keyboard or
+              mouse input anywhere on the computer; 0 turns the timer off.
+              Website sign-ins in the browser pane are kept.
+            </p>
+          </section>
+
+          <section
+            className="settings-dialog__section"
             aria-labelledby="settings-tray"
           >
             <h3 id="settings-tray" className="settings-dialog__heading">
@@ -979,6 +1030,107 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               touch/mobile layout — you can also toggle it live in the Research
               panel. Synthetic touch events are advertised to pages from the
               next launch (a process-wide setting). The pane only.
+            </p>
+          </section>
+
+          <section
+            className="settings-dialog__section"
+            aria-labelledby="settings-archive"
+          >
+            <h3 id="settings-archive" className="settings-dialog__heading">
+              Saved pages
+            </h3>
+            <p className="settings-dialog__hint">
+              Press <kbd>Ctrl+Alt+F</kbd> in the browser pane to save the page
+              and its videos, encrypted, for offline reading. Nothing is ever
+              written unencrypted.
+            </p>
+            <label className="composer__field">
+              <span className="label">Save into</span>
+              <select
+                className="input"
+                value={settings?.web_archive_layer_id ?? ""}
+                aria-label="Layer for saved pages"
+                onChange={(event) =>
+                  void applySettings({
+                    web_archive_layer_id: event.target.value,
+                  })
+                }
+              >
+                <option value="">First unlocked private layer</option>
+                {privateLayers.map((layer) => (
+                  <option key={layer.id} value={layer.id}>
+                    {layer.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="composer__field">
+              <span className="label">Video quality</span>
+              <select
+                className="input"
+                value={settings?.web_archive_max_height ?? 1080}
+                aria-label="Maximum video quality"
+                onChange={(event) =>
+                  void applySettings({
+                    web_archive_max_height: Number(event.target.value),
+                  })
+                }
+              >
+                {[480, 720, 1080, 1440, 2160].map((height) => (
+                  <option key={height} value={height}>
+                    Up to {height}p
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="composer__field">
+              <span className="label">Largest video (MB)</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                value={settings?.web_archive_max_media_mb ?? 4096}
+                aria-label="Largest video in megabytes"
+                onChange={(event) =>
+                  void applySettings({
+                    web_archive_max_media_mb: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="composer__field">
+              <span className="label">ffmpeg path (optional)</span>
+              <input
+                className="input"
+                value={settings?.web_archive_ffmpeg_path ?? ""}
+                placeholder="Found automatically if left empty"
+                aria-label="ffmpeg path"
+                onChange={(event) =>
+                  void applySettings({
+                    web_archive_ffmpeg_path: event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.web_archive_allow_private_addresses ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    web_archive_allow_private_addresses: event.target.checked,
+                  })
+                }
+              />
+              <span>
+                Allow saving from my local network (NAS, media server)
+              </span>
+            </label>
+            <p className="settings-dialog__hint">
+              ffmpeg is needed for YouTube and X videos. Off by default, the
+              local-network option stops a web page from pointing Strata at
+              devices on your network.
             </p>
           </section>
         </div>

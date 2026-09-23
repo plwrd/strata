@@ -817,6 +817,19 @@ export interface AppSettings {
   browser_blur_media: boolean;
   browser_blur_amount: number;
   browser_mobile_mode: boolean;
+  /**
+   * The encrypted web archive (Ctrl+Alt+F in the WebView2 pane). An empty
+   * layer id means "the first unlocked private layer".
+   */
+  web_archive_layer_id: string;
+  web_archive_max_media_mb: number;
+  web_archive_ffmpeg_path: string;
+  web_archive_max_height: number;
+  web_archive_allow_private_addresses: boolean;
+  /** Lock private layers after this many idle minutes; 0 = never. */
+  auto_lock_minutes: number;
+  /** Lock on Windows lock, session disconnect and sleep. */
+  auto_lock_on_system_lock: boolean;
 }
 
 export interface JobRecord {
@@ -947,9 +960,4 @@ export interface ScrapedPage {
  * `unknown` — asked before the native window existed.
  */
 export type CaptureProtection =
-  | "excluded"
-  | "blacked-out"
-  | "off"
-  | "failed"
-  | "unsupported"
-  | "unknown";
+  "excluded" | "blacked-out" | "off" | "failed" | "unsupported" | "unknown";

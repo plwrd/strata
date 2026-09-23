@@ -50,6 +50,13 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       browser_blur_media: false,
       browser_blur_amount: 12,
       browser_mobile_mode: false,
+      web_archive_layer_id: "",
+      web_archive_max_media_mb: 4096,
+      web_archive_ffmpeg_path: "",
+      web_archive_max_height: 1080,
+      web_archive_allow_private_addresses: false,
+      auto_lock_minutes: 15,
+      auto_lock_on_system_lock: true,
       ...overrides,
     },
     mode: "explore",
@@ -161,6 +168,57 @@ describe("SettingsDialog", () => {
     );
   });
 
+  it("offers only private layers for saved pages, and applies the choice", async () => {
+    const layer = (id: string, visibility: "private" | "public") => ({
+      id,
+      display_name: `Layer ${id}`,
+      visibility,
+      state: "unlocked" as const,
+      sharing_mode: "personal" as const,
+      storage: (visibility === "private"
+        ? "encrypted-objects"
+        : "markdown") as never,
+      storage_version: 1,
+      created_at: "",
+      updated_at: "",
+      color: "layer-public",
+      ai_policy: {} as never,
+      password_remembered: false,
+    });
+    useStore.setState({
+      layers: [layer("vault", "private"), layer("notes", "public")],
+    });
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    const picker = screen.getByRole("combobox", {
+      name: "Layer for saved pages",
+    });
+    expect(
+      screen.getByRole("option", { name: "Layer vault" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Layer notes" })).toBeNull();
+    await userEvent.selectOptions(picker, "vault");
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        web_archive_layer_id: "vault",
+      }),
+    );
+  });
+
+  it("turns off locking on system lock through applySettings", async () => {
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /lock when Windows locks/ }),
+    );
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        auto_lock_on_system_lock: false,
+      }),
+    );
+  });
+
   // --- screen protection: the status is the OS's answer, not the toggle ------
   //
   // "Hidden for sharing" is a request. Rendering it as though it were the
@@ -182,7 +240,9 @@ describe("SettingsDialog", () => {
 
     const status = screen.getByTestId("capture-protection");
     expect(status).toHaveTextContent(/not available on this platform/i);
-    expect(status).toHaveTextContent(/visible to screenshots and screen shares/i);
+    expect(status).toHaveTextContent(
+      /visible to screenshots and screen shares/i,
+    );
     // And what to do instead, since there is nothing to turn on.
     expect(status).toHaveTextContent(/lock your private layers/i);
     expect(status).toHaveAttribute("role", "alert");

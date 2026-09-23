@@ -52,6 +52,13 @@ function seedSettings(completed: boolean): void {
       browser_blur_media: false,
       browser_blur_amount: 12,
       browser_mobile_mode: false,
+      web_archive_layer_id: "",
+      web_archive_max_media_mb: 4096,
+      web_archive_ffmpeg_path: "",
+      web_archive_max_height: 1080,
+      web_archive_allow_private_addresses: false,
+      auto_lock_minutes: 15,
+      auto_lock_on_system_lock: true,
     },
     mode: "explore",
     workspace: {
