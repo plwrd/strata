@@ -172,6 +172,21 @@ WEB_RESOURCE_CONTEXT_ALL = 0
 # COREWEBVIEW2_KEY_EVENT_KIND: KEY_DOWN = 0, KEY_UP = 1, SYSTEM_KEY_DOWN = 2, ...
 KEY_EVENT_KEY_DOWN = 0
 KEY_EVENT_SYSTEM_KEY_DOWN = 2
+# COREWEBVIEW2_BROWSING_DATA_KINDS. What the pane clears on lock and at start:
+# the page/video cache and history — plaintext copies of what was browsed.
+# Deliberately NOT cookies or site storage: those are the user's sign-ins
+# (cookie values are DPAPI-encrypted by the engine), and clearing them would
+# log the user out of every site on each lock.
+BROWSING_DATA_CACHE_STORAGE = 0x10
+BROWSING_DATA_DISK_CACHE = 0x100
+BROWSING_DATA_DOWNLOAD_HISTORY = 0x200
+BROWSING_DATA_BROWSING_HISTORY = 0x1000
+BROWSING_TRACES = (
+    BROWSING_DATA_CACHE_STORAGE
+    | BROWSING_DATA_DISK_CACHE
+    | BROWSING_DATA_DOWNLOAD_HISTORY
+    | BROWSING_DATA_BROWSING_HISTORY
+)
 
 _S_FALSE = 1
 _E_NOTIMPL = 0x80004001 - 0x100000000
@@ -583,6 +598,27 @@ class Profile:
         )
         self._it.put_bool(
             slots.PROFILE7_PUT_ISPASSWORDAUTOSAVEENABLED, enabled, "put_IsPasswordAutosaveEnabled"
+        )
+
+    def clear_browsing_data(self, kinds: int, on_done: Callable[[str], None]) -> None:
+        """``ClearBrowsingData`` (inherited from ``Profile2``). ``on_done(error)``."""
+        handler: Callback
+
+        def invoke(_this: int, hr: int) -> int:
+            self._handlers.remove(handler)
+            on_done("" if hr >= 0 else f"0x{hr & 0xFFFFFFFF:08X}")
+            return 0
+
+        handler = Callback(
+            slots.IID_CLEAR_BROWSING_DATA_COMPLETED_HANDLER, (_INVOKE_HRESULT, invoke)
+        )
+        self._handlers.append(handler)
+        self._it.call(
+            slots.PROFILE7_CLEARBROWSINGDATA,
+            (ctypes.c_int, LPVOID),
+            kinds,
+            handler.pointer,
+            what="ClearBrowsingData",
         )
 
     def add_extension(self, folder: Path, on_done: Callable[[str, str], None]) -> None:

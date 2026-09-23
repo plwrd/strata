@@ -196,6 +196,13 @@ class MainWindow(QMainWindow):
         archive_shortcut = QShortcut(QKeySequence(ARCHIVE_HOTKEY), self, self._save_to_archive)
         archive_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
 
+        # Locking a layer also drops the pane's cache and history (not its
+        # cookies — sign-ins survive). A signal, because a lock can come from
+        # any thread.
+        clear_traces = getattr(self._browser_pane, "clearTracesRequested", None)
+        if clear_traces is not None:
+            services.encryption.on_lock(lambda _layer_id: clear_traces.emit())
+
         url = QUrl(dev_server) if dev_server else QUrl(APP_URL)
         logger.info("window.loading", dev=bool(dev_server))
         self._view.load(url)

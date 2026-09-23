@@ -96,7 +96,7 @@ testpaths = ["tests"]
 # Scale benchmarks assert wall-clock budgets, so they are opt-in: a developer
 # machine under load fails them for reasons that are not regressions. CI runs
 # them in a dedicated non-blocking job that selects `-m performance`.
-addopts = "-q --strict-markers -m 'not performance'"
+addopts = "-q --strict-markers -m 'not performance and not webview2'"
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
@@ -104,5 +104,6 @@ markers = [
     "gui: requires a Qt application instance",
     "slow: long-running",
     "performance: scale/latency benchmarks (FR-193)",
+    "webview2: drives the real WebView2 engine in a window (Windows; opt-in)",
 ]
 filterwarnings = ["error::DeprecationWarning:app.*"]

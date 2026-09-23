@@ -83,6 +83,9 @@ INTERFACES = (
     "ICoreWebView2WebResourceRequest",
     "ICoreWebView2WebResourceResponse",
     "ICoreWebView2HttpRequestHeaders",
+    # Clearing the pane's cache and history (never its cookies) on lock/exit.
+    "ICoreWebView2Profile2",
+    "ICoreWebView2ClearBrowsingDataCompletedHandler",
 )
 
 

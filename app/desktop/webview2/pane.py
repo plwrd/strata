@@ -248,6 +248,8 @@ class WebView2Pane(QWidget):
     # connection queues them, so the slots always run where widgets live.
     _archiveProgress = Signal(str)
     _archiveFinished = Signal(object)
+    # Any thread (a layer can lock from a bridge worker) -> the Qt thread.
+    clearTracesRequested = Signal()
 
     backend: BrowserBackend = "webview2"
 
@@ -348,6 +350,7 @@ class WebView2Pane(QWidget):
         self._archive_status_timer = QTimer(self)
         self._archive_status_timer.setSingleShot(True)
         self._archive_status_timer.timeout.connect(self._archive_status.hide)
+        self.clearTracesRequested.connect(self.clear_traces)
         self._archiveProgress.connect(self._show_archive_status)
         self._archiveFinished.connect(self._on_archive_finished)
 
@@ -445,6 +448,9 @@ class WebView2Pane(QWidget):
 
         self._apply_mobile_user_agent()
         self._quiet_profile()
+        # Whatever the last session cached — it may have ended before a clear
+        # finished — goes now, before anything new is browsed.
+        self.clear_traces()
         self._load_extensions()
         self._install_blur()
         if self._hide_for_sharing:
@@ -706,6 +712,30 @@ class WebView2Pane(QWidget):
             extraction_script(), lambda raw: deliver(_unwrap(raw))
         )
 
+    # -- browsing traces --------------------------------------------------------
+
+    def clear_traces(self) -> None:
+        """Drop the cache and history; keep cookies and site storage (sign-ins).
+
+        Called at start, when a layer locks, and at shutdown: a page viewed
+        while unlocked must not stay readable in the engine's cache afterwards.
+        Qt thread only — from elsewhere, emit ``clearTracesRequested``.
+        """
+        profile = self._profile_interface()
+        if profile is None:
+            return
+
+        def done(error: str) -> None:
+            if error:
+                logger.warning("webview2.clear_traces_failed", hr=error)
+            else:
+                logger.info("webview2.traces_cleared")
+
+        try:
+            profile.clear_browsing_data(sdk.BROWSING_TRACES, done)
+        except ComError as exc:
+            logger.warning("webview2.clear_traces_failed", hr=exc.hr)
+
     # -- encrypted archive (Ctrl+Alt+F) ---------------------------------------
 
     def _on_accelerator(self, key: int) -> bool:
@@ -859,6 +889,9 @@ class WebView2Pane(QWidget):
         Explicit, not ``__del__``: the controller must be closed while its host
         window still exists, and interpreter shutdown is too late for that.
         """
+        # Best effort: the clear is asynchronous and may not finish before the
+        # engine closes, which is why it runs again at the next start.
+        self.clear_traces()
         profile, self._profile = self._profile, None
         if profile is not None:
             profile.release()
