@@ -464,3 +464,32 @@ def test_permanent_delete_overwrites_and_asks_for_a_rotation(
 
     services.workspace.rotate_layer_key(layer_id, PASSWORD)
     assert b"Rotate key" not in _body(service.respond("GET", VAULT_ORIGIN + "/"))
+
+
+def test_saved_page_text_becomes_a_searchable_private_note(
+    archive: tuple[Services, WebArchiveService, str],
+) -> None:
+    services, service, layer_id = archive
+    page_id = service.save(_capture(media_urls=())).page_id
+
+    notes = [n for n in services.notes.list_notes([layer_id]) if n.metadata.folder_path]
+    assert [n.metadata.folder_path for n in notes] == ["Saved pages"]
+    assert "Northwind deal" in notes[0].content and PAGE_URL in notes[0].content
+    services.search.invalidate()
+    hits = services.search.search("Northwind", layer_ids=[layer_id])
+    assert any(hit.object_id == notes[0].metadata.id for hit in hits)
+
+    # Still ciphertext on disk, note included.
+    assert scan_layer(_layer_root(services, layer_id), MARKERS) == []
+
+    service.delete(page_id)
+    assert not [n for n in services.notes.list_notes([layer_id]) if n.metadata.folder_path]
+
+
+def test_text_indexing_can_be_turned_off(
+    archive: tuple[Services, WebArchiveService, str],
+) -> None:
+    services, service, layer_id = archive
+    services.settings.update({"web_archive_index_text": False})
+    service.save(_capture(media_urls=()))
+    assert not [n for n in services.notes.list_notes([layer_id]) if n.metadata.folder_path]

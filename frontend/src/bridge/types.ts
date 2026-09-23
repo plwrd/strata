@@ -826,6 +826,8 @@ export interface AppSettings {
   web_archive_ffmpeg_path: string;
   web_archive_max_height: number;
   web_archive_allow_private_addresses: boolean;
+  /** Keep each saved page's text as an encrypted note, for search. */
+  web_archive_index_text: boolean;
   /** Lock private layers after this many idle minutes; 0 = never. */
   auto_lock_minutes: number;
   /** Lock on Windows lock, session disconnect and sleep. */

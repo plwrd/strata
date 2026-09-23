@@ -76,6 +76,8 @@ _BINARY_TYPES = frozenset(
 )
 _STREAMING_SUFFIXES = (".m3u8", ".mpd")
 _PAGE_CACHE_SIZE = 3
+SAVED_PAGES_FOLDER = "Saved pages"
+_MAX_NOTE_CHARS = 200_000
 
 # Saved pages are shown with scripts, network and framing by others all off.
 # A snapshot is a document to read, not an app to run — and with nothing able
@@ -484,8 +486,12 @@ class WebArchiveService:
         client_factory: Callable[[], httpx.Client] | None = None,
         extractor: StreamExtractor | None = None,
         resolver: Resolver = resolve,
+        on_change: Callable[[], None] = lambda: None,
     ) -> None:
         self._resolver = resolver
+        # Told when a save or delete changed the layer (the UI reloads, the
+        # search index is invalidated).
+        self._on_change = on_change
         self._workspace = workspace
         self._settings = settings
         self._encryption = encryption
@@ -643,9 +649,17 @@ class WebArchiveService:
             media_ids.append(media_id)
             result.media_saved.append((title, size))
 
+        updates: dict[str, Any] = {}
         if media_ids:
+            updates["media_ids"] = media_ids
+        if self._settings.settings.web_archive_index_text:
+            note_id = self._index_text(access, capture)
+            if note_id:
+                updates["note_id"] = note_id
+        if updates:
             self._still_unlocked(layer_id)
-            access.update_stream_properties(page_id, {"media_ids": media_ids})
+            access.update_stream_properties(page_id, updates)
+        self._on_change()
         logger.info(
             "web_archive.saved",
             media=len(media_ids),
@@ -653,6 +667,45 @@ class WebArchiveService:
             streamed=capture.streamed_media,
         )
         return result
+
+    def _index_text(self, access: PrivateLayerAccess, capture: PageCapture) -> str:
+        """Keep the page's text as a note, so search and links can reach it.
+
+        The note lives in the same private layer, encrypted like any other
+        note; it is the *searchable* copy, while the snapshot stays the
+        faithful one. A failure here never fails the save.
+        """
+        from app.domain.errors import ConflictError
+        from app.services.capture_service import html_to_text
+
+        try:
+            page = ArchivedPage("index", capture.mhtml.encode("utf-8"))
+            text = html_to_text(page.main.payload.decode(page.main.charset, errors="replace"))
+        except Exception:
+            logger.warning("web_archive.text_index_failed")
+            return ""
+        title = safe_filename(capture.title or urlsplit(capture.url).netloc or "Saved page")[:120]
+        body = (
+            f"Saved from <{capture.url}> on {_now()[:10]}. Open the full page from "
+            f"**Saved** in the browser pane.\n\n---\n\n{text[:_MAX_NOTE_CHARS]}\n"
+        )
+        try:
+            access.create_folder("", SAVED_PAGES_FOLDER)
+        except ConflictError:
+            pass
+        for attempt in range(1, 50):
+            candidate = title if attempt == 1 else f"{title} ({attempt})"
+            try:
+                note = access.create_note(
+                    folder_path=SAVED_PAGES_FOLDER,
+                    title=candidate,
+                    content=body,
+                    properties={"type": "web-capture", "source": capture.url[:2000]},
+                )
+            except ConflictError:
+                continue
+            return note.metadata.id
+        return ""
 
     def _save_page(self, access: PrivateLayerAccess, layer_id: str, capture: PageCapture) -> str:
         raw = capture.mhtml.encode("utf-8")
@@ -853,6 +906,11 @@ class WebArchiveService:
         doomed = [object_id]
         if entry.kind == "web_page":
             doomed += [str(i) for i in entry.properties.get("media_ids", [])]
+            note_id = str(entry.properties.get("note_id") or "")
+            if note_id and access.has_note(note_id):
+                # To the (encrypted) trash, like any deleted note — recoverable
+                # until the trash is emptied.
+                access.trash_note(note_id)
         # A video still playing holds its file open, and Windows will not
         # delete an open file. Stop it first.
         with self._lock:
@@ -872,6 +930,7 @@ class WebArchiveService:
                 continue
         with self._lock:
             self._pages.pop((layer_id, object_id), None)
+        self._on_change()
         if permanently and removed:
             self._rotation_due.setdefault(layer_id, self._key_generation(layer_id))
         logger.info("web_archive.deleted", objects=removed, permanently=permanently)

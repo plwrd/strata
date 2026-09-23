@@ -245,6 +245,11 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
+def html_to_text(html: str) -> str:
+    """Markup to readable text: no rendering, no scripts, no fetches."""
+    return _html_to_text(html)
+
+
 def _html_to_text(html: str) -> str:
     extractor = _TextExtractor()
     try:

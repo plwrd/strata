@@ -97,7 +97,12 @@ class Services:
         self.browser = BrowserService(self.settings, paths.data_dir)
         # Ctrl+Alt+F in the browser pane: pages and videos, encrypted as they
         # are written into a private layer, served back decrypted in memory.
-        self.web_archive = WebArchiveService(self.workspace, self.settings, self.encryption)
+        self.web_archive = WebArchiveService(
+            self.workspace,
+            self.settings,
+            self.encryption,
+            on_change=lambda: self.watcher.announce("strata"),
+        )
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
         self.retrieval = RetrievalService(self.search)
         self.research = ResearchService(

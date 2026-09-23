@@ -248,6 +248,9 @@ class AppSettings(BaseModel):
     # Off: a page cannot point the archive at localhost or the LAN (SSRF). On:
     # for videos deliberately saved from a NAS or home media server.
     web_archive_allow_private_addresses: bool = False
+    # Also keep each saved page's text as an (encrypted) note in the layer's
+    # "Saved pages" folder, so search, links and AI can find it.
+    web_archive_index_text: bool = True
 
     # -- Auto-lock ------------------------------------------------------------
     #

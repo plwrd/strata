@@ -55,6 +55,7 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       web_archive_ffmpeg_path: "",
       web_archive_max_height: 1080,
       web_archive_allow_private_addresses: false,
+      web_archive_index_text: true,
       auto_lock_minutes: 15,
       auto_lock_on_system_lock: true,
       ...overrides,
