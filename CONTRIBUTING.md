@@ -244,3 +244,15 @@ Markers are declared in `pyproject.toml`: `security`, `gui`, `slow`.
 
 Every one of these is a test that should *fail loudly* if someone quietly relaxes a security property.
 That is the entire point of the directory.
+
+## Dependencies are hash-locked
+
+`requirements.lock` pins every package **and every wheel by SHA-256**; CI installs
+with `pip install --require-hashes -r requirements.lock`, so a tampered or
+re-uploaded release fails the build instead of running. After changing a
+dependency in `pyproject.toml` (a Dependabot security bump included),
+regenerate the lock and commit both files together — CI fails if they disagree:
+
+```bash
+uv pip compile pyproject.toml --extra dev --generate-hashes --universal   --python-version 3.11 --no-header -o requirements.lock
+```
