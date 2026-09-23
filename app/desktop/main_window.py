@@ -91,6 +91,15 @@ class MainWindow(QMainWindow):
         self._capture_guard = CaptureGuard()
         self._capture_guard.set_enabled(self._hide_for_sharing)
         self._capture_guard.watch(os.getpid())
+        # Built before anything below can show the window (the tray can):
+        # showEvent registers for session notifications through it.
+        settings_now = services.settings
+        self._auto_lock = AutoLock(
+            lock_all=self._auto_lock_all,
+            idle_minutes=lambda: settings_now.settings.auto_lock_minutes,
+            on_system_lock=lambda: settings_now.settings.auto_lock_on_system_lock,
+            parent=self,
+        )
         # What the OS last granted, as opposed to what the user asked for. The
         # settings bridge reports this so the dialog can say "hidden" only when
         # the window actually is — a privacy control that overstates itself is
@@ -210,14 +219,6 @@ class MainWindow(QMainWindow):
 
         self._build_tray()
 
-        settings_now = services.settings
-        self._auto_lock = AutoLock(
-            lock_all=self._auto_lock_all,
-            idle_minutes=lambda: settings_now.settings.auto_lock_minutes,
-            on_system_lock=lambda: settings_now.settings.auto_lock_on_system_lock,
-            parent=self,
-        )
-
         # Capture exclusion is per top-level window, so a popup — a native
         # <select> dropdown, a menu, a dialog — appears as its own window and
         # would leak into a recording. Catch each as it is shown.
@@ -325,7 +326,9 @@ class MainWindow(QMainWindow):
             from ctypes import wintypes
 
             msg = wintypes.MSG.from_address(int(message))
-            self._auto_lock.handle_native(int(msg.message), int(msg.wParam or 0))
+            auto_lock = getattr(self, "_auto_lock", None)  # messages can precede __init__'s end
+            if auto_lock is not None:
+                auto_lock.handle_native(int(msg.message), int(msg.wParam or 0))
         return super().nativeEvent(event_type, message)
 
     def _save_to_archive(self) -> None:
