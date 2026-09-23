@@ -19,7 +19,13 @@ from scripts.scan_plaintext import scan_layer
 
 from app.domain.errors import InvalidRequestError, LayerLockedError, ProviderError
 from app.services.container import Services
-from app.services.stream_extractor import ExtractedStream, StreamCookie, StreamExtractor
+from app.services.stream_extractor import (
+    ExtractedStream,
+    StreamCookie,
+    StreamExtractor,
+    extract_in_process,
+    worker_main,
+)
 from app.services.web_archive_service import Cookie, PageCapture, WebArchiveService
 
 pytestmark = pytest.mark.security
@@ -89,7 +95,7 @@ def fake_ytdlp(monkeypatch: pytest.MonkeyPatch) -> type[_FakeYDL]:
 
 def test_cookies_go_to_ytdlp_in_memory_and_not_to_ffmpeg(fake_ytdlp: type[_FakeYDL]) -> None:
     extractor = StreamExtractor(ffmpeg_path=lambda: sys.executable)
-    found = extractor.extract(
+    found = extract_in_process(
         "https://www.youtube.com/watch?v=abc",
         [StreamCookie("SID", "secret", ".youtube.com", "/", True)],
         "UA",
@@ -129,18 +135,83 @@ def test_refuses_drm_live_and_non_web_streams(
 ) -> None:
     fake_ytdlp.info = {**fake_ytdlp.info, **patch}
     with pytest.raises(InvalidRequestError, match=error):
-        StreamExtractor().extract("https://x.com/a/status/1", [])
+        extract_in_process("https://x.com/a/status/1", [])
 
 
 def test_bot_check_becomes_an_actionable_message(fake_ytdlp: type[_FakeYDL]) -> None:
     fake_ytdlp.error = "ERROR: [youtube] abc: Sign in to confirm you're not a bot. Use --cookies"
     with pytest.raises(ProviderError, match="Sign in to YouTube in the browser pane"):
-        StreamExtractor().extract("https://www.youtube.com/watch?v=abc", [])
+        extract_in_process("https://www.youtube.com/watch?v=abc", [])
 
 
 def test_missing_ffmpeg_is_reported(fake_ytdlp: type[_FakeYDL]) -> None:
     extractor = StreamExtractor(ffmpeg_path=lambda: "definitely-not-ffmpeg-here")
     assert "ffmpeg" in extractor.unavailable_reason()
+
+
+# -- the worker process -----------------------------------------------------------
+
+# A stand-in worker: reports what arrived on stdin and on its command line.
+_ECHO_WORKER = r"""
+import json, sys
+request = json.loads(sys.stdin.buffer.read())
+sys.stdout.write(json.dumps({
+    "title": request["cookies"][0]["value"] + "|" + " ".join(sys.argv),
+    "duration": 3, "height": 720,
+    "tracks": [["https://v.example/1.mp4", {"User-Agent": "UA", "Cookie": "leak"}]],
+}))
+"""
+
+
+def test_the_worker_gets_cookies_on_stdin_never_argv() -> None:
+    extractor = StreamExtractor(worker_command=[sys.executable, "-c", _ECHO_WORKER])
+    found = extractor.extract(
+        "https://x.com/a/status/1", [StreamCookie("auth_token", "s3cret", ".x.com")]
+    )
+    received_on_stdin, _, argv = found.title.partition("|")
+    assert received_on_stdin == "s3cret"
+    assert "s3cret" not in argv
+    # And a worker that tries to hand a cookie on to ffmpeg is overruled.
+    assert found.tracks == [("https://v.example/1.mp4", {"User-Agent": "UA"})]
+
+
+@pytest.mark.parametrize(
+    ("reply", "error"),
+    [
+        ('{"tracks": [["file:///etc/passwd", {}]]}', InvalidRequestError),
+        ('{"error": {"kind": "invalid", "message": "DRM"}}', InvalidRequestError),
+        ('{"error": {"kind": "provider", "message": "gone"}}', ProviderError),
+        ("not json at all", ProviderError),
+        ('{"tracks": []}', ProviderError),
+    ],
+)
+def test_the_worker_reply_is_validated(reply: str, error: type[Exception]) -> None:
+    script = f"import sys; sys.stdin.read(); sys.stdout.write({reply!r})"
+    extractor = StreamExtractor(worker_command=[sys.executable, "-c", script])
+    with pytest.raises(error):
+        extractor.extract("https://x.com/a/status/1", [])
+
+
+def test_worker_main_speaks_the_protocol(fake_ytdlp: type[_FakeYDL]) -> None:
+    import io
+    import json
+
+    request = {
+        "page_url": "https://www.youtube.com/watch?v=abc",
+        "cookies": [{"name": "SID", "value": "v", "domain": ".youtube.com"}],
+        "user_agent": "UA",
+        "max_height": 720,
+    }
+    out = io.BytesIO()
+    assert worker_main(io.BytesIO(json.dumps(request).encode()), out) == 0
+    reply = json.loads(out.getvalue())
+    assert reply["title"] == "Northwind briefing" and len(reply["tracks"]) == 2
+    assert "bv*[vcodec^=avc1][height<=720]" in fake_ytdlp.last.options["format"]  # type: ignore[union-attr]
+
+    fake_ytdlp.info = {**fake_ytdlp.info, "is_live": True}
+    out = io.BytesIO()
+    worker_main(io.BytesIO(json.dumps(request).encode()), out)
+    assert json.loads(out.getvalue())["error"]["kind"] == "invalid"
 
 
 # -- through the archive -------------------------------------------------------

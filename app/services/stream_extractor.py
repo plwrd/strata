@@ -27,9 +27,11 @@ videos and says why streamed ones were skipped.
 from __future__ import annotations
 
 import http.cookiejar
+import json
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -37,6 +39,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.domain.errors import InvalidRequestError, ProviderError
+from app.infrastructure import sandbox
 from app.infrastructure.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -116,9 +119,11 @@ class StreamExtractor:
         *,
         ffmpeg_path: Callable[[], str] = lambda: "",
         max_height: Callable[[], int] = lambda: 1080,
+        worker_command: list[str] | None = None,
     ) -> None:
         self._ffmpeg_path = ffmpeg_path
         self._max_height = max_height
+        self._worker_command = worker_command
 
     # -- availability ---------------------------------------------------------
 
@@ -143,72 +148,45 @@ class StreamExtractor:
     def extract(
         self, page_url: str, cookies: Iterable[StreamCookie], user_agent: str = ""
     ) -> ExtractedStream:
-        """Ask yt-dlp what video is behind ``page_url``. Blocking; network."""
-        import yt_dlp
+        """Find the video behind ``page_url`` — in a confined worker process.
 
-        options: dict[str, Any] = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "noplaylist": True,
-            # No cache directory: yt-dlp would otherwise keep player code and
-            # tokens on disk, outside any layer.
-            "cachedir": False,
-            "format": _FORMAT.format(h=max(144, int(self._max_height()))),
-            # YouTube's signature challenge needs a JavaScript runtime.
-            "js_runtimes": {"deno": {}, "node": {}},
-            "logger": _QuietLogger(),
-        }
-        if user_agent:
-            options["http_headers"] = {"User-Agent": user_agent}
-        with yt_dlp.YoutubeDL(options) as ydl:
-            # The pane's session, in memory only: never a cookies.txt.
-            for cookie in _cookie_jar(cookies):
-                ydl.cookiejar.set_cookie(cookie)
-            try:
-                info = ydl.extract_info(page_url, download=False)
-            except yt_dlp.utils.DownloadError as exc:
-                raise ProviderError(_short_error(str(exc))) from exc
-
-        if info is None:
-            raise ProviderError("No video was found on this page.")
-        if info.get("_type") == "playlist":
-            entries = [e for e in (info.get("entries") or []) if e]
-            if not entries:
-                raise ProviderError("No video was found on this page.")
-            info = entries[0]
-        if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
-            raise InvalidRequestError("Live streams cannot be saved.")
-
-        formats = info.get("requested_formats") or [info]
-        tracks: list[tuple[str, dict[str, str]]] = []
-        for fmt in formats:
-            if fmt.get("has_drm"):
-                raise InvalidRequestError("This video is copy-protected (DRM) and cannot be saved.")
-            protocol = str(fmt.get("protocol") or "https").split("+")[0]
-            if protocol not in _ALLOWED_PROTOCOLS:
-                raise InvalidRequestError(f"Unsupported stream type ({protocol}).")
-            url = str(fmt.get("url") or "")
-            if urlsplit(url).scheme not in ("http", "https"):
-                raise InvalidRequestError("The stream is not on the web.")
-            headers = {
-                k: str(v)
-                for k, v in (fmt.get("http_headers") or {}).items()
-                # Cookies stay out of ffmpeg's command line, where any process
-                # of this user could read them. The stream URLs yt-dlp returns
-                # for these sites are signed and need none.
-                if k.lower() != "cookie"
+        yt-dlp parses whatever the site sends, so it does not run in the
+        process that holds the layer keys. The request (cookies included) goes
+        to the worker on stdin, never on its command line; the answer comes back
+        as JSON on stdout and is validated again here, since the worker is the
+        less trusted side.
+        """
+        request = json.dumps(
+            {
+                "page_url": page_url,
+                "cookies": [c.__dict__ for c in cookies],
+                "user_agent": user_agent,
+                "max_height": int(self._max_height()),
             }
-            tracks.append((url, headers))
-        if not tracks:
-            raise ProviderError("No downloadable video was found on this page.")
-        return ExtractedStream(
-            title=str(info.get("title") or "video")[:200],
-            page_url=page_url,
-            duration=float(info.get("duration") or 0),
-            tracks=tracks,
-            height=int(info.get("height") or 0),
+        ).encode("utf-8")
+        confined = sandbox.spawn(
+            self._worker_argv(),
+            # yt-dlp may start a JavaScript runtime (Node/Deno) for YouTube.
+            sandbox.Limits(memory_mb=1536, max_processes=6),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
+        try:
+            out, _err = confined.process.communicate(request, timeout=_WORKER_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            confined.process.kill()
+            raise ProviderError("Finding the video took too long.") from None
+        finally:
+            confined.close()
+        return _parse_worker_reply(out, page_url)
+
+    def _worker_argv(self) -> list[str]:
+        if self._worker_command is not None:
+            return list(self._worker_command)
+        if getattr(sys, "frozen", False):
+            return [sys.executable, WORKER_FLAG]
+        return [sys.executable, "-m", "app.services.stream_extractor"]
 
     # -- fetching and joining -------------------------------------------------
 
@@ -254,14 +232,16 @@ class StreamExtractor:
         ``on_chunk`` raising (the layer locked, the size cap) stops ffmpeg.
         Nothing is ever written to a file: ffmpeg's only output is the pipe.
         """
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        # Confined: one process (ffmpeg starts nothing), bounded memory, and
+        # killed with Strata. Remuxing with `-c copy` needs little memory.
+        confined = sandbox.spawn(
             self.command(stream),
+            sandbox.Limits(memory_mb=768, max_processes=1),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=flags,
         )
+        process = confined.process
         errors: list[bytes] = []
 
         def watch_stderr() -> None:
@@ -294,6 +274,7 @@ class StreamExtractor:
         finally:
             code = process.wait()
             reader.join(timeout=5)
+            confined.close()
         if code != 0:
             tail = b"".join(errors).decode("utf-8", "replace")
             lines = [line for line in tail.splitlines() if line and not line.startswith("frame=")]
@@ -302,6 +283,149 @@ class StreamExtractor:
                 "The video stream could not be fetched"
                 + (f" ({lines[-1][:160]})." if lines else ".")
             )
+
+
+def extract_in_process(
+    page_url: str, cookies: Iterable[StreamCookie], user_agent: str = "", max_height: int = 1080
+) -> ExtractedStream:
+    """Ask yt-dlp what video is behind ``page_url``. Blocking; network.
+
+    Runs in the worker process (:func:`worker_main`), never in Strata's own.
+    """
+    import yt_dlp
+
+    options: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        # No cache directory: yt-dlp would otherwise keep player code and
+        # tokens on disk, outside any layer.
+        "cachedir": False,
+        "format": _FORMAT.format(h=max(144, int(max_height))),
+        # YouTube's signature challenge needs a JavaScript runtime.
+        "js_runtimes": {"deno": {}, "node": {}},
+        "logger": _QuietLogger(),
+    }
+    if user_agent:
+        options["http_headers"] = {"User-Agent": user_agent}
+    with yt_dlp.YoutubeDL(options) as ydl:
+        # The pane's session, in memory only: never a cookies.txt.
+        for cookie in _cookie_jar(cookies):
+            ydl.cookiejar.set_cookie(cookie)
+        try:
+            info = ydl.extract_info(page_url, download=False)
+        except yt_dlp.utils.DownloadError as exc:
+            raise ProviderError(_short_error(str(exc))) from exc
+
+    if info is None:
+        raise ProviderError("No video was found on this page.")
+    if info.get("_type") == "playlist":
+        entries = [e for e in (info.get("entries") or []) if e]
+        if not entries:
+            raise ProviderError("No video was found on this page.")
+        info = entries[0]
+    if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+        raise InvalidRequestError("Live streams cannot be saved.")
+
+    formats = info.get("requested_formats") or [info]
+    tracks: list[tuple[str, dict[str, str]]] = []
+    for fmt in formats:
+        if fmt.get("has_drm"):
+            raise InvalidRequestError("This video is copy-protected (DRM) and cannot be saved.")
+        protocol = str(fmt.get("protocol") or "https").split("+")[0]
+        if protocol not in _ALLOWED_PROTOCOLS:
+            raise InvalidRequestError(f"Unsupported stream type ({protocol}).")
+        url = str(fmt.get("url") or "")
+        if urlsplit(url).scheme not in ("http", "https"):
+            raise InvalidRequestError("The stream is not on the web.")
+        headers = {
+            k: str(v)
+            for k, v in (fmt.get("http_headers") or {}).items()
+            # Cookies stay out of ffmpeg's command line, where any process
+            # of this user could read them. The stream URLs yt-dlp returns
+            # for these sites are signed and need none.
+            if k.lower() != "cookie"
+        }
+        tracks.append((url, headers))
+    if not tracks:
+        raise ProviderError("No downloadable video was found on this page.")
+    return ExtractedStream(
+        title=str(info.get("title") or "video")[:200],
+        page_url=page_url,
+        duration=float(info.get("duration") or 0),
+        tracks=tracks,
+        height=int(info.get("height") or 0),
+    )
+
+
+# -- the worker process ----------------------------------------------------------
+
+WORKER_FLAG = "--ytdlp-worker"
+_WORKER_TIMEOUT = 180
+_MAX_REPLY = 4 * 1024 * 1024
+
+
+def _parse_worker_reply(raw: bytes, page_url: str) -> ExtractedStream:
+    if len(raw) > _MAX_REPLY:
+        raise ProviderError("The video finder sent back too much.")
+    try:
+        reply = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise ProviderError("The video finder stopped unexpectedly.") from None
+    if not isinstance(reply, dict):
+        raise ProviderError("The video finder stopped unexpectedly.")
+    error = reply.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or "No video was found.")[:300]
+        if error.get("kind") == "invalid":
+            raise InvalidRequestError(message)
+        raise ProviderError(message)
+    tracks: list[tuple[str, dict[str, str]]] = []
+    for item in reply.get("tracks") or []:
+        url = str(item[0]) if isinstance(item, list) and item else ""
+        if urlsplit(url).scheme not in ("http", "https"):
+            raise InvalidRequestError("The stream is not on the web.")
+        headers = item[1] if len(item) > 1 and isinstance(item[1], dict) else {}
+        tracks.append(
+            (url, {str(k): str(v) for k, v in headers.items() if str(k).lower() != "cookie"})
+        )
+    if not tracks:
+        raise ProviderError("No downloadable video was found on this page.")
+    return ExtractedStream(
+        title=str(reply.get("title") or "video")[:200],
+        page_url=page_url,
+        duration=float(reply.get("duration") or 0),
+        tracks=tracks,
+        height=int(reply.get("height") or 0),
+    )
+
+
+def worker_main(stdin: Any = None, stdout: Any = None) -> int:
+    """The worker: one request on stdin, one JSON reply on stdout."""
+    source = stdin or sys.stdin.buffer
+    sink = stdout or sys.stdout.buffer
+    try:
+        request = json.loads(source.read().decode("utf-8"))
+        found = extract_in_process(
+            str(request["page_url"]),
+            [StreamCookie(**c) for c in request.get("cookies") or []],
+            str(request.get("user_agent") or ""),
+            int(request.get("max_height") or 1080),
+        )
+        reply: dict[str, Any] = {
+            "title": found.title,
+            "duration": found.duration,
+            "height": found.height,
+            "tracks": found.tracks,
+        }
+    except InvalidRequestError as exc:
+        reply = {"error": {"kind": "invalid", "message": str(exc)}}
+    except Exception as exc:
+        reply = {"error": {"kind": "provider", "message": str(exc) or type(exc).__name__}}
+    sink.write(json.dumps(reply).encode("utf-8"))
+    sink.flush()
+    return 0
 
 
 class _QuietLogger:
@@ -329,3 +453,7 @@ def _short_error(message: str) -> str:
             "browser pane (or play the video once), then save again."
         )
     return message.split(" Use --")[0][:240]
+
+
+if __name__ == "__main__":
+    sys.exit(worker_main())
