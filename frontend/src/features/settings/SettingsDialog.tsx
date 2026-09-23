@@ -1127,6 +1127,18 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 Allow saving from my local network (NAS, media server)
               </span>
             </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.web_archive_index_text ?? true}
+                onChange={(event) =>
+                  void applySettings({
+                    web_archive_index_text: event.target.checked,
+                  })
+                }
+              />
+              <span>Make saved pages searchable (a note in “Saved pages”)</span>
+            </label>
             <p className="settings-dialog__hint">
               ffmpeg is needed for YouTube and X videos. Off by default, the
               local-network option stops a web page from pointing Strata at
