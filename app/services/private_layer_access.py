@@ -14,7 +14,7 @@ not exist. Losing the reverse would look like data loss.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ from app.infrastructure.storage.paths import safe_filename
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class PrivateLayerAccess:

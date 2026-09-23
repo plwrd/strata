@@ -11,7 +11,7 @@ Everything is computed from the live notes on each call. That is the whole point
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from app.domain.note import Note
 from app.domain.views import (
@@ -231,5 +231,5 @@ def _parse_date(value: str) -> datetime | None:
         except ValueError:
             return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed

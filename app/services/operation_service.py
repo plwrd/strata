@@ -16,7 +16,7 @@ log, and every applied plan can be undone until it is explicitly committed.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.domain.errors import ConflictError, InvalidRequestError, NotFoundError
 from app.domain.note import Note
@@ -59,7 +59,7 @@ CONTENT_PREVIEW = 240
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class OperationService:

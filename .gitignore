@@ -85,3 +85,6 @@ humazie/playwright-report/
 # packaging/tools/fetch_tools.py - never committed.
 packaging/tools/ffmpeg/
 packaging/tools/deno/
+
+# A retired virtualenv kept locally after the Python upgrade.
+.venv-*/

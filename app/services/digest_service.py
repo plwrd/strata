@@ -17,7 +17,7 @@ a web page the user fetched), so the gate sees no private data leaving.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.domain.digest import DigestMode, PageDigest
 from app.domain.errors import ProviderError
@@ -77,7 +77,7 @@ Rules:
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class WebDigestService:

@@ -117,7 +117,7 @@ class ClaudeCliProvider(AIProvider):
                 cwd=tempfile.gettempdir(),
             )
             stdout, _stderr = await asyncio.wait_for(process.communicate(), timeout=15)
-        except (OSError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, OSError) as exc:
             return ProviderHealth(
                 provider_id=self.provider_id,
                 reachable=False,
@@ -198,7 +198,7 @@ class ClaudeCliProvider(AIProvider):
 
                     try:
                         chunk = await asyncio.wait_for(process.stdout.read(1024), timeout=1.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if process.returncode is not None:
                             break
                         continue
@@ -212,7 +212,7 @@ class ClaudeCliProvider(AIProvider):
 
                 await asyncio.wait_for(process.wait(), timeout=TIMEOUT_SECONDS)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _terminate(process)
                 yield AIEvent(kind="error", error="The Claude CLI timed out.")
                 return

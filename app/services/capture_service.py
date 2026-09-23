@@ -20,7 +20,7 @@ that as the security event it is (docs/security-and-privacy.md §3):
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
@@ -44,7 +44,7 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class CaptureService:

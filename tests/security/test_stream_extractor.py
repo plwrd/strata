@@ -332,7 +332,10 @@ def test_real_ffmpeg_pipe_leaves_no_file(tmp_path: Path, monkeypatch: pytest.Mon
     # Replace the network input with a generated one; everything else as shipped.
     at = command.index("-i")
     command[at : at + 2] = ["-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=5"]
-    command[command.index("-c") : command.index("-c") + 2] = ["-c:v", "libx264"]
+    command[command.index("-c") : command.index("-c") + 2] = [
+        "-c:v",
+        "mpeg4",
+    ]  # built in: the bundled LGPL ffmpeg has no libx264
     import subprocess
 
     out = subprocess.run(command, capture_output=True, check=True).stdout  # noqa: S603

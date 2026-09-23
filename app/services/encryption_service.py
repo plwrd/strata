@@ -13,7 +13,7 @@ private content is required to register one. See ``on_lock``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.domain.errors import ConflictError, InvalidRequestError, NotFoundError
@@ -33,7 +33,7 @@ MIN_PASSWORD_LENGTH = 8
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class EncryptionService:

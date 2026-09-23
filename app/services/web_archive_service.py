@@ -38,7 +38,7 @@ import re
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import Message
 from typing import Any, Protocol
 from urllib.parse import quote, unquote, urlsplit
@@ -96,7 +96,7 @@ _APP_CSP = (
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 # -- what the pane hands in ----------------------------------------------------

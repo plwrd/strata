@@ -66,8 +66,8 @@ Environment notes:
 
 | | |
 | --- | --- |
-| Python | **3.10+**. The dev machine runs 3.10.11; CI matrixes 3.10, 3.11, 3.12. See [A-001](ASSUMPTIONS.md). |
-| **Do not use 3.11/3.12-only syntax** | No `except*`, no PEP 695 generics (`class C[T]`, `type X = ...`), no `typing.override`. `mypy` is pinned to `python_version = "3.10"` and will catch you. |
+| Python | **3.11+**. Develop on 3.12 (`uv python install 3.12` is the quickest way); CI matrixes 3.11, 3.12, 3.13. See [A-001](ASSUMPTIONS.md). |
+| **Do not use 3.12-only syntax** | No PEP 695 generics (`class C[T]`, `type X = ...`), no `typing.override`. `mypy` is pinned to `python_version = "3.11"` and will catch you. |
 | Node | For the frontend build only. The shipped app contains no Node runtime. |
 | Qt | PySide6 6.8 / Qt 6, Qt WebEngine, Qt WebChannel. |
 

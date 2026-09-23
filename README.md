@@ -108,7 +108,7 @@ seriously harm you in a private layer until the encryption implementation has be
 
 <!-- COMMANDS:START -->
 
-Every command below has been run on Windows 11 with Python 3.10.11 and Node 24.
+Every command below has been run on Windows 11 with Python 3.12 and Node 24.
 
 **Bootstrap** (once):
 
@@ -185,7 +185,7 @@ $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -m pytest tests/e2e
 
 | | |
 | --- | --- |
-| Python | 3.10+ (dev machine is 3.10.11; CI matrixes 3.10–3.12 — see [A-001](ASSUMPTIONS.md)) |
+| Python | 3.11+ (development and releases on 3.12; CI matrixes 3.11–3.13 — see [A-001](ASSUMPTIONS.md)) |
 | Node | For frontend build only (Vite); the shipped app contains no Node runtime. |
 | OS | Windows 11 is the primary dev target; macOS/Linux are supported targets but not yet validated. |
 

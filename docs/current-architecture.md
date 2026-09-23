@@ -12,7 +12,7 @@ desktop-native equivalents. The table below maps the standard checklist onto rea
 | Concern | What Strata actually uses |
 | --- | --- |
 | Frontend framework | React 18.3 + TypeScript 5.7 (strict) + Vite 6, embedded in Qt WebEngine. Zustand 5 for view state. No router, no CSS framework (hand-rolled token system). |
-| Backend framework | Python 3.10+ / PySide6 (Qt 6). One desktop process; Python owns all truth, keys, disk, and network. The renderer only draws. |
+| Backend framework | Python 3.11+ / PySide6 (Qt 6). One desktop process; Python owns all truth, keys, disk, and network. The renderer only draws. |
 | API layer | QWebChannel bridge: 13 feature-scoped `QObject`s, JSON envelope `{v, requestId, payload}` → `{ok, data|error}`, closed 10-value error enum, 1 MiB request cap, Pydantic validation with `extra="forbid"`. Push events via Qt Signals only (`notes.changed`, `ai.aiEvent`, `operations.planEvent`, `collaboration.collabEvent`, `jobs.jobEvent`). |
 | Database | None (deliberate). A workspace is a directory. Public layers: plain Markdown + YAML frontmatter. Private layers: per-object AEAD-encrypted blobs with an encrypted manifest (no plaintext names/paths). `workspace.json` for structure; SQLite is used **only** as an FTS index for public layers. |
 | Authentication | No accounts. Per-layer passwords (Argon2id → KEK → wrapped layer key), OS keychain for AI provider credentials (`CredentialStore`, fails closed). Workspace permission = filesystem access. |
@@ -23,7 +23,7 @@ desktop-native equivalents. The table below maps the standard checklist onto rea
 | AI mutations | Transactional operation plans (`OperationService`): 14 operation types, review → per-item approval (destructive ops never pre-approved) → pre-AI snapshot → all-or-nothing apply with rollback → single-unit undo. Plan generation (`AIGenerationService`) parses free-text JSON defensively; invalid ops dropped individually. |
 | Background jobs | `JobService` (Qt `QThreadPool`): progress + cooperative cancel, privacy-tagged records, `jobEvent` signal, `JobBridge`. **Gap: `submit()` has zero production call sites — the whole subsystem is dead infrastructure.** No retry, no persistence, no queueing. |
 | Deployment | PyInstaller desktop bundles (Windows Inno Setup installer, Linux AppImage/deb), tag-triggered release pipeline with code signing when secrets present. No server component except an optional untrusted collaboration relay (ciphertext-only forwarder). |
-| Testing | ~404 Python tests (unit / integration / security / e2e / performance) + 25 frontend Vitest files. Philosophy: real workspaces in `tmp_path`, no mocking of Strata's own behaviour; adversarial encryption tests; e2e loads the real bundle in Qt WebEngine offscreen. CI: ruff, mypy `--strict`, pytest matrix (3.10–3.12 × OS), frontend gates, plaintext scanner, dependency audit + SBOM. |
+| Testing | ~404 Python tests (unit / integration / security / e2e / performance) + 25 frontend Vitest files. Philosophy: real workspaces in `tmp_path`, no mocking of Strata's own behaviour; adversarial encryption tests; e2e loads the real bundle in Qt WebEngine offscreen. CI: ruff, mypy `--strict`, pytest matrix (3.11–3.13 × OS), frontend gates, plaintext scanner, dependency audit + SBOM. |
 
 ## 2. Domain model (as built)
 
