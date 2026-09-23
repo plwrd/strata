@@ -433,3 +433,34 @@ def test_cookie_matching_is_per_url() -> None:
     assert cookie_header(cookies, "https://www.example.com/app/v.mp4") == "a=1; b=2"
     assert cookie_header(cookies, "http://example.com/") == "a=1"
     assert cookie_header(cookies, "https://notexample.com/") == ""
+
+
+def test_permanent_delete_overwrites_and_asks_for_a_rotation(
+    archive: tuple[Services, WebArchiveService, str],
+) -> None:
+    services, service, layer_id = archive
+    page_id = service.save(_capture()).page_id
+    video = next(i for i in service.list_saved() if i["kind"] == "web_media")
+    video_path = next((_layer_root(services, layer_id) / "objects").rglob(video["id"]))
+
+    written: list[bytes] = []
+    real_unlink = Path.unlink
+
+    def spy(path: Path, missing_ok: bool = False) -> None:
+        if path == video_path:
+            written.append(path.read_bytes())  # what is on disk at the moment of removal
+        real_unlink(path, missing_ok=missing_ok)
+
+    import unittest.mock
+
+    before = video_path.read_bytes()
+    confirm = _body(service.respond("GET", f"{VAULT_ORIGIN}/delete/{page_id}"))
+    assert b"Delete permanently" in confirm
+    with unittest.mock.patch.object(Path, "unlink", spy):
+        done = service.respond("POST", f"{VAULT_ORIGIN}/delete/{page_id}?permanently=1")
+    assert done.status == 200
+    assert written and written[0] != before and len(written[0]) == len(before)
+    assert b"Rotate key" in _body(service.respond("GET", VAULT_ORIGIN + "/"))
+
+    services.workspace.rotate_layer_key(layer_id, PASSWORD)
+    assert b"Rotate key" not in _body(service.respond("GET", VAULT_ORIGIN + "/"))

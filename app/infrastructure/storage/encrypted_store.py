@@ -22,6 +22,7 @@ single hash comparison. Random ids make that question unanswerable from the disk
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -350,7 +351,24 @@ class EncryptedLayerStore:
             expected_type=object_type,
         )
 
-    def delete_object(self, object_id: str) -> None:
+    def delete_object(self, object_id: str, *, overwrite: bool = False) -> None:
+        """Remove an object; with ``overwrite``, fill it with random bytes first.
+
+        Overwriting helps on a spinning disk. On an SSD the controller may keep
+        the old blocks, which is why "delete permanently" also asks for a key
+        rotation: once the key is gone, any leftover copy is noise.
+        """
+        path = self._object_path(object_id)
+        if overwrite and path.is_file():
+            size = path.stat().st_size
+            with open(path, "r+b") as handle:
+                remaining = size
+                while remaining > 0:
+                    piece = min(remaining, 1024 * 1024)
+                    handle.write(secrets.token_bytes(piece))
+                    remaining -= piece
+                handle.flush()
+                os.fsync(handle.fileno())
         self._delete_object(object_id)
 
     def _rotate_stream(

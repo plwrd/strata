@@ -421,14 +421,14 @@ class PrivateLayerAccess:
         entry = self.stream_entry(object_id)
         return self._store.open_stream_reader(self._key, object_id, STREAM_KINDS[entry.kind])
 
-    def delete_stream(self, object_id: str) -> None:
+    def delete_stream(self, object_id: str, *, overwrite: bool = False) -> None:
         """Remove the entry, then the ciphertext (the manifest-first rule, reversed:
         an orphaned blob is harmless, an entry pointing at nothing is not)."""
         with self._commit_lock:
             self._require_stream(object_id)
             del self.manifest.entries[object_id]
             self._commit()
-        self._store.delete_object(object_id)
+        self._store.delete_object(object_id, overwrite=overwrite)
 
     def _require_stream(self, object_id: str) -> ManifestEntry:
         entry = self.manifest.entries.get(object_id)

@@ -67,9 +67,7 @@ def test_memory_past_the_ceiling_is_refused() -> None:
 
 
 def test_closing_the_job_kills_the_child() -> None:
-    confined = sandbox.spawn(
-        [PYTHON, "-c", "import time; time.sleep(60)"], sandbox.Limits()
-    )
+    confined = sandbox.spawn([PYTHON, "-c", "import time; time.sleep(60)"], sandbox.Limits())
     assert confined.process.poll() is None
     confined.close()
     deadline = time.monotonic() + 10

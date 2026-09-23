@@ -497,6 +497,10 @@ class WebArchiveService:
         self._lock = threading.Lock()
         self._pages: dict[tuple[str, str], ArchivedPage] = {}
         self._readers: dict[str, set[RangeSource]] = {}
+        # Layers where something was deleted permanently: layer id -> the key
+        # generation at the time. Until the key is rotated past it, an old
+        # disk copy could still be decrypted, and the library says so.
+        self._rotation_due: dict[str, int] = {}
 
     @staticmethod
     def _default_client() -> httpx.Client:
@@ -819,8 +823,31 @@ class WebArchiveService:
         items.sort(key=lambda item: item["savedAt"], reverse=True)
         return items
 
-    def delete(self, object_id: str) -> int:
-        """Delete a saved item; deleting a page deletes its videos too."""
+    def _key_generation(self, layer_id: str) -> int:
+        from app.infrastructure.encryption.layer_header import LayerHeader
+
+        return LayerHeader.load(self._workspace.layer_root(layer_id)).key_generation
+
+    def rotation_reminders(self) -> list[str]:
+        """Display names of layers that still need a key rotation."""
+        names: list[str] = []
+        for layer in self._private_layers():
+            generation = self._rotation_due.get(layer.id)
+            if generation is None:
+                continue
+            if self._key_generation(layer.id) > generation:
+                del self._rotation_due[layer.id]  # rotated since: done
+            else:
+                names.append(layer.display_name)
+        return names
+
+    def delete(self, object_id: str, *, permanently: bool = False) -> int:
+        """Delete a saved item; deleting a page deletes its videos too.
+
+        ``permanently`` overwrites the ciphertext before removing it and
+        reminds the user to rotate the layer key, which is what actually
+        makes a leftover copy (a backup, an SSD's spare blocks) unreadable.
+        """
         layer_id, access = self._find(object_id)
         entry = access.stream_entry(object_id)
         doomed = [object_id]
@@ -839,13 +866,15 @@ class WebArchiveService:
         removed = 0
         for item in doomed:
             try:
-                access.delete_stream(item)
+                access.delete_stream(item, overwrite=permanently)
                 removed += 1
             except NotFoundError:
                 continue
         with self._lock:
             self._pages.pop((layer_id, object_id), None)
-        logger.info("web_archive.deleted", objects=removed)
+        if permanently and removed:
+            self._rotation_due.setdefault(layer_id, self._key_generation(layer_id))
+        logger.info("web_archive.deleted", objects=removed, permanently=permanently)
         return removed
 
     def _find(self, object_id: str) -> tuple[str, PrivateLayerAccess]:
@@ -899,8 +928,15 @@ class WebArchiveService:
             return _html_response(200, "OK", self._library_page())
         if match := re.fullmatch(r"/delete/([0-9a-f]{32})", path):
             if method == "POST":
-                self.delete(match.group(1))
-                return _html_response(200, "OK", self._library_page(notice="Deleted."))
+                permanently = parts.query == "permanently=1"
+                self.delete(match.group(1), permanently=permanently)
+                return _html_response(
+                    200,
+                    "OK",
+                    self._library_page(
+                        notice="Deleted permanently." if permanently else "Deleted."
+                    ),
+                )
             return _html_response(200, "OK", self._confirm_delete_page(match.group(1)))
         if match := re.fullmatch(r"/watch/([0-9a-f]{32})", path):
             return _html_response(200, "OK", self._watch_page(match.group(1)))
@@ -1028,6 +1064,13 @@ class WebArchiveService:
             "<kbd>F</kbd> on any page in the browser pane to save it here, encrypted.</p>"
         )
         banner = f'<p class="notice">{html.escape(notice)}</p>' if notice else ""
+        for name in self.rotation_reminders():
+            banner += (
+                f'<p class="notice">Items were deleted permanently from “{html.escape(name)}”. '
+                "Finish it: in Strata, open the layer's <b>Key management</b> and choose "
+                "<b>Rotate key</b>. Until then, an old copy of the disk could still be read "
+                "with the current key.</p>"
+            )
         locked = self._locked_private_layers()
         if locked:
             # Say that more exists, not what: a locked layer's contents stay unknown.
@@ -1066,7 +1109,12 @@ class WebArchiveService:
             "<p>The encrypted files are removed from this layer. This cannot be undone.</p>"
             f'<form method="post" action="/delete/{object_id}">'
             '<button class="danger" type="submit">Delete</button> '
-            '<a href="/">Cancel</a></form>',
+            '<a href="/">Cancel</a></form>'
+            f'<form method="post" action="/delete/{object_id}?permanently=1">'
+            '<p class="meta">Delete permanently: the encrypted file is overwritten before it '
+            "is removed, and you will be reminded to rotate this layer's key — the step "
+            "that makes any leftover copy (a backup, an SSD's spare blocks) unreadable.</p>"
+            '<button class="danger" type="submit">Delete permanently</button></form>',
         )
 
 
