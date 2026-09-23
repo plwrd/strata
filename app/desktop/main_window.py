@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl
 from PySide6.QtGui import (
@@ -28,6 +28,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget
 
 from app.bootstrap import resource_root
+from app.desktop.auto_lock import AutoLock
 from app.desktop.browser_pane import BrowserPane, EmbeddedSource, build_browser_profile
 from app.desktop.screen_security import (
     CaptureGuard,
@@ -209,6 +210,14 @@ class MainWindow(QMainWindow):
 
         self._build_tray()
 
+        settings_now = services.settings
+        self._auto_lock = AutoLock(
+            lock_all=self._auto_lock_all,
+            idle_minutes=lambda: settings_now.settings.auto_lock_minutes,
+            on_system_lock=lambda: settings_now.settings.auto_lock_on_system_lock,
+            parent=self,
+        )
+
         # Capture exclusion is per top-level window, so a popup — a native
         # <select> dropdown, a menu, a dialog — appears as its own window and
         # would leak into a recording. Catch each as it is shown.
@@ -298,6 +307,25 @@ class MainWindow(QMainWindow):
         take effect instead of the key appearing to do nothing at all.
         """
         self._services.browser.toggle_blur()
+
+    def _auto_lock_all(self) -> int:
+        """Lock every private layer, then tell the UI to redraw them locked."""
+        workspace = self._services.workspace
+        if not workspace.is_open:
+            return 0
+        count = workspace.lock_all_layers()
+        if count:
+            self._services.watcher.announce("strata")
+        return count
+
+    def nativeEvent(self, event_type: Any, message: Any) -> Any:  # Qt override
+        """Session lock/disconnect and suspend arrive as window messages."""
+        if sys.platform == "win32" and bytes(event_type) == b"windows_generic_MSG":
+            from ctypes import wintypes
+
+            msg = wintypes.MSG.from_address(int(message))
+            self._auto_lock.handle_native(int(msg.message), int(msg.wParam or 0))
+        return super().nativeEvent(event_type, message)
 
     def _save_to_archive(self) -> None:
         save = getattr(self._browser_pane, "save_page", None)
@@ -558,6 +586,7 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
+        self._auto_lock.register(int(self.winId()))
         # Sync from persisted settings and assert affinity now that HWND exists.
         self._hide_for_sharing = self._services.settings.settings.hide_for_sharing
         self._reapply_hide_for_sharing()
@@ -609,6 +638,7 @@ class MainWindow(QMainWindow):
         # The WebView2 controller has to be closed while its host window still
         # exists; leaving it to teardown means closing it against a dead HWND.
         self._capture_guard.dispose()
+        self._auto_lock.unregister()
         shutdown = getattr(self._browser_pane, "shutdown", None)
         if callable(shutdown):
             shutdown()

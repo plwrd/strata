@@ -249,6 +249,15 @@ class AppSettings(BaseModel):
     # for videos deliberately saved from a NAS or home media server.
     web_archive_allow_private_addresses: bool = False
 
+    # -- Auto-lock ------------------------------------------------------------
+    #
+    # Lock every private layer (dropping the keys from memory) after this many
+    # minutes with no input anywhere on the system; 0 turns it off. And, on by
+    # default, when Windows locks, the session disconnects, or the machine
+    # sleeps. Website sign-ins in the browser pane are kept either way.
+    auto_lock_minutes: int = 15
+    auto_lock_on_system_lock: bool = True
+
     # -- Onboarding ----------------------------------------------------------
     #
     # False until the first-run tutorial is skipped or finished. Replay from
@@ -345,6 +354,15 @@ class AppSettings(BaseModel):
         except (TypeError, ValueError) as exc:
             raise ValueError("web_archive_max_media_mb must be a number") from exc
         return max(1, min(number, 1_048_576))
+
+    @field_validator("auto_lock_minutes", mode="before")
+    @classmethod
+    def _clamp_auto_lock(cls, value: Any) -> int:
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("auto_lock_minutes must be a number") from exc
+        return max(0, min(minutes, 24 * 60))
 
     @field_validator("web_archive_max_height", mode="before")
     @classmethod
