@@ -8,6 +8,7 @@ pipe and never to a file, and a streamed save is encrypted like any other.
 
 from __future__ import annotations
 
+import ipaddress
 import sys
 import types
 from pathlib import Path
@@ -103,6 +104,14 @@ def test_cookies_go_to_ytdlp_in_memory_and_not_to_ffmpeg(fake_ytdlp: type[_FakeY
     command = " ".join(extractor.command(found))
     assert "secret" not in command and "Cookie" not in command
     assert command.endswith("pipe:1")  # the only output is the pipe
+    # Every input is limited to web protocols: a playlist cannot name file:.
+    argv = extractor.command(found)
+    for index, arg in enumerate(argv):
+        if arg == "-i":
+            assert argv[index - 2 : index] == [
+                "-protocol_whitelist",
+                "https,http,tls,tcp,crypto,hls",
+            ]
     assert "frag_keyframe+empty_moov" in command
 
 
@@ -165,7 +174,11 @@ def _archive(services: Services, extractor: StreamExtractor) -> tuple[WebArchive
     services.workspace.open_or_create(services.paths.default_workspace, "Test")
     layer, _ = services.workspace.create_layer("Vault", visibility="private", password=PASSWORD)
     service = WebArchiveService(
-        services.workspace, services.settings, services.encryption, extractor=extractor
+        services.workspace,
+        services.settings,
+        services.encryption,
+        extractor=extractor,
+        resolver=lambda _host: [ipaddress.ip_address("93.184.216.34")],
     )
     services.encryption.on_lock(service.forget_layer)
     return service, layer.id

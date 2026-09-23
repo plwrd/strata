@@ -54,6 +54,7 @@ from app.domain.errors import (
 )
 from app.infrastructure.encryption.stream import StreamReader
 from app.infrastructure.logging.logger import get_logger
+from app.infrastructure.net_guard import Resolver, guard_public_url, resolve
 from app.infrastructure.storage.paths import safe_filename
 from app.services.encryption_service import EncryptionService
 from app.services.private_layer_access import PrivateLayerAccess
@@ -482,7 +483,9 @@ class WebArchiveService:
         *,
         client_factory: Callable[[], httpx.Client] | None = None,
         extractor: StreamExtractor | None = None,
+        resolver: Resolver = resolve,
     ) -> None:
+        self._resolver = resolver
         self._workspace = workspace
         self._settings = settings
         self._encryption = encryption
@@ -501,6 +504,34 @@ class WebArchiveService:
             follow_redirects=True,
             timeout=httpx.Timeout(30.0, read=120.0),
         )
+
+    def _guard(self, url: str) -> None:
+        """A page chose this URL: refuse it if it points into the user's network.
+
+        Opt out with ``web_archive_allow_private_addresses`` (a NAS, a home
+        media server) — a deliberate choice, off by default.
+        """
+        if self._settings.settings.web_archive_allow_private_addresses:
+            return
+        guard_public_url(
+            url,
+            message="This video is on a private network address, which the archive "
+            "does not fetch from (see Settings to allow it).",
+            resolver=self._resolver,
+        )
+
+    def _guarded_client(self) -> httpx.Client:
+        client = self._client_factory()
+
+        def check(request: httpx.Request) -> None:
+            # Every hop, redirects included: a public URL that bounces to
+            # 127.0.0.1 is refused at the bounce.
+            self._guard(str(request.url))
+
+        hooks = dict(client.event_hooks)
+        hooks["request"] = [*hooks.get("request", []), check]
+        client.event_hooks = hooks
+        return client
 
     # -- layers ---------------------------------------------------------------
 
@@ -657,7 +688,7 @@ class WebArchiveService:
             headers["Cookie"] = cookie
 
         name = unquote(urlsplit(url).path.rsplit("/", 1)[-1]) or "video"
-        with self._client_factory() as client, client.stream("GET", url, headers=headers) as reply:
+        with self._guarded_client() as client, client.stream("GET", url, headers=headers) as reply:
             reply.raise_for_status()
             final_scheme = reply.url.scheme
             if final_scheme not in ("http", "https"):
@@ -718,6 +749,8 @@ class WebArchiveService:
             StreamCookie(c.name, c.value, c.domain, c.path, c.secure) for c in capture.cookies
         ]
         found = self._extractor.extract(stream_page, cookies, capture.user_agent)
+        for track_url, _headers in found.tracks:
+            self._guard(track_url)
         cap = self._settings.settings.web_archive_max_media_mb * 1024 * 1024
         label = found.title[:40]
 

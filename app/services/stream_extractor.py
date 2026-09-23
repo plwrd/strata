@@ -43,6 +43,7 @@ logger = get_logger(__name__)
 
 _PIPE_READ = 256 * 1024
 _ALLOWED_PROTOCOLS = frozenset({"https", "http", "m3u8", "m3u8_native", "http_dash_segments"})
+_PROTOCOL_WHITELIST = "https,http,tls,tcp,crypto,hls"
 _FFMPEG_TIME = re.compile(rb"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
 
 # H.264 + AAC first, because that is what plays everywhere (and what the
@@ -220,7 +221,9 @@ class StreamExtractor:
             if headers:
                 block = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
                 command += ["-headers", block]
-            command += ["-i", url]
+            # Web protocols only. A playlist is site-controlled and could
+            # otherwise name `file:` paths, `concat:`, or other local inputs.
+            command += ["-protocol_whitelist", _PROTOCOL_WHITELIST, "-i", url]
         for index in range(len(stream.tracks)):
             command += ["-map", f"{index}:v?", "-map", f"{index}:a?"]
         command += [

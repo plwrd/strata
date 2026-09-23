@@ -9,6 +9,7 @@ was already playing.
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 
 import httpx
@@ -73,6 +74,10 @@ MHTML = (
 )
 
 
+def _public(_host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    return [ipaddress.ip_address("93.184.216.34")]
+
+
 def _video_server(request: httpx.Request) -> httpx.Response:
     if str(request.url) == VIDEO_URL:
         return httpx.Response(200, headers={"content-type": "video/mp4"}, content=VIDEO)
@@ -98,6 +103,7 @@ def archive(services: Services) -> tuple[Services, WebArchiveService, str]:
         services.settings,
         services.encryption,
         client_factory=lambda: httpx.Client(transport=httpx.MockTransport(handler)),
+        resolver=_public,
     )
     service.requests = seen  # type: ignore[attr-defined]
     # The container's lock hook targets the container's instance; point it here.
@@ -354,6 +360,60 @@ def test_only_the_vault_host_is_answered(archive: tuple[Services, WebArchiveServ
 )
 def test_parse_range(header: str, expected: tuple[int, int] | None) -> None:
     assert parse_range(header, 1000) == expected
+
+
+def _resolving(table: dict[str, str]):  # type: ignore[no-untyped-def]
+    return lambda host: [ipaddress.ip_address(table.get(host, "93.184.216.34"))]
+
+
+def test_a_video_on_a_private_address_is_refused(services: Services) -> None:
+    services.workspace.open_or_create(services.paths.default_workspace, "Test")
+    services.workspace.create_layer("Vault", visibility="private", password=PASSWORD)
+    hits: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hits.append(str(request.url))
+        return httpx.Response(200, headers={"content-type": "video/mp4"}, content=VIDEO)
+
+    service = WebArchiveService(
+        services.workspace,
+        services.settings,
+        services.encryption,
+        client_factory=lambda: httpx.Client(transport=httpx.MockTransport(handler)),
+        resolver=_resolving({"router.lan": "192.168.1.1", "loop.example": "127.0.0.1"}),
+    )
+    for url in ("http://router.lan/v.mp4", "http://loop.example/v.mp4", "http://[::1]/v.mp4"):
+        result = service.save(_capture(media_urls=(url,)))
+        assert result.media_saved == [] and "private network" in result.media_failed[0][1]
+    assert hits == []  # refused before any request left
+
+    services.settings.update({"web_archive_allow_private_addresses": True})
+    assert service.save(_capture(media_urls=("http://router.lan/v.mp4",))).media_saved
+
+
+def test_a_redirect_into_the_network_is_refused_at_the_hop(services: Services) -> None:
+    services.workspace.open_or_create(services.paths.default_workspace, "Test")
+    services.workspace.create_layer("Vault", visibility="private", password=PASSWORD)
+    hits: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hits.append(str(request.url))
+        if request.url.host == "media.example":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1:8080/admin"})
+        return httpx.Response(200, headers={"content-type": "video/mp4"}, content=VIDEO)
+
+    service = WebArchiveService(
+        services.workspace,
+        services.settings,
+        services.encryption,
+        client_factory=lambda: httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        ),
+        resolver=_public,
+    )
+    result = service.save(_capture())
+    assert result.media_saved == []
+    assert hits == [VIDEO_URL]  # the loopback hop never happened
 
 
 def test_media_classification() -> None:

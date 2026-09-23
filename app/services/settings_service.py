@@ -245,6 +245,9 @@ class AppSettings(BaseModel):
     # path means "ffmpeg on PATH"; the height caps the quality chosen.
     web_archive_ffmpeg_path: str = ""
     web_archive_max_height: int = 1080
+    # Off: a page cannot point the archive at localhost or the LAN (SSRF). On:
+    # for videos deliberately saved from a NAS or home media server.
+    web_archive_allow_private_addresses: bool = False
 
     # -- Onboarding ----------------------------------------------------------
     #
