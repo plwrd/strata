@@ -621,43 +621,15 @@ def test_a_user_supplied_profile_history_is_left_alone(tmp_path: Path) -> None:
     assert (own / "Default" / "History").exists()  # untouched
 
 
-def test_capture_exclusion_is_a_noop_when_chrome_is_not_running(tmp_path: Path) -> None:
-    service = _chrome(tmp_path, FakeCDP())
-    # Not launched in this test, so there is no process to reach — must not raise.
-    assert service.apply_capture_exclusion(True) == 0
-
-
-def test_a_running_chrome_is_reported_not_claimed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Windows refuses a capture affinity on another process's window, so the
-    launched Chrome cannot be hidden — and its windows *are* the browser, so
-    they cannot be closed either. What is left is to say so: the count of
-    windows on screen is what makes the status read ``failed``."""
-    from types import SimpleNamespace
-
-    monkeypatch.setattr(
-        "app.services.browser_service.foreign_windows_uncovered", lambda pid: 1 if pid == 555 else 0
-    )
-    service = _chrome(tmp_path, FakeCDP())
-    service._chrome._process = SimpleNamespace(pid=555, poll=lambda: None)  # type: ignore[assignment]
-
-    assert service.apply_capture_exclusion(True) == 1
-    assert service.apply_capture_exclusion(False) == 0
-
-
 # -- one state, several ways to flip it ----------------------------------------
 #
-# Reported: the blur shortcut does not work reliably. Three causes, all of them
-# real, and none of them in the blur script itself:
+# Reported: the blur shortcut does not work reliably. Two causes, both of them
+# real, and neither of them in the blur script itself:
 #
 # 1. Qt WebEngine claims a chord for the page while an editable element has
 #    focus, so the Qt shortcut went missing exactly while the user was typing.
 #    Fixed in the web layer (`shortcuts.ts`), which sees the key either way.
-# 2. Keyboard focus inside the WebView2 pane belongs to an Edge window, so Qt
-#    never sees those keys at all. Fixed with a button on the pane's own
-#    toolbar, which no focus can intercept.
-# 3. Every caller computed `not (what I last saw)` from its own copy, so a
+# 2. Every caller computed `not (what I last saw)` from its own copy, so a
 #    hotkey press and a panel click close together cancelled out. Fixed here:
 #    the flip happens where the state lives.
 
@@ -701,3 +673,10 @@ def test_every_path_notifies_so_no_caller_holds_a_stale_copy(tmp_path: Path) -> 
     # The amount change notifies too: the panel shows the radius alongside the
     # toggle, and a silent change there is the same class of bug.
     assert heard == [True, False, False]
+
+
+def test_a_retired_webview2_backend_setting_falls_back_to_the_pane(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"browser_backend": "webview2"}), encoding="utf-8")
+
+    assert SettingsService(path).settings.browser_backend == "embedded"

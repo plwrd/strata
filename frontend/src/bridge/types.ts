@@ -782,15 +782,6 @@ export interface AppSettings {
   /** False until the first-run tutorial is skipped or finished. */
   onboarding_tour_completed: boolean;
   /**
-   * Signal-style (on by default): exclude the whole Strata window from
-   * screenshots / screen shares. Enforced by the native shell, not the web UI.
-   *
-   * This is the *request*. What the OS granted comes back separately as
-   * `CaptureProtection` — the two are not the same, and the UI must show the
-   * second one.
-   */
-  hide_for_sharing: boolean;
-  /**
    * When on, closing or minimizing hides the window to a tray icon instead of
    * quitting — it leaves the taskbar, but the process stays honestly listed.
    * `start_in_tray` launches hidden. Enforced by the native shell.
@@ -806,7 +797,6 @@ export interface AppSettings {
    */
   browser_control_enabled: boolean;
   browser_backend: BrowserBackend;
-  browser_extensions: string[];
   browser_user_scripts: string[];
   browser_blocked_hosts: string[];
   browser_executable_path: string;
@@ -817,17 +807,6 @@ export interface AppSettings {
   browser_blur_media: boolean;
   browser_blur_amount: number;
   browser_mobile_mode: boolean;
-  /**
-   * The encrypted web archive (Ctrl+Alt+F in the WebView2 pane). An empty
-   * layer id means "the first unlocked private layer".
-   */
-  web_archive_layer_id: string;
-  web_archive_max_media_mb: number;
-  web_archive_ffmpeg_path: string;
-  web_archive_max_height: number;
-  web_archive_allow_private_addresses: boolean;
-  /** Keep each saved page's text as an encrypted note, for search. */
-  web_archive_index_text: boolean;
   /** Lock private layers after this many idle minutes; 0 = never. */
   auto_lock_minutes: number;
   /** Lock on Windows lock, session disconnect and sleep. */
@@ -893,7 +872,7 @@ export interface CollaborationState {
 // field below describes something that happened in *that* browser; page text
 // is untrusted data and is rendered as text, never as markup.
 
-export type BrowserBackend = "embedded" | "webview2" | "chrome";
+export type BrowserBackend = "embedded" | "chrome";
 export type DigestMode = "full" | "brief" | "outline";
 
 export interface BrowserStatus {
@@ -949,17 +928,3 @@ export interface ScrapedPage {
   target_id: string;
   note_id: string;
 }
-
-/**
- * What the OS actually granted for "Hidden for sharing".
- *
- * `excluded` — the window is omitted from capture entirely.
- * `blacked-out` — the older `WDA_MONITOR` fallback: it appears as a black
- *   rectangle in a recording, which is still private but looks different.
- * `off` — not hiding, by the user's choice.
- * `failed` — hiding was requested and the OS refused.
- * `unsupported` — this platform has no per-window capture control at all.
- * `unknown` — asked before the native window existed.
- */
-export type CaptureProtection =
-  "excluded" | "blacked-out" | "off" | "failed" | "unsupported" | "unknown";

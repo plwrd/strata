@@ -2,9 +2,7 @@
  * Global shortcuts for the settings people actually reach for.
  *
  * The mapping is tested against the real store, so a shortcut that calls the
- * wrong action fails here. `Ctrl/Cmd+Shift+H` matters most — it is the one you
- * press because someone just asked to see your screen, and it has to work
- * without opening anything.
+ * wrong action fails here.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +30,7 @@ describe("global shortcuts", () => {
       settingsOpen: false,
       browserRevision: 0,
       lastError: null,
-      settings: { hide_for_sharing: true } as never,
+      settings: {} as never,
     });
   });
 
@@ -44,20 +42,8 @@ describe("global shortcuts", () => {
     expect(useStore.getState().settingsOpen).toBe(false);
   });
 
-  it("toggles Hidden for sharing without opening a dialog", async () => {
-    expect(press("H", { shift: true })).toBe(true);
-
-    await waitFor(() =>
-      expect(useStore.getState().settings?.hide_for_sharing).toBe(false),
-    );
-    const payload = captured.find(
-      (entry) =>
-        "values" in entry &&
-        "hide_for_sharing" in (entry["values"] as Record<string, unknown>),
-    );
-    expect(payload).toBeDefined();
-    // The dialog never opened: this is the whole point of the shortcut.
-    expect(useStore.getState().settingsOpen).toBe(false);
+  it("leaves Ctrl+Shift+H unbound", () => {
+    expect(press("H", { shift: true })).toBe(false);
   });
 
   it("opens the research browser pane with Ctrl+Shift+B", async () => {

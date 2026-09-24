@@ -71,12 +71,6 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'frontend build failed' }
     }
 
-    # ffmpeg (LGPL) + Deno for YouTube/X video in the web archive: pinned
-    # downloads, SHA-256-verified before anything is extracted.
-    Write-Host '==> Fetching bundled tools (ffmpeg, Deno)' -ForegroundColor Cyan
-    & $python packaging\tools\fetch_tools.py
-    if ($LASTEXITCODE -ne 0) { throw 'fetching the bundled tools failed' }
-
     Write-Host '==> Freezing the Python host' -ForegroundColor Cyan
     & $python -m PyInstaller --noconfirm --clean packaging\pyinstaller\strata.spec
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }

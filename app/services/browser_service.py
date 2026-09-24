@@ -34,13 +34,10 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Protocol
 from urllib.parse import quote_plus, urlsplit
 
-from app.desktop.capture_flags import capture_flags
-from app.desktop.screen_security import close_foreign_windows, foreign_windows_uncovered
 from app.domain.browser import (
-    IN_WINDOW_BACKENDS,
     SEARCH_URLS,
     BrowserBackend,
     BrowserStatus,
@@ -243,12 +240,6 @@ class ChromeSource:
         profile = self.profile_path
         profile.mkdir(parents=True, exist_ok=True)
         self._clear_history()  # start each session with no prior browsing history
-        # The same compositor flags the two embedded engines get. This backend
-        # is the one a user picks *because* it plays video, and a video promoted
-        # to a hardware overlay is scanned out beside DWM — so it appears in a
-        # recording of a window Strata has excluded. The exclusion is applied to
-        # this browser's windows below; without these flags it would only be
-        # true of everything except the video.
         arguments = [
             executable,
             f"--remote-debugging-port={self._port}",
@@ -256,7 +247,8 @@ class ChromeSource:
             f"--user-data-dir={profile}",
             "--no-first-run",
             "--no-default-browser-check",
-            *capture_flags(hiding=self._settings.settings.hide_for_sharing),
+            # A <video> promoted to a hardware overlay plane flickers.
+            "--disable-direct-composition-video-overlays",
             "about:blank",
         ]
         try:
@@ -275,8 +267,6 @@ class ChromeSource:
             status = self.status()
             if status.running:
                 logger.info("browser.launched", port=self._port)
-                # The launched window now exists; hide it from capture if asked.
-                self.apply_capture_exclusion(self._settings.settings.hide_for_sharing)
                 return status
             time.sleep(0.25)
         raise ProviderError(
@@ -351,29 +341,6 @@ class ChromeSource:
                 return page
         raise ProviderError("That tab is no longer open.")
 
-    @property
-    def process_id(self) -> int:
-        """The launched browser's pid, or 0 when nothing of ours is running."""
-        process = self._process
-        if process is None or process.poll() is not None:
-            return 0
-        return int(process.pid)
-
-    def apply_capture_exclusion(self, enabled: bool) -> int:
-        """How many of the launched Chrome's windows are in a recording.
-
-        Not "hide them": Windows refuses a display affinity on a window owned
-        by another process, so the sweep this used to run never excluded one.
-        Chrome's windows *are* the browser, so closing them is not an option
-        either. What is left is the truth — the count feeds the reported
-        capture state, so "hidden for sharing" reads ``failed`` while a Chrome
-        window is on screen instead of a tick over a window in every recording.
-        """
-        pid = self.process_id
-        if not pid or not enabled:
-            return 0
-        return foreign_windows_uncovered(pid)
-
     def _clear_history(self) -> None:
         """Drop browsing history from the Strata-owned profile; keep cookies.
 
@@ -447,20 +414,8 @@ class BrowserService:
 
     @property
     def backend(self) -> BrowserBackend:
-        """What the *window actually built*, which is not always what is set.
-
-        A WebView2 pane can be asked for and not be possible — no runtime, no
-        loader — in which case the window falls back to the Qt pane and attaches
-        that. Reporting the setting rather than the attached pane would tell the
-        user they are on an engine they are not, and the difference decides
-        whether video plays.
-        """
-        configured = self._settings.settings.browser_backend
-        if configured == "chrome":
+        if self._settings.settings.browser_backend == "chrome":
             return "chrome"
-        attached = getattr(self._embedded, "backend", None)
-        if attached in IN_WINDOW_BACKENDS:
-            return cast(BrowserBackend, attached)
         return "embedded"
 
     def _source(self) -> PageSource:
@@ -490,9 +445,9 @@ class BrowserService:
 
     @property
     def blur_supported(self) -> bool:
-        # Either in-window pane can be restyled; a separate real Chrome is not
+        # The in-window pane can be restyled; a separate real Chrome is not
         # Strata's to reach into and repaint.
-        return self.backend in IN_WINDOW_BACKENDS and self._embedded is not None
+        return self.backend == "embedded" and self._embedded is not None
 
     def blur_state(self) -> tuple[bool, int]:
         return self._blur_enabled, self._blur_amount
@@ -503,8 +458,8 @@ class BrowserService:
         A backend that cannot be restyled does not get its state flipped. The
         Chrome backend is a browser Strata does not own, so there is nothing to
         blur there — and recording "blurred" for it would put a badge on the
-        panel over a page that is not blurred at all. The same rule as the
-        capture status: never claim a protection that was not applied.
+        panel over a page that is not blurred at all. Never claim a protection
+        that was not applied.
         """
         if not self.blur_supported:
             logger.info("browser.blur_unsupported", backend=self.backend)
@@ -546,66 +501,6 @@ class BrowserService:
     def _notify_blur(self) -> None:
         if self.on_blur_changed is not None:
             self.on_blur_changed()
-
-    # -- capture exclusion (Chrome backend only) -----------------------------
-
-    def apply_capture_exclusion(self, enabled: bool) -> int:
-        """Deal with the browser windows that are not Strata's own.
-
-        Returns how many were on screen, uncovered, when this ran — the number
-        the window folds into the reported capture state, so one such window
-        makes the status say ``failed`` rather than ``excluded``.
-
-        The Qt pane is drawn into a Strata window and is covered by that
-        window's exclusion. The other two are not, and neither can be excluded
-        from here: Windows refuses ``SetWindowDisplayAffinity`` on a window
-        another process owns. What differs is what can be done about it.
-        WebView2 renders the page in our window and only ever puts *popups* —
-        dropdowns, tooltips, dialogs, bubbles — in its ``msedgewebview2.exe``,
-        so those are closed (the hook in ``CaptureGuard`` does it as they
-        appear; this sweep catches what the hook missed). Chrome's windows are
-        the browser itself, so they are counted and left alone.
-        """
-        if self.backend == "chrome":
-            return self._chrome.apply_capture_exclusion(enabled)
-        pid = self.engine_process_id
-        if not pid or not enabled:
-            return 0
-        uncovered = foreign_windows_uncovered(pid)
-        if uncovered:
-            close_foreign_windows(pid)
-        return uncovered
-
-    @property
-    def engine_popups_closable(self) -> bool:
-        """Whether every top-level window of the engine process is disposable.
-
-        True for WebView2: its page lives in our window, so a window of its own
-        is a popup, and one we cannot exclude — closing it is the only way to
-        keep it out of a recording. False for Chrome (its windows are the
-        browser) and for the Qt pane (its popups are ours and get the affinity).
-        """
-        return self.backend == "webview2"
-
-    @property
-    def engine_process_id(self) -> int:
-        """The pid of the browser process behind the current backend, or 0.
-
-        The window hooks it to catch a new popup *as it appears*; the periodic
-        sweep is the backstop under that. Both need to know which process is
-        actually rendering, and that differs per backend — which is why this
-        answers for all of them rather than each caller reaching for whichever
-        attribute its backend happens to have.
-        """
-        if self.backend == "chrome":
-            return self._chrome.process_id
-        pid = getattr(self._embedded, "browser_process_id", 0)
-        if callable(pid):  # pragma: no cover - defensive against a property/method mix-up
-            pid = pid()
-        try:
-            return int(pid or 0)
-        except (TypeError, ValueError):  # pragma: no cover - defensive
-            return 0
 
     # -- mobile mode ---------------------------------------------------------
 

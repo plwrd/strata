@@ -131,31 +131,6 @@ jobs:
           QTWEBENGINE_CHROMIUM_FLAGS: '--disable-gpu --no-sandbox --in-process-gpu'
         run: pytest tests/e2e -q
 
-  # The WebView2 pane against the real engine: the encrypted web archive end to
-  # end (save, offline read, video seek through the decrypting IStream, lock)
-  # and the trace clear that must keep sign-in cookies. The COM binding is
-  # called by vtable slot, and only the engine can say the slots are right.
-  # Windows runners ship the Evergreen WebView2 runtime. Advisory for now: not
-  # in the required checks until it has a track record on hosted runners.
-  webview2:
-    name: WebView2 pane (e2e, Windows)
-    runs-on: windows-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: pip
-
-      - run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Run the WebView2 archive tests
-        run: pytest tests/e2e_webview2 -m webview2 -q
-
   # Scale/latency benchmarks (FR-193). Informational and NOT a required check:
   # shared-runner variance makes hard latency numbers a bad merge gate, but a
   # gross regression still fails, and the printed p95s let a human watch the

@@ -19,12 +19,11 @@ from app.domain.browser import SEARCH_URLS
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.paths import replace_atomic
 
-# A research pane is not a browser install. More than a handful of extensions
-# is a sign the setting is being used as one, and each is third-party code with
+# A research pane is not a browser install. More than a handful of scripts is
+# a sign the setting is being used as one, and each is third-party code with
 # sight of every page the pane visits.
-MAX_BROWSER_EXTENSIONS = 10
 MAX_BROWSER_USER_SCRIPTS = 20
-# Generous, because a blocklist is the one of these three that people paste in
+# Generous, because a blocklist is the one of these two that people paste in
 # bulk — but still a list a human curated, not a subscribed filter feed.
 MAX_BROWSER_BLOCKED_HOSTS = 2000
 
@@ -203,8 +202,7 @@ class AppSettings(BaseModel):
     # "embedded" is the browser pane inside the Strata window: no second
     # process, no loopback port, sign-ins kept in a profile of its own. It
     # cannot load Chrome extensions — Qt ships Chromium without the extensions
-    # subsystem — so "webview2" (Edge's engine, in the same window) and "chrome"
-    # stay available for the pages that need them.
+    # subsystem — so "chrome" stays available for the pages that need them.
     browser_backend: str = "embedded"
     browser_executable_path: str = ""
     browser_profile_path: str = ""
@@ -216,12 +214,6 @@ class AppSettings(BaseModel):
     # adjustable part. Embedded pane only.
     browser_blur_media: bool = False
     browser_blur_amount: int = 12
-    # Unpacked Chrome/Edge extension folders to load into the WebView2 pane.
-    # Folders, not `.crx` files: WebView2 has no store-install path, so this is
-    # a directory containing a manifest. Empty by default and deliberately
-    # opt-in per extension — an extension reads every page the pane visits, so
-    # this is the user adding third-party code to their own research session.
-    browser_extensions: list[str] = Field(default_factory=list)
     # The Qt pane's two stand-ins for extensions, which it cannot load at all
     # (Chromium's extensions subsystem is not compiled into Qt WebEngine, and
     # no flag adds it). Between them they cover what people install extensions
@@ -234,30 +226,13 @@ class AppSettings(BaseModel):
     # their touch/mobile layout. Synthetic touch events are advertised to pages
     # from the next launch (a process-global Chromium flag; see application.py).
     browser_mobile_mode: bool = False
-    # The encrypted web archive (Ctrl+Alt+F in the WebView2 pane). Saved pages
-    # and videos go into a private layer, encrypted as they are written.
-    # `web_archive_layer_id` picks the layer; empty means "the first unlocked
-    # private layer". The size cap is per video, so one runaway stream cannot
-    # fill the disk.
-    web_archive_layer_id: str = ""
-    web_archive_max_media_mb: int = 4096
-    # Streamed video (YouTube, X): found with yt-dlp, joined by ffmpeg. An empty
-    # path means "ffmpeg on PATH"; the height caps the quality chosen.
-    web_archive_ffmpeg_path: str = ""
-    web_archive_max_height: int = 1080
-    # Off: a page cannot point the archive at localhost or the LAN (SSRF). On:
-    # for videos deliberately saved from a NAS or home media server.
-    web_archive_allow_private_addresses: bool = False
-    # Also keep each saved page's text as an (encrypted) note in the layer's
-    # "Saved pages" folder, so search, links and AI can find it.
-    web_archive_index_text: bool = True
 
     # -- Auto-lock ------------------------------------------------------------
     #
     # Lock every private layer (dropping the keys from memory) after this many
     # minutes with no input anywhere on the system; 0 turns it off. And, on by
     # default, when Windows locks, the session disconnects, or the machine
-    # sleeps. Website sign-ins in the browser pane are kept either way.
+    # sleeps.
     auto_lock_minutes: int = 15
     auto_lock_on_system_lock: bool = True
 
@@ -266,14 +241,6 @@ class AppSettings(BaseModel):
     # False until the first-run tutorial is skipped or finished. Replay from
     # More → Tutorial does not clear this; Skip/Finish set it true again.
     onboarding_tour_completed: bool = False
-
-    # -- Screen security -----------------------------------------------------
-    #
-    # Signal-style "Hidden for sharing" (on by default): when True, the OS
-    # excludes the entire Strata window from screenshots and screen shares
-    # (Windows: WDA_EXCLUDEFROMCAPTURE, with WDA_MONITOR fallback). The window
-    # stays visible on your display.
-    hide_for_sharing: bool = True
 
     # -- System tray ---------------------------------------------------------
     #
@@ -295,8 +262,12 @@ class AppSettings(BaseModel):
     @classmethod
     def _check_backend(cls, value: Any) -> str:
         backend = str(value).strip().lower()
-        if backend not in ("embedded", "webview2", "chrome"):
-            raise ValueError("browser_backend must be 'embedded', 'webview2' or 'chrome'")
+        # "webview2" was a backend once; a settings file that still names it
+        # gets the built-in pane.
+        if backend == "webview2":
+            return "embedded"
+        if backend not in ("embedded", "chrome"):
+            raise ValueError("browser_backend must be 'embedded' or 'chrome'")
         return backend
 
     @field_validator("browser_debug_port", mode="before")
@@ -311,18 +282,6 @@ class AppSettings(BaseModel):
         if not 1024 <= port <= 65535:
             raise ValueError("browser_debug_port must be between 1024 and 65535")
         return port
-
-    @field_validator("browser_extensions", mode="before")
-    @classmethod
-    def _clean_extensions(cls, value: Any) -> list[str]:
-        """Whitespace and duplicates out; order and case kept.
-
-        Existence is *not* checked here. A settings file must load on a machine
-        where an extension folder has been moved or deleted, and the pane says
-        which one is missing when it tries — refusing to start the app over it
-        would be the wrong trade.
-        """
-        return _clean_paths(value, "browser_extensions", MAX_BROWSER_EXTENSIONS)
 
     @field_validator("browser_user_scripts", mode="before")
     @classmethod
@@ -349,15 +308,6 @@ class AppSettings(BaseModel):
                 hosts.append(host)
         return hosts
 
-    @field_validator("web_archive_max_media_mb", mode="before")
-    @classmethod
-    def _clamp_archive_cap(cls, value: Any) -> int:
-        try:
-            number = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("web_archive_max_media_mb must be a number") from exc
-        return max(1, min(number, 1_048_576))
-
     @field_validator("auto_lock_minutes", mode="before")
     @classmethod
     def _clamp_auto_lock(cls, value: Any) -> int:
@@ -366,15 +316,6 @@ class AppSettings(BaseModel):
         except (TypeError, ValueError) as exc:
             raise ValueError("auto_lock_minutes must be a number") from exc
         return max(0, min(minutes, 24 * 60))
-
-    @field_validator("web_archive_max_height", mode="before")
-    @classmethod
-    def _clamp_archive_height(cls, value: Any) -> int:
-        try:
-            number = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("web_archive_max_height must be a number") from exc
-        return max(144, min(number, 4320))
 
     @field_validator("browser_blur_amount", mode="before")
     @classmethod

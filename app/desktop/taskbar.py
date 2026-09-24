@@ -8,8 +8,7 @@ which also strips the title-bar buttons.
 
 This is meant to pair with the system tray: a window with no taskbar button
 needs some other way back, which the tray icon provides. It is off by default,
-Windows-only, and a graceful no-op elsewhere — the same shape as
-``screen_security``.
+Windows-only, and a graceful no-op elsewhere.
 
 The one subtlety is that removing the button from an *already shown* window
 needs a hide/show cycle for the shell to notice. So the call is idempotent: it

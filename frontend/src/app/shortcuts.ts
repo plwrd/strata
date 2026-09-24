@@ -51,17 +51,6 @@ export function handleGlobalShortcut(
     return true;
   }
 
-  // Ctrl/Cmd+Shift+H — "Hidden for sharing". Someone asking you to share your
-  // screen is exactly the moment you cannot afford to go hunting for a
-  // checkbox, so this one skips the dialog entirely.
-  if (key === "h" && event.shiftKey) {
-    event.preventDefault();
-    void store.applySettings({
-      hide_for_sharing: !(store.settings?.hide_for_sharing ?? true),
-    });
-    return true;
-  }
-
   // Ctrl/Cmd+Shift+B — the research browser pane, open or closed. It takes half
   // the window, so it wants a key rather than a trip through the navigator.
   if (key === "b" && event.shiftKey) {

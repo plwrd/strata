@@ -29,24 +29,6 @@ datas = [
 ]
 datas += collect_data_files("certifi")
 
-# The WebView2 loader, for the Edge-engine research pane (ADR-0012). A ~166 KB
-# shim that finds the installed Evergreen runtime — the runtime itself is not
-# bundled and not installed by us. Windows only, and optional: without it the
-# pane falls back to Qt WebEngine, so a Linux build simply has nothing to add.
-WEBVIEW2_LOADER = ROOT / "packaging" / "webview2" / "WebView2Loader.dll"
-if WEBVIEW2_LOADER.is_file():
-    datas.append((str(WEBVIEW2_LOADER), "packaging/webview2"))
-
-# ffmpeg (LGPL) and Deno for streamed video in the encrypted web archive,
-# fetched and checksum-verified by packaging/tools/fetch_tools.py. Optional:
-# without them the archive still saves pages and plain videos, and says why a
-# YouTube/X video was skipped. Their licences ship beside them.
-for tool in ("ffmpeg", "deno"):
-    folder = ROOT / "packaging" / "tools" / tool
-    if folder.is_dir():
-        for item in folder.iterdir():
-            datas.append((str(item), f"packaging/tools/{tool}"))
-
 hiddenimports = [
     "app.bridge.workspace_bridge",
     "app.bridge.layer_bridge",

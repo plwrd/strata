@@ -81,10 +81,5 @@ humazie/dashboard/playwright-report/
 humazie/test-results/
 humazie/playwright-report/
 
-# Bundled helper tools, fetched and SHA-256-verified at build time by
-# packaging/tools/fetch_tools.py - never committed.
-packaging/tools/ffmpeg/
-packaging/tools/deno/
-
 # A retired virtualenv kept locally after the Python upgrade.
 .venv-*/

@@ -12,7 +12,6 @@ import type {
   BridgeError,
   BrowserStatus,
   BrowserTab,
-  CaptureProtection,
   CollaborationState,
   ConflictRecord,
   ContentMode,
@@ -62,14 +61,8 @@ import type {
 } from "./types";
 import { PROTOCOL_VERSION } from "./types";
 
-/**
- * Every settings call answers with the settings *and* what the OS granted for
- * "Hidden for sharing". They travel together so the dialog can never render a
- * stale or assumed protection state beside a fresh toggle.
- */
 interface SettingsReply {
   settings: AppSettings;
-  capture_protection?: CaptureProtection;
 }
 
 export class BridgeCallError extends Error {
@@ -623,10 +616,8 @@ export const bridge = {
       call<SettingsReply>("settings", "update_settings", {
         values,
       }),
-    // Opens a native folder picker and records the choice. Rejects with a
+    // Opens a native file picker and records the choice. Rejects with a
     // CancelledError when the user closes the dialog, which callers ignore.
-    chooseExtension: () =>
-      call<SettingsReply>("settings", "choose_browser_extension"),
     chooseUserScript: () =>
       call<SettingsReply>("settings", "choose_user_script"),
   },

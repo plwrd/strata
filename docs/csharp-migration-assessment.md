@@ -79,9 +79,8 @@ every existing user's workspace unreadable.
   THREAT_MODEL §6 review log) has to be rebuilt and re-reviewed, because the
   trust boundary is exactly where bugs become vulnerabilities.
 
-- **Screen-capture exclusion, tray, taskbar, the browser pane.** All the
-  native-window work from recent milestones (`SetWindowDisplayAffinity`,
-  `WS_EX_TOOLWINDOW`, tray, the embedded `QWebEngineView` research pane with
+- **Tray, taskbar, the browser pane.** All the native-window work from recent
+  milestones (`WS_EX_TOOLWINDOW`, tray, the embedded `QWebEngineView` research pane with
   blur/mobile/digest) is Qt-specific and would be rebuilt against WPF/WinUI +
   WebView2.
 

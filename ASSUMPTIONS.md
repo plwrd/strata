@@ -20,8 +20,7 @@ the less exposed option and recorded the inconvenience here.
 **Status:** Active (raised from 3.10 on 2026-09-22)
 
 **Decision.** `requires-python = ">=3.11"`. Python 3.10 reaches end of security support in
-October 2026, and yt-dlp (the web archive's stream finder, which must stay current) has already
-deprecated it. The development machine and release builds run **3.12**; CI matrixes **3.11, 3.12
+October 2026. The development machine and release builds run **3.12**; CI matrixes **3.11, 3.12
 and 3.13**.
 
 **Consequences.**

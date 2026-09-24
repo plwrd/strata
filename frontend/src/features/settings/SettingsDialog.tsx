@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import type {
   AppearanceTemplate,
   AppSettings,
-  CaptureProtection,
   FontBody,
   FontDisplay,
   FontMono,
@@ -21,59 +20,6 @@ import { readThemeColor } from "./applyTheme";
 
 type Motion = AppSettings["motion"];
 type GraphQuality = AppSettings["graph_quality"];
-
-/**
- * What to tell the user about screen protection.
- *
- * The toggle is a request to the OS; this describes the *answer*. Saying
- * "screenshots and screen shares do not see Strata" on a platform that granted
- * nothing is the kind of claim someone plans a call around, so each state gets
- * its own sentence and a failure is an alert, not a hint.
- */
-export function describeCaptureProtection(
-  state: CaptureProtection,
-  requested: boolean,
-): { tone: "ok" | "warning" | "muted"; message: string } {
-  if (!requested) {
-    return {
-      tone: "muted",
-      message: "Off — Strata appears in screenshots and screen shares.",
-    };
-  }
-  switch (state) {
-    case "excluded":
-      return {
-        tone: "ok",
-        message:
-          "Active — you still see Strata; screenshots and screen shares do not.",
-      };
-    case "blacked-out":
-      return {
-        tone: "ok",
-        message:
-          "Active, older method — Strata appears as a black rectangle in recordings rather than being omitted.",
-      };
-    case "unsupported":
-      return {
-        tone: "warning",
-        message:
-          "Not available on this platform — Strata is visible to screenshots and screen shares. " +
-          "Windows is the only platform with a per-window capture control; on Linux there is none to ask for. " +
-          "Lock your private layers before you share a screen.",
-      };
-    case "failed":
-      return {
-        tone: "warning",
-        message:
-          "The system refused to hide this window. Assume Strata is visible in screenshots and screen shares.",
-      };
-    default:
-      return {
-        tone: "muted",
-        message: "Checking with the system…",
-      };
-  }
-}
 
 const TEMPLATES: {
   value: AppearanceTemplate;
@@ -307,17 +253,7 @@ function ColorRow(props: {
 }
 
 export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
-  const {
-    settings,
-    captureProtection,
-    applySettings,
-    chooseBrowserExtension,
-    chooseUserScript,
-    layers,
-  } = useStore();
-  const privateLayers = layers.filter(
-    (layer) => layer.visibility === "private",
-  );
+  const { settings, applySettings, chooseUserScript } = useStore();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -332,8 +268,6 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
   const quality = settings?.graph_quality ?? "balanced";
   const particles = settings?.particles_enabled ?? true;
   const bloom = settings?.bloom_enabled ?? true;
-  const hidden = settings?.hide_for_sharing ?? true;
-  const capture = describeCaptureProtection(captureProtection, hidden);
   const fontBody = settings?.font_body ?? "inter";
   const fontDisplay = settings?.font_display ?? "chakra";
   const fontMono = settings?.font_mono ?? "jetbrains";
@@ -635,39 +569,6 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
 
           <section
             className="settings-dialog__section"
-            aria-labelledby="settings-privacy"
-          >
-            <h3 id="settings-privacy" className="settings-dialog__heading">
-              Screen security
-            </h3>
-            <label className="search__toggle">
-              <input
-                type="checkbox"
-                checked={hidden}
-                onChange={(event) =>
-                  void applySettings({
-                    hide_for_sharing: event.target.checked,
-                  })
-                }
-              />
-              <span>Hidden for sharing</span>
-              <kbd className="settings-dialog__key">Ctrl/Cmd+Shift+H</kbd>
-            </label>
-            <p
-              className={`settings-dialog__hint settings-dialog__hint--${capture.tone}`}
-              role={capture.tone === "warning" ? "alert" : undefined}
-              data-testid="capture-protection"
-            >
-              {capture.message}
-            </p>
-            <p className="settings-dialog__hint">
-              On by default (Signal-style). Turn off only when you need to demo
-              or record the app itself.
-            </p>
-          </section>
-
-          <section
-            className="settings-dialog__section"
             aria-labelledby="settings-autolock"
           >
             <h3 id="settings-autolock" className="settings-dialog__heading">
@@ -814,21 +715,15 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 }
               >
                 <option value="embedded">Pane in this window</option>
-                <option value="webview2">
-                  Pane in this window (Edge engine — plays video)
-                </option>
                 <option value="chrome">Your own Chrome</option>
               </select>
             </label>
             <p className="settings-dialog__hint">
-              Both panes keep their own sign-ins and need nothing installed. The
-              built-in one cannot play H.264 or AAC, so most video stays blank,
-              and it cannot load extensions — Qt ships Chromium without the
-              extensions subsystem. The Edge engine does both, and stays inside
-              this window, so the screen-capture exclusion below still covers
-              it. Choose your own Chrome only when a page refuses to let you
-              sign in to an embedded browser — it is the one option Strata
-              cannot keep out of a screen recording.
+              The pane keeps its own sign-ins and needs nothing installed. It
+              cannot play H.264 or AAC, so most video stays blank, and it cannot
+              load extensions — Qt ships Chromium without the extensions
+              subsystem. Choose your own Chrome when a page needs either, or
+              refuses to let you sign in to an embedded browser.
             </p>
             {settings?.browser_backend === "embedded" && (
               <div className="composer__field">
@@ -900,49 +795,6 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                   blocked, only what they load.
                 </p>
               </label>
-            )}
-            {settings?.browser_backend === "webview2" && (
-              <div className="composer__field">
-                <span className="label">Extensions</span>
-                <ul className="settings-dialog__list">
-                  {(settings?.browser_extensions ?? []).map((folder) => (
-                    <li key={folder} className="settings-dialog__row">
-                      <code title={folder}>{folder}</code>
-                      <button
-                        type="button"
-                        className="button button--ghost"
-                        aria-label={`Remove extension ${folder}`}
-                        onClick={() =>
-                          void applySettings({
-                            browser_extensions: (
-                              settings?.browser_extensions ?? []
-                            ).filter((kept) => kept !== folder),
-                          })
-                        }
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => void chooseBrowserExtension()}
-                >
-                  Add an extension folder…
-                </button>
-                <p className="settings-dialog__hint">
-                  Unpacked extensions only — pick the folder holding
-                  <code> manifest.json</code>, not a <code>.crx</code> file.
-                  There is no store install here. An extension sees every page
-                  the pane visits and can send what it sees anywhere, so add
-                  only ones you would trust with your research; it cannot reach
-                  your workspace, because the pane has no bridge to it. Changes
-                  take effect next time Strata starts — the engine loads
-                  extensions when its browser process is created.
-                </p>
-              </div>
             )}
             <label className="composer__field">
               <span className="label">Search engine</span>
@@ -1030,119 +882,6 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               touch/mobile layout — you can also toggle it live in the Research
               panel. Synthetic touch events are advertised to pages from the
               next launch (a process-wide setting). The pane only.
-            </p>
-          </section>
-
-          <section
-            className="settings-dialog__section"
-            aria-labelledby="settings-archive"
-          >
-            <h3 id="settings-archive" className="settings-dialog__heading">
-              Saved pages
-            </h3>
-            <p className="settings-dialog__hint">
-              Press <kbd>Ctrl+Alt+F</kbd> in the browser pane to save the page
-              and its videos, encrypted, for offline reading. Nothing is ever
-              written unencrypted.
-            </p>
-            <label className="composer__field">
-              <span className="label">Save into</span>
-              <select
-                className="input"
-                value={settings?.web_archive_layer_id ?? ""}
-                aria-label="Layer for saved pages"
-                onChange={(event) =>
-                  void applySettings({
-                    web_archive_layer_id: event.target.value,
-                  })
-                }
-              >
-                <option value="">First unlocked private layer</option>
-                {privateLayers.map((layer) => (
-                  <option key={layer.id} value={layer.id}>
-                    {layer.display_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="composer__field">
-              <span className="label">Video quality</span>
-              <select
-                className="input"
-                value={settings?.web_archive_max_height ?? 1080}
-                aria-label="Maximum video quality"
-                onChange={(event) =>
-                  void applySettings({
-                    web_archive_max_height: Number(event.target.value),
-                  })
-                }
-              >
-                {[480, 720, 1080, 1440, 2160].map((height) => (
-                  <option key={height} value={height}>
-                    Up to {height}p
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="composer__field">
-              <span className="label">Largest video (MB)</span>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                value={settings?.web_archive_max_media_mb ?? 4096}
-                aria-label="Largest video in megabytes"
-                onChange={(event) =>
-                  void applySettings({
-                    web_archive_max_media_mb: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="composer__field">
-              <span className="label">ffmpeg path (optional)</span>
-              <input
-                className="input"
-                value={settings?.web_archive_ffmpeg_path ?? ""}
-                placeholder="Found automatically if left empty"
-                aria-label="ffmpeg path"
-                onChange={(event) =>
-                  void applySettings({
-                    web_archive_ffmpeg_path: event.target.value,
-                  })
-                }
-              />
-            </label>
-            <label className="search__toggle">
-              <input
-                type="checkbox"
-                checked={settings?.web_archive_allow_private_addresses ?? false}
-                onChange={(event) =>
-                  void applySettings({
-                    web_archive_allow_private_addresses: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                Allow saving from my local network (NAS, media server)
-              </span>
-            </label>
-            <label className="search__toggle">
-              <input
-                type="checkbox"
-                checked={settings?.web_archive_index_text ?? true}
-                onChange={(event) =>
-                  void applySettings({
-                    web_archive_index_text: event.target.checked,
-                  })
-                }
-              />
-              <span>Make saved pages searchable (a note in “Saved pages”)</span>
-            </label>
-            <p className="settings-dialog__hint">
-              ffmpeg is needed for YouTube and X videos. Off by default, the
-              local-network option stops a web page from pointing Strata at
-              devices on your network.
             </p>
           </section>
         </div>

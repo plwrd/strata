@@ -213,7 +213,6 @@ class CaptureService:
         )
 
     def _guard_url(self, url: str) -> None:
-        # Shared with the web archive's downloads (`app.infrastructure.net_guard`).
         guard_public_url(url, message="This address is not reachable from URL import.")
 
 

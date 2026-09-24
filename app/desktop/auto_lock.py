@@ -5,7 +5,7 @@ user pressing a button before walking away. Three triggers:
 
 * **Idle** — no keyboard or mouse input *anywhere on the system* for
   ``auto_lock_minutes`` (``GetLastInputInfo``; 0 turns it off). System-wide,
-  not app-wide: someone reading a saved page in Strata is not idle.
+  not app-wide: someone reading in another app is not idle.
 * **The OS session locks or disconnects** — Win+L, a remote session dropping,
   fast user switching (``WTSRegisterSessionNotification``).
 * **Sleep / hibernate** — ``PBT_APMSUSPEND``: a sleeping laptop's RAM (and a
@@ -14,8 +14,7 @@ user pressing a button before walking away. Three triggers:
 The last two are ``auto_lock_on_system_lock``. Both settings are read each time,
 so a change in Settings applies without a restart.
 
-What locking does *not* do: log the user out of websites. The browser pane
-clears its cache and history on lock but keeps its cookies.
+What locking does *not* do: log the user out of websites.
 """
 
 from __future__ import annotations

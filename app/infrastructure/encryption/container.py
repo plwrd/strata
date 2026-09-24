@@ -70,13 +70,7 @@ TYPE_CRDT_STATE: Final = 7
 # everything else, and typed so a presence blob can never be applied as a CRDT
 # update.
 TYPE_PRESENCE: Final = 8
-# The encrypted web archive (Ctrl+Alt+F in the browser pane): a page snapshot
-# and a saved video. These are *stream* objects (`encryption.stream`), written
-# chunk by chunk as they arrive, so they are numbered here but deliberately
-# left out of OBJECT_TYPES — `seal` must never produce one, and `open_sealed`
-# must never accept one.
-TYPE_WEB_PAGE: Final = 9
-TYPE_WEB_MEDIA: Final = 10
+# 9 and 10 are retired. Do not reuse them.
 
 OBJECT_TYPES: Final = frozenset(
     {

@@ -25,9 +25,6 @@ dependencies = [
     "httpx==0.28.1",
     "structlog==24.4.0",
     "PyYAML==6.0.3",
-    # Streamed video in the encrypted web archive (YouTube, X): finds the real
-    # streams behind a player. Sites change often; keep this current.
-    "yt-dlp[default]==2026.8.19",
 ]
 
 [project.optional-dependencies]
@@ -91,7 +88,7 @@ mypy_path = "."
 exclude = ['^build/', '^dist/', '^frontend/']
 
 [[tool.mypy.overrides]]
-module = ["PySide6.*", "keyring.*", "networkx.*", "nacl.*", "argon2.*", "yt_dlp.*"]
+module = ["PySide6.*", "keyring.*", "networkx.*", "nacl.*", "argon2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -99,7 +96,7 @@ testpaths = ["tests"]
 # Scale benchmarks assert wall-clock budgets, so they are opt-in: a developer
 # machine under load fails them for reasons that are not regressions. CI runs
 # them in a dedicated non-blocking job that selects `-m performance`.
-addopts = "-q --strict-markers -m 'not performance and not webview2'"
+addopts = "-q --strict-markers -m 'not performance'"
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
@@ -107,6 +104,5 @@ markers = [
     "gui: requires a Qt application instance",
     "slow: long-running",
     "performance: scale/latency benchmarks (FR-193)",
-    "webview2: drives the real WebView2 engine in a window (Windows; opt-in)",
 ]
 filterwarnings = ["error::DeprecationWarning:app.*"]

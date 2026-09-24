@@ -376,8 +376,7 @@ class BrowserPane(QWidget):
     # and the Research panel do rather than keeping a fourth copy.
     blurToggleRequested = Signal()
 
-    # Which engine is behind this pane. Read by `EmbeddedSource` and reported
-    # to the user, because it decides whether video plays (see ADR-0012).
+    # Which engine is behind this pane. Read by `EmbeddedSource`.
     backend: BrowserBackend = "embedded"
 
     def __init__(
@@ -448,8 +447,7 @@ class BrowserPane(QWidget):
 
         # A blur control on the pane's own toolbar, not only in the panel and on
         # a hotkey. This is the one control that is always reachable: a
-        # keyboard chord can be claimed by whatever has focus — the page, or in
-        # the WebView2 pane an Edge window Qt never sees the keys from — and the
+        # keyboard chord can be claimed by whatever has focus, and the
         # Research panel is on the other side of the splitter. A button beside
         # the address bar is a mouse click away from wherever the user is
         # looking.
@@ -600,13 +598,7 @@ class BrowserPane(QWidget):
 
 
 class ResearchPane(Protocol):
-    """What the service needs of an in-window pane, whatever draws it.
-
-    Both the Qt pane above and the WebView2 pane in ``app.desktop.webview2``
-    satisfy this. Stated as a protocol rather than a base class because the two
-    share no implementation — one *is* a ``QWebEngineView``, the other owns an
-    HWND — only a contract.
-    """
+    """What the service needs of the in-window pane."""
 
     backend: BrowserBackend
 
@@ -623,7 +615,7 @@ class EmbeddedSource(QObject):
     """Adapts the pane to :class:`app.services.browser_service.PageSource`.
 
     The service calls this from a worker thread; every touch of the pane is
-    marshalled onto the Qt thread first, because neither engine may be driven
+    marshalled onto the Qt thread first, because the engine may not be driven
     from a thread that does not own it.
     """
 
@@ -633,8 +625,6 @@ class EmbeddedSource(QObject):
         super().__init__(parent)
         self._pane = pane
         self._show = show
-        # An instance attribute, not a class one: which engine is behind the
-        # pane is decided per window, and the service reports it to the user.
         self.backend: BrowserBackend = getattr(pane, "backend", "embedded")
         self._lock = threading.Lock()
         self._done = threading.Event()
@@ -647,59 +637,33 @@ class EmbeddedSource(QObject):
     def status(self) -> BrowserStatus:
         tab = self._pane.current()
         showing = self._pane.isVisible()
-        # An engine can fail *after* the pane is built — WebView2's controller
-        # arrives asynchronously, so "the runtime is missing" is caught before
-        # the pane exists but "the controller would not start" is not. Saying
-        # so here is the difference between a pane that looks merely empty and
-        # one the user knows to switch away from.
-        failure = str(getattr(self._pane, "failure_reason", "") or "")
-        # "Add-ons" covers both shapes: real extensions in the Edge pane, and
-        # the userscripts the Qt pane uses in their place. The status line says
-        # what actually loaded either way.
+        # What loaded and what did not. A userscript that silently failed to
+        # load looks exactly like one that is working.
         loaded: list[str] = list(getattr(self._pane, "loaded_addons", []))
         problems: list[str] = list(getattr(self._pane, "addon_errors", []))
         blocked_hosts = int(getattr(self._pane, "blocked_host_count", 0) or 0)
-        if failure:
-            detail = f"The browser pane could not start its engine. {failure}"
-        elif showing:
+        if showing:
             detail = f"The browser pane is open on {_host(tab.url) or 'a blank page'}."
         else:
             detail = "The browser pane is closed."
         if loaded:
-            label = "Extensions" if self.backend == "webview2" else "User scripts"
-            detail += f" {label}: {', '.join(loaded)}."
+            detail += f" User scripts: {', '.join(loaded)}."
         if blocked_hosts:
             detail += f" Blocking {blocked_hosts} host(s)."
-        # An extension the user added and that did not load is the case worth
+        # A script the user added and that did not load is the case worth
         # being loud about — silence here reads as "it is working".
         if problems:
             detail += " " + " ".join(problems)
         return BrowserStatus(
             backend=self.backend,
-            running=showing and not failure,
-            # Only the Edge pane loads real extensions. A userscript is not
-            # one, and claiming otherwise is how a user ends up wondering why
-            # their extension's toolbar button never appeared.
-            supports_extensions=self.backend == "webview2" and bool(loaded),
+            running=showing,
+            # A userscript is not an extension.
+            supports_extensions=False,
             mobile_mode=self._pane.is_mobile(),
             profile_path="",
             tab_count=1 if tab.url else 0,
             detail=detail,
         )
-
-    @property
-    def browser_process_id(self) -> int:
-        """The engine's own process, or 0: what the capture guard has to watch.
-
-        The WebView2 pane knows it; the Qt pane has none. Not forwarding it was
-        how the engine pid read as 0 in the running app while every unit test
-        (which attaches a bare pane, not this adapter) said the popups were
-        covered.
-        """
-        try:
-            return int(getattr(self._pane, "browser_process_id", 0) or 0)
-        except (TypeError, ValueError):  # pragma: no cover - defensive
-            return 0
 
     def ensure_ready(self) -> BrowserStatus:
         # Called from the Qt thread (a bridge slot) — showing a widget from a

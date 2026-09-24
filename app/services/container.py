@@ -41,7 +41,6 @@ from app.services.synthesis_service import SynthesisService
 from app.services.version_service import VersionService
 from app.services.view_service import ViewService
 from app.services.watch_service import WatchService
-from app.services.web_archive_service import WebArchiveService
 from app.services.workspace_service import WorkspaceService
 
 APP_VERSION = "1.3.1"
@@ -95,14 +94,6 @@ class Services:
         self.capture = CaptureService(self.workspace, self.notes, self.settings)
         self.digest = WebDigestService(self.ai, self.exports)
         self.browser = BrowserService(self.settings, paths.data_dir)
-        # Ctrl+Alt+F in the browser pane: pages and videos, encrypted as they
-        # are written into a private layer, served back decrypted in memory.
-        self.web_archive = WebArchiveService(
-            self.workspace,
-            self.settings,
-            self.encryption,
-            on_change=lambda: self.watcher.announce("strata"),
-        )
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
         self.retrieval = RetrievalService(self.search)
         self.research = ResearchService(
@@ -133,7 +124,6 @@ class Services:
         """Drop everything derived from a layer that has just locked."""
         self.search.forget_layer(layer_id)
         self.collaboration.forget_layer(layer_id)
-        self.web_archive.forget_layer(layer_id)
 
     def _build_collaboration(self) -> CollaborationService:
         """Wire the collaboration service to the workspace and key holder.

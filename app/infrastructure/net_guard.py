@@ -1,9 +1,9 @@
 """Refuse fetches aimed at the user's own machine or network (SSRF).
 
-Anything Strata fetches on a page's say-so — an imported URL, a video a page
-points at — must not be able to reach ``localhost``, the router, or another
-machine on the LAN: a hostile page would otherwise use Strata as a proxy into
-places the page itself can never reach. Every address a host resolves to is
+Anything Strata fetches on a page's say-so, such as an imported URL, must not
+be able to reach ``localhost``, the router, or another machine on the LAN: a
+hostile page would otherwise use Strata as a proxy into places the page itself
+can never reach. Every address a host resolves to is
 checked, and callers check again on each redirect hop.
 
 Residual, documented in THREAT_MODEL.md: DNS rebinding between this check and

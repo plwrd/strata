@@ -78,31 +78,6 @@ Strata cannot stop your OS from writing your memory to a swap or hibernation fil
 ([T-07](THREAT_MODEL.md)). BitLocker / FileVault / LUKS is the mitigation for that, and it is the OS's
 job, not ours. **Strata is not a substitute for full-disk encryption.**
 
-### Screen-capture exclusion, and why a scanner may flag Strata
-
-"Hidden for sharing" (on by default) asks the OS to keep the Strata window out of screenshots and
-screen shares. On Windows this is `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` — the same call
-Signal, banking apps and password managers use. The window stays visible on your own display; it is
-simply omitted from capture pipelines (Zoom, Teams, OBS, Snipping Tool, Windows Recall). See
-[`app/desktop/screen_security.py`](app/desktop/screen_security.py).
-
-A heuristic anti-malware or anti-stalkerware scanner cannot tell a consensual privacy feature from
-covert software abusing the same API, so it may score a running Strata as suspicious — typically for
-two things:
-
-- **"A visible window is excluded from capture."** That is this feature working as intended and as you
-  configured it. Strata only ever applies the exclusion to windows that actually render content; it
-  does **not** blanket the process's 0×0 helper/IME windows, and it never hides the *process* — Strata
-  stays fully visible to Task Manager and every process tool by design (see `app/desktop/tray.py`).
-- **"Executable is unsigned."** A build run from source (e.g. under `uv`'s Python) is unsigned by
-  nature. Tagged releases are Authenticode/codesign-signed once a certificate is configured — see
-  [Enabling signed releases](#enabling-signed-releases).
-
-We do not, and will not, try to make Strata evade such a scanner while it keeps hiding its window:
-randomising window classes, dropping the affinity when a capture or scanner is detected, or hiding the
-process are exactly the techniques that make real stalkerware undetectable. The honest answers to a
-flag are the two above — the feature is consensual and off with one toggle, and releases are signed.
-
 ### Deleting text from a shared (collaborative) layer
 
 A collaborative layer is a CRDT (M9, [ADR-0006](docs/adr/0006-crdt-selection.md)). Deleting text there
