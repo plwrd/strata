@@ -45,6 +45,17 @@ than ``True``, and the aggregate of several windows is the *weakest* of them.
 A screen-privacy control that overstates itself is worse than one that is
 absent: the user acts on it.
 
+**A window with no pixels is left alone.** ``SetWindowDisplayAffinity`` will
+happily mark a 0x0 message-only or IME helper window "excluded from capture",
+but that window composes nothing, so the flag protects no frame and only
+widens the one signal a heuristic scanner reads off the process: "every window
+it owns is hidden." The sweep and the create/show hook therefore skip a window
+they can positively measure as empty (:func:`_has_capturable_area`). The test
+is deliberately one-sided — any window whose size cannot be read is treated as
+capturable and still excluded, because failing to cover a real surface is the
+leak this whole module exists to prevent, and a popup that will paint has a
+real size by the time its ``EVENT_OBJECT_SHOW`` reaches us.
+
 **Another process's window cannot be excluded — only closed or reported.**
 ``SetWindowDisplayAffinity`` is refused with ``ERROR_ACCESS_DENIED`` for any
 window the calling process does not own (measured on Windows 11 26200 against
@@ -162,6 +173,28 @@ def _read_affinity(user32: Any, hwnd: int) -> int | None:
         return None
 
 
+def _has_capturable_area(user32: Any, hwnd: int) -> bool:
+    """Whether ``hwnd`` has any on-screen pixels worth excluding from capture.
+
+    ``False`` only when the window can be positively measured as empty (a 0x0
+    message-only or IME helper). Every other answer — including "the size could
+    not be read" — is ``True``: covering a window that turns out to render
+    nothing is harmless, but skipping one that does is the leak. See the module
+    docstring's fourth rule.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        rect = wintypes.RECT()
+        ok = int(user32.GetWindowRect(hwnd, ctypes.byref(rect)) or 0)
+    except Exception:  # pragma: no cover - a stand-in library in tests
+        return True
+    if not ok:
+        return True
+    return (rect.right - rect.left) > 0 and (rect.bottom - rect.top) > 0
+
+
 def _set_affinity_if_needed(user32: Any, hwnd: int, affinity: int) -> bool:
     """Set ``hwnd``'s affinity only when it is not already that. Returns success.
 
@@ -223,6 +256,8 @@ def _user32() -> Any:
             ctypes.POINTER(wintypes.DWORD),
         ]
         user32.GetWindowDisplayAffinity.restype = wintypes.BOOL
+        user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        user32.GetWindowRect.restype = wintypes.BOOL
         user32.EnumWindows.restype = wintypes.BOOL
         user32.PostMessageW.argtypes = [
             wintypes.HWND,
@@ -457,6 +492,12 @@ def _windows_exclude_by_pid(pid: int, *, enabled: bool, include_hidden: bool) ->
             owner = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
             if owner.value != pid:
+                return True
+            # A 0x0 helper (message-only, IME) composes nothing, so excluding it
+            # protects no frame — skip it while hiding rather than flag one more
+            # pixel-less window. On disable we still fall through to clear any
+            # affinity an older build may have set. See the module docstring.
+            if enabled and not _has_capturable_area(user32, hwnd):
                 return True
             # Conditional: a window already at this affinity is left alone.
             # Rewriting it rebuilds its DWM surface — which is the flicker, and
@@ -717,6 +758,12 @@ def _apply_affinity_to_hwnd(hwnd: int, *, enabled: bool) -> bool:
     """Set the affinity on ``hwnd``'s top-level window."""
     user32 = _user32()
     root = int(user32.GetAncestor(hwnd, GA_ROOT) or 0) or hwnd
+    # A pixel-less helper window (the create event fires for message-only and
+    # IME windows too) is not worth a capture flag: it renders nothing to hide.
+    # A real popup has a size by the time its show event arrives, so this never
+    # drops one that paints. Off-path still clears, same as the sweep.
+    if enabled and not _has_capturable_area(user32, root):
+        return True
     affinity = WDA_EXCLUDEFROMCAPTURE if enabled else WDA_NONE
     # This fires on every window create *and* show event in a watched process,
     # which for the main window is often. Conditional, so an already-excluded

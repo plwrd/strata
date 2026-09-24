@@ -64,6 +64,9 @@ BLUR_HOTKEY = "Ctrl+Shift+X"
 # Save the page in the browser pane to the encrypted archive (see
 # `app.services.web_archive_service`). Kept in step with the pane's own copy.
 ARCHIVE_HOTKEY = "Ctrl+Alt+F"
+# Open the saved-pages library. The Save/Saved toolbar buttons are hidden, so
+# these two chords are the only way in.
+LIBRARY_HOTKEY = "Ctrl+Alt+S"
 # How often to re-sweep every window this process owns while "hidden for
 # sharing" is on. The per-window hooks below are the fast path; this is the net
 # under them, for a window Qt never told us about (see `_sweep_own_windows`).
@@ -206,6 +209,11 @@ class MainWindow(QMainWindow):
         archive_shortcut = QShortcut(QKeySequence(ARCHIVE_HOTKEY), self, self._save_to_archive)
         archive_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
 
+        # Same for opening the saved-pages library, so the hidden "Saved" button
+        # has a keyboard route in from anywhere in the window, not just the pane.
+        library_shortcut = QShortcut(QKeySequence(LIBRARY_HOTKEY), self, self._open_saved_library)
+        library_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+
         # Locking a layer also drops the pane's cache and history (not its
         # cookies — sign-ins survive). A signal, because a lock can come from
         # any thread.
@@ -337,6 +345,13 @@ class MainWindow(QMainWindow):
             save()
         else:
             logger.info("web_archive.shortcut_unavailable")
+
+    def _open_saved_library(self) -> None:
+        open_library = getattr(self._browser_pane, "open_library", None)
+        if callable(open_library) and self._browser_pane.isVisible():
+            open_library()
+        else:
+            logger.info("web_archive.library_shortcut_unavailable")
 
     def show_browser_pane(self, visible: bool) -> None:
         """Open or close the browser pane. Qt thread only."""

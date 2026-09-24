@@ -68,10 +68,14 @@ logger = get_logger(__name__)
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 # Ctrl+Alt+F: save the page (and its plain-file videos) into the encrypted
-# archive. Seen as a WebView2 accelerator while the page has focus, and as a
-# Qt shortcut (see MainWindow) while anything else in Strata does.
+# archive. Ctrl+Alt+S: open the saved-pages library. Both are seen as a WebView2
+# accelerator while the page has focus, and as a Qt shortcut (see MainWindow)
+# while anything else in Strata does. The toolbar buttons are hidden by design;
+# these chords are the way in.
 ARCHIVE_HOTKEY = "Ctrl+Alt+F"
+LIBRARY_HOTKEY = "Ctrl+Alt+S"
 _VK_F = 0x46
+_VK_S = 0x53
 _VK_SHIFT, _VK_CONTROL, _VK_MENU = 0x10, 0x11, 0x12
 _MAX_MEDIA_PER_PAGE = 20
 
@@ -339,6 +343,10 @@ class WebView2Pane(QWidget):
         )
         self._save_button.setAccessibleName("Save page to encrypted archive")
         self._save_button.clicked.connect(self.save_page)
+        # Hidden by design: saving is driven by the ARCHIVE_HOTKEY chord, not a
+        # visible button. Kept in the tree so its enabled state still tracks
+        # whether the archive is available.
+        self._save_button.hide()
         toolbar.addWidget(self._save_button)
 
         self._cancel_button = QPushButton("Cancel", self)
@@ -349,9 +357,13 @@ class WebView2Pane(QWidget):
         toolbar.addWidget(self._cancel_button)
 
         self._library_button = QPushButton("Saved", self)
-        self._library_button.setToolTip("Open saved pages (encrypted, readable offline)")
+        self._library_button.setToolTip(
+            f"Open saved pages (encrypted, readable offline) ({LIBRARY_HOTKEY})"
+        )
         self._library_button.setAccessibleName("Open saved pages")
         self._library_button.clicked.connect(self.open_library)
+        # Hidden like Save: the library opens with the LIBRARY_HOTKEY chord.
+        self._library_button.hide()
         toolbar.addWidget(self._library_button)
         if self._archive is None:
             self._save_button.setEnabled(False)
@@ -753,13 +765,13 @@ class WebView2Pane(QWidget):
 
     def _on_accelerator(self, key: int) -> bool:
         """The page has focus, so the shortcut arrives here, not at Qt."""
-        if key != _VK_F:
+        if key not in (_VK_F, _VK_S):
             return False
         ctrl, alt, shift = _modifiers_down()
         if not (ctrl and alt) or shift:
             return False
         # Out of the COM callback before doing anything with the engine.
-        QTimer.singleShot(0, self.save_page)
+        QTimer.singleShot(0, self.save_page if key == _VK_F else self.open_library)
         return True
 
     def _show_archive_status(self, text: str, *, linger_ms: int = 0) -> None:

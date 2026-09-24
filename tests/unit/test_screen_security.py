@@ -67,7 +67,28 @@ def _affinity_user32(*, set_result: Any = 1, initial: int = WDA_NONE) -> MagicMo
 
     fake.SetWindowDisplayAffinity.side_effect = _set
     fake.GetWindowDisplayAffinity.side_effect = _get
+    _model_window_rect(fake)
     return fake
+
+
+def _model_window_rect(fake: MagicMock, *, sizes: dict[int, tuple[int, int]] | None = None) -> None:
+    """Make ``GetWindowRect`` report a real size, defaulting to 100x100.
+
+    The code now reads a window's size to leave pixel-less helpers alone, so the
+    fake has to fill the ``RECT`` out-param — a bare ``MagicMock`` returns a
+    zeroed rect, which would read as "no pixels" and skip every window. ``sizes``
+    overrides individual handles (a 0x0 entry models an IME/message-only window).
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    def _get_rect(hwnd: object, out: Any) -> int:
+        width, height = (sizes or {}).get(int(cast(int, hwnd)), (100, 100))
+        ptr = ctypes.cast(out, ctypes.POINTER(wintypes.RECT))
+        ptr[0].left, ptr[0].top, ptr[0].right, ptr[0].bottom = 0, 0, width, height
+        return 1
+
+    fake.GetWindowRect.side_effect = _get_rect
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
@@ -242,6 +263,7 @@ def _fake_enum(monkeypatch: pytest.MonkeyPatch, windows: dict[int, tuple[int, bo
         return 1
 
     fake_user32.EnumWindows.side_effect = _enum
+    _model_window_rect(fake_user32)
     monkeypatch.setattr(ctypes, "windll", MagicMock(user32=fake_user32))
     return fake_user32
 
@@ -276,6 +298,30 @@ def test_process_sweep_covers_a_window_that_is_not_shown_yet(
 
     _fake_enum(monkeypatch, windows)
     assert set_process_windows_excluded_from_capture(42, enabled=True, include_hidden=True) == 2
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")
+def test_process_sweep_skips_a_window_with_no_pixels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 0x0 message-only/IME helper composes nothing, so excluding it protects
+    no frame and only adds one more "hidden" window to the process's profile.
+
+    A window whose size *cannot* be measured stays covered — that is the
+    fail-open half of the rule, and the default ``_fake_enum`` (no rect wired)
+    already exercises it, since every other sweep test covers its windows.
+    """
+    from app.desktop.screen_security import set_process_windows_excluded_from_capture
+
+    user32 = _fake_enum(monkeypatch, {0x10: (42, True), 0x20: (42, True)})
+    _model_window_rect(user32, sizes={0x20: (0, 0)})  # 0x20 is a pixel-less helper
+
+    # Only the sized window is covered; the empty one is left alone.
+    assert set_process_windows_excluded_from_capture(42, enabled=True) == 1
+    excluded = [
+        call.args[0]
+        for call in user32.SetWindowDisplayAffinity.call_args_list
+        if call.args[1] == WDA_EXCLUDEFROMCAPTURE
+    ]
+    assert excluded == [0x10]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Win32 affinity only")

@@ -451,23 +451,71 @@ class ArchivedPage:
             self._rewritten[id(part)] = cached
         return cached
 
+    @staticmethod
+    def _rewrite_srcset(value: str, root: str, proto: str) -> str:
+        """Point each root/protocol-relative URL in a ``srcset`` at the mirror.
+
+        ``srcset`` is ``url descriptor, url descriptor, ...``. Only the URL of
+        each candidate is touched, and only its relative forms — an absolute URL
+        is left for the caller's mapping pass so a saved copy still wins.
+        """
+        candidates: list[str] = []
+        for candidate in value.split(","):
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            url, _, descriptor = candidate.partition(" ")
+            if url.startswith("//"):
+                url = proto + url[2:]
+            elif url.startswith("/"):
+                url = root + url[1:]
+            candidates.append(url + (f" {descriptor.strip()}" if descriptor.strip() else ""))
+        return ", ".join(candidates)
+
     def _rewrite(self, part: _Part) -> str:
         text = part.payload.decode(part.charset, errors="replace")
         origin = urlsplit(part.location)
         if origin.scheme in ("http", "https") and origin.netloc:
             # Root-relative references (`/img/x.png`) would otherwise resolve
             # against the vault's own root. Point them at the mirrored origin.
-            # First, so the absolute rewrite below cannot be rewritten twice.
+            # Protocol-relative ones (`//cdn/x.css`) are worse: served from the
+            # vault's https origin they resolve to a real network request, which
+            # the offline CSP blocks — so a page whose stylesheet is written
+            # `//cdn/site.css` loses *all* styling. They inherit the page's
+            # scheme, so mirror them under it. Both run before the absolute-URL
+            # mapping below, and their patterns are disjoint (`/(?!/)` vs `//`),
+            # so nothing is rewritten twice.
             root = f"/page/{self.page_id}/r/{origin.scheme}/{origin.netloc}/"
+            proto = f"/page/{self.page_id}/r/{origin.scheme}/"
             if part.content_type == "text/html":
+                # Root-relative first: it skips `//`, and doing protocol-relative
+                # first would turn `//cdn/x` into a `/page/...` path this pass
+                # would then rewrite a second time.
                 text = re.sub(
                     r"""((?:src|href|poster)\s*=\s*["'])/(?!/)""",
                     lambda m: m.group(1) + root,
                     text,
                     flags=re.I,
                 )
+                text = re.sub(
+                    r"""((?:src|href|poster)\s*=\s*["'])//(?=[^/])""",
+                    lambda m: m.group(1) + proto,
+                    text,
+                    flags=re.I,
+                )
+                # `srcset` carries several comma-separated URLs, so a single
+                # leading-slash rewrite cannot reach them all. Rewrite each
+                # candidate's root- and protocol-relative form; absolute ones
+                # are left for the mapping pass below.
+                def _srcset(m: re.Match[str]) -> str:
+                    return m.group(1) + self._rewrite_srcset(m.group(2), root, proto) + m.group(3)
+
+                text = re.sub(r"""(srcset\s*=\s*["'])([^"']*)(["'])""", _srcset, text, flags=re.I)
             text = re.sub(
                 r"""(url\(\s*["']?)/(?!/)""", lambda m: m.group(1) + root, text, flags=re.I
+            )
+            text = re.sub(
+                r"""(url\(\s*["']?)//(?=[^/])""", lambda m: m.group(1) + proto, text, flags=re.I
             )
         mapping: dict[str, str] = {}
         for other in self._parts:

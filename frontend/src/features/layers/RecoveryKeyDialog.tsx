@@ -1,10 +1,12 @@
 /**
- * The recovery key, shown once.
+ * The recovery key, shown once — and only if you ask for it.
  *
- * This dialog is intentionally hard to dismiss. There is no second copy anywhere —
- * not on disk, not in the header, not in the store — so a user who clicks past it
- * has permanently given up their only fallback. The confirm button stays disabled
- * until they tick the box that says they wrote it down.
+ * A recovery key is a second password: it opens the layer without the real one.
+ * There is no second copy anywhere — not on disk, not in the header, not in the
+ * store — so if it is lost along with the password the layer is gone. But it is
+ * optional: a password alone is enough, so the key is hidden behind a Show
+ * button (no shoulder-surfing) and the dialog can be dismissed without saving
+ * it. Reveal, copy or download it only if you want that fallback.
  */
 
 import { useState } from "react";
@@ -22,8 +24,11 @@ export function RecoveryKeyDialog({
   recoveryKey,
   onClose,
 }: Props): JSX.Element {
-  const [acknowledged, setAcknowledged] = useState(false);
   const [copied, setCopied] = useState(false);
+  // The key is hidden by default: a recovery key is a second password, and
+  // showing it unprompted is a shoulder-surfing risk for someone who only means
+  // to use the layer's password. Revealed on demand.
+  const [revealed, setRevealed] = useState(false);
 
   const copy = async (): Promise<void> => {
     await navigator.clipboard.writeText(recoveryKey);
@@ -71,14 +76,36 @@ export function RecoveryKeyDialog({
 
           <div id="recovery-body" className="dialog__body">
             <p>
-              Write this down and keep it somewhere safe and offline. It opens
-              the layer
-              <strong> without the password</strong>.
+              A recovery key opens the layer
+              <strong> without the password</strong>. It is optional — if your
+              password is enough for you, you can skip this. Kept hidden so no
+              one nearby sees it; reveal it only when you are ready to save it.
             </p>
 
-            <pre className="recovery-key" data-testid="recovery-key">
-              {recoveryKey}
-            </pre>
+            {revealed ? (
+              <pre className="recovery-key" data-testid="recovery-key">
+                {recoveryKey}
+              </pre>
+            ) : (
+              <pre
+                className="recovery-key recovery-key--hidden"
+                aria-hidden="true"
+                data-testid="recovery-key-hidden"
+              >
+                {"•".repeat(24)}
+              </pre>
+            )}
+
+            <div className="dialog__actions dialog__actions--inline">
+              <button
+                type="button"
+                className="button"
+                aria-pressed={revealed}
+                onClick={() => setRevealed((value) => !value)}
+              >
+                {revealed ? "Hide" : "Show"}
+              </button>
+            </div>
 
             <p className="dialog__warning">
               <span className="tag tag--danger">There is no second copy</span>{" "}
@@ -103,22 +130,12 @@ export function RecoveryKeyDialog({
             {copied && (
               <p className="dialog__footnote">{stubbornClipboardWarning}</p>
             )}
-
-            <label className="dialog__choice dialog__choice--confirm">
-              <input
-                type="checkbox"
-                checked={acknowledged}
-                onChange={(event) => setAcknowledged(event.target.checked)}
-              />
-              <span>I have saved this recovery key somewhere safe.</span>
-            </label>
           </div>
 
           <div className="dialog__actions">
             <button
               type="button"
               className="button button--primary"
-              disabled={!acknowledged}
               onClick={onClose}
             >
               Done

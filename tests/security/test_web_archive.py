@@ -190,6 +190,41 @@ def test_saved_items_are_listed_and_served(
     assert _body(partial) == VIDEO[100:200]
 
 
+def test_protocol_relative_and_srcset_urls_are_mirrored_offline() -> None:
+    """A page whose stylesheet is `//cdn/site.css`, or whose images use
+    `srcset`, used to keep pointing at the network — blocked by the offline
+    CSP, so the page rendered unstyled. Both must be mirrored under the vault.
+    """
+    from app.services.web_archive_service import ArchivedPage
+
+    raw = (
+        b'Content-Type: multipart/related; boundary="B"; type="text/html"\r\n\r\n'
+        b"--B\r\n"
+        b"Content-Type: text/html\r\n"
+        b"Content-Location: https://news.example/story/x\r\n\r\n"
+        b"<html><head>"
+        b'<link rel="stylesheet" href="//news.example/s/proto.css">'
+        b"</head><body>"
+        b'<img srcset="/img/a.png 1x, //news.example/img/b.png 2x">'
+        b"</body></html>\r\n"
+        b"--B\r\n"
+        b"Content-Type: text/css\r\n"
+        b"Content-Location: https://news.example/s/proto.css\r\n\r\nbody{color:green}\r\n"
+        b"--B--\r\n"
+    )
+
+    html = ArchivedPage("PID", raw).body(ArchivedPage("PID", raw).main).decode()
+
+    # The protocol-relative stylesheet is mirrored under the page's scheme.
+    assert 'href="/page/PID/r/https/news.example/s/proto.css"' in html
+    # Every srcset candidate is mirrored, and none is left protocol-relative.
+    assert "/page/PID/r/https/news.example/img/a.png 1x" in html
+    assert "/page/PID/r/https/news.example/img/b.png 2x" in html
+    assert "//news.example" not in html  # nothing still points at the network
+    # And nothing was rewritten twice into a doubled `/page/.../page/...` path.
+    assert "/r/https/news.example/page/" not in html
+
+
 def test_saved_page_is_rewritten_to_read_offline(
     archive: tuple[Services, WebArchiveService, str],
 ) -> None:
