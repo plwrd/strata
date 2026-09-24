@@ -153,10 +153,16 @@ def test_the_app_renders_the_shell_and_the_selection_surface(qtbot: Any, shell: 
     assert _run_js(qtbot, window, "!!document.querySelector('.statusbar')") is True
 
     # The accessible graph must exist, and it must be populated from the workspace
-    # that Python actually created on disk.
+    # that Python actually created on disk. The navigator's Graph section ships
+    # collapsed, so open it first — the tree does not exist until something does.
     qtbot.waitUntil(
         lambda: _run_js(qtbot, window, "document.querySelectorAll('[role=treeitem]').length") > 0,
         timeout=20_000,
+    )
+    _run_js(qtbot, window, "document.querySelector('[data-tour-section=\"graph\"]').click()")
+    qtbot.waitUntil(
+        lambda: _run_js(qtbot, window, "!!document.querySelector('.graph-list')") is True,
+        timeout=10_000,
     )
     labels = _run_js(
         qtbot,

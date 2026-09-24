@@ -28,7 +28,7 @@ from app.infrastructure.storage.markdown_store import (
     parse_frontmatter,
     render_frontmatter,
 )
-from app.infrastructure.storage.paths import safe_filename
+from app.infrastructure.storage.paths import safe_filename, write_text_atomic
 from app.services.private_layer_access import PrivateLayerAccess
 from app.services.version_service import VersionService
 from app.services.workspace_service import WorkspaceService
@@ -115,9 +115,13 @@ class NoteService:
         return None
 
     def get_note(self, note_id: str) -> Note:
-        for note in self.list_notes():
-            if note.metadata.id == note_id:
-                return note
+        for layer_id in self._markdown_layers(None):
+            located = self._workspace.layer_store(layer_id).locate(note_id)
+            if located is not None:
+                return located[0]
+        private = self._private_owner(note_id)
+        if private is not None:
+            return private.get_note(note_id)
         # Same error whether the note does not exist or lives in a locked layer.
         raise NotFoundError("Knowledge object not found.")
 
@@ -130,10 +134,9 @@ class NoteService:
     def _locate(self, note_id: str) -> tuple[MarkdownLayerStore, Note, Path]:
         for layer_id in self._markdown_layers(None):
             store = self._workspace.layer_store(layer_id)
-            for path in store.iter_markdown_files():
-                note = store.read_note(path)
-                if note.metadata.id == note_id:
-                    return store, note, path
+            located = store.locate(note_id)
+            if located is not None:
+                return store, located[0], located[1]
         raise NotFoundError("Knowledge object not found.")
 
     # -- writing -------------------------------------------------------------
@@ -175,11 +178,8 @@ class NoteService:
         store, note, path = self._locate(note_id)
         self._record_version(note, origin=origin, change="update")
         frontmatter, _ = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
-        path.write_text(
-            render_frontmatter(frontmatter) + content,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_atomic(path, render_frontmatter(frontmatter) + content)
+        store.invalidate(path)
         return store.read_note(path)
 
     def update_properties(
@@ -192,11 +192,8 @@ class NoteService:
         store, note, path = self._locate(note_id)
         self._record_version(note, origin=origin, change="properties")
         _old, body = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
-        path.write_text(
-            render_frontmatter(dict(properties)) + body,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_atomic(path, render_frontmatter(dict(properties)) + body)
+        store.invalidate(path)
         return store.read_note(path)
 
     # -- version history -----------------------------------------------------
@@ -229,11 +226,8 @@ class NoteService:
         store, note, path = self._locate(note_id)
         version = self._versions.get_version(note.metadata.layer_id, note_id, index)
         self._record_version(note, origin=origin, change="restore")
-        path.write_text(
-            render_frontmatter(dict(version.properties)) + version.content,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_atomic(path, render_frontmatter(dict(version.properties)) + version.content)
+        store.invalidate(path)
         return store.read_note(path)
 
     def rename_note(self, note_id: str, title: str) -> tuple[Note, int]:
@@ -301,7 +295,8 @@ class NoteService:
                 text = path.read_text(encoding="utf-8", errors="replace")
                 updated, count = pattern.subn(f"[[{new_title}", text)
                 if count:
-                    path.write_text(updated, encoding="utf-8", newline="\n")
+                    write_text_atomic(path, updated)
+                    store.invalidate(path)
                     rewritten += count
 
         for layer_id in self._private_layers(None):
@@ -489,6 +484,52 @@ class NoteService:
         if destination.exists():
             raise ConflictError("A folder with that name already exists.")
         path.replace(destination)
+        relative = destination.relative_to(store.root).as_posix()
+        return FolderNode(
+            id=note_id_for(store.layer_id, relative + "/"),
+            layer_id=store.layer_id,
+            name=destination.name,
+            path=relative,
+            parent_id=None,
+        )
+
+    def move_folder(self, folder_id: str, parent_folder_path: str) -> FolderNode:
+        """Reparent a folder under another folder (or the layer root). Same layer only."""
+        private = self._private_folder_owner(folder_id)
+        if private is not None:
+            return private.move_folder(folder_id, parent_folder_path)
+
+        store, folder, path = self._locate_folder(folder_id)
+        parent = parent_folder_path.strip().strip("/")
+        if parent == folder.path or parent.startswith(f"{folder.path}/"):
+            raise InvalidRequestError("A folder cannot be moved into itself.")
+        if parent:
+            parent_dir = store.root / parent
+            if not parent_dir.is_dir():
+                raise NotFoundError("Destination folder not found.")
+            destination = parent_dir / safe_filename(folder.name)
+        else:
+            destination = store.root / safe_filename(folder.name)
+        if destination.resolve() == path.resolve():
+            return folder
+        if destination.exists():
+            raise ConflictError("A folder with that name already exists.")
+
+        # Note ids are path-derived on public layers — capture the mapping before
+        # the directory moves so version history can follow.
+        old_ids: dict[str, str] = {}
+        for note_path in path.rglob(f"*{MARKDOWN_SUFFIX}"):
+            note = store.read_note(note_path)
+            old_ids[note_path.relative_to(path).as_posix()] = note.metadata.id
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        path.replace(destination)
+
+        if self._versions is not None:
+            for relative, old_id in old_ids.items():
+                new_note = store.read_note(destination / relative)
+                self._versions.relocate(store.layer_id, old_id, new_note.metadata.id)
+
         relative = destination.relative_to(store.root).as_posix()
         return FolderNode(
             id=note_id_for(store.layer_id, relative + "/"),

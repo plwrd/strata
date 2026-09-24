@@ -6,8 +6,8 @@
  * semantic signal really did contribute to its score — the two cannot drift apart,
  * because one is derived from the other.
  *
- * Results are selectable, so search is a selection method for the AI composer like
- * any other surface.
+ * A plain click opens the note in the editor. Ctrl/Cmd+click selects results for
+ * the AI composer without leaving Search — same modifier pattern as the graph.
  */
 
 import { useState } from "react";
@@ -15,7 +15,7 @@ import { useStore } from "../../state/store";
 
 const SIGNAL_LABELS: Record<string, string> = {
   lexical: "text",
-  semantic: "meaning",
+  semantic: "hashed meaning",
   tag: "tag",
   property: "property",
   graph: "linked",
@@ -35,6 +35,7 @@ export function SearchPanel(): JSX.Element {
     selectedIds,
     findSimilar,
     activeNoteId,
+    openNoteById,
   } = useStore();
   const [showSignals, setShowSignals] = useState(false);
 
@@ -52,13 +53,16 @@ export function SearchPanel(): JSX.Element {
       />
 
       <div className="search__options">
-        <label className="search__toggle">
+        <label
+          className="search__toggle"
+          title="Local hashed bag-of-words, not a language model. Nothing is sent anywhere."
+        >
           <input
             type="checkbox"
             checked={semanticSearch}
             onChange={(event) => void setSemanticSearch(event.target.checked)}
           />
-          <span>Semantic</span>
+          <span>Hashed meaning</span>
         </label>
 
         <label className="search__toggle">
@@ -110,12 +114,13 @@ export function SearchPanel(): JSX.Element {
                   type="button"
                   className={`search__result ${selectedIds.includes(result.object_id) ? "search__result--selected" : ""}`}
                   aria-pressed={selectedIds.includes(result.object_id)}
-                  onClick={(event) =>
-                    selectMany(
-                      [result.object_id],
-                      event.ctrlKey || event.metaKey ? "add" : "replace",
-                    )
-                  }
+                  onClick={(event) => {
+                    if (event.ctrlKey || event.metaKey) {
+                      selectMany([result.object_id], "add");
+                      return;
+                    }
+                    void openNoteById(result.object_id);
+                  }}
                 >
                   <span className="search__title">{result.title}</span>
                   <span className="search__snippet">{result.snippet}</span>

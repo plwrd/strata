@@ -104,10 +104,13 @@ function RelayConfig(): JSX.Element {
           Save
         </button>
       </div>
-      <p className="collab__relay-hint mono">
+      <p
+        className="collab__relay-hint mono"
+        title="A relay forwards encrypted blobs only — never plaintext."
+      >
         {saved
-          ? "Saved — applies to new sessions. The relay only ever sees ciphertext."
-          : "A relay forwards encrypted blobs between machines; it never sees your data."}
+          ? "Saved for new sessions (ciphertext only)."
+          : "Relay sees ciphertext only."}
       </p>
     </form>
   );

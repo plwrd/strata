@@ -115,3 +115,15 @@ def test_html_to_text_survives_hostile_markup() -> None:
 
 def test_html_title_is_bounded() -> None:
     assert _html_title("<title>" + "x" * 500 + "</title>") == "x" * 120
+
+
+def test_capturing_the_same_page_twice_is_not_an_error(workspace: Services) -> None:
+    """Re-reading a page you already kept is an ordinary thing to do. The second
+    capture is a new capture at a new time, not a conflict — before this, it
+    failed with "a note with that name already exists"."""
+    first = workspace.capture.capture(content="The page text.", title="A research page")
+    second = workspace.capture.capture(content="The page text, later.", title="A research page")
+
+    assert first.metadata.id != second.metadata.id
+    assert first.metadata.title == "A research page"
+    assert second.metadata.title == "A research page 2"

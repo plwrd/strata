@@ -10,6 +10,7 @@
 import { useState } from "react";
 import type { ProviderView } from "../../bridge/types";
 import { useStore } from "../../state/store";
+import { DialogPortal } from "../../ui/DialogPortal";
 
 interface Props {
   provider: ProviderView;
@@ -48,71 +49,73 @@ export function CredentialDialog({ provider, onClose }: Props): JSX.Element {
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog dialog--neutral"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cred-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
-        <h2 id="cred-title" className="dialog__title">
-          API key for {provider.display_name}
-        </h2>
+    <DialogPortal>
+      <div className="dialog-backdrop" role="presentation">
+        <div
+          className="dialog dialog--neutral"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cred-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") onClose();
+          }}
+        >
+          <h2 id="cred-title" className="dialog__title">
+            API key for {provider.display_name}
+          </h2>
 
-        <div className="dialog__body">
-          <p className="dialog__note">
-            Stored in your operating system&apos;s keychain — never in a Strata
-            file, a log, or an export.
-          </p>
-
-          <label className="properties__field">
-            <span className="label">API key</span>
-            <input
-              className="input"
-              type="password"
-              autoComplete="off"
-              autoFocus
-              value={key}
-              aria-label={`${provider.display_name} API key`}
-              onChange={(event) => setKey(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
-              }}
-            />
-          </label>
-
-          {error && (
-            <p
-              className="composer__status composer__status--error"
-              role="alert"
-            >
-              {error}
+          <div className="dialog__body">
+            <p className="dialog__note">
+              Stored in your operating system&apos;s keychain — never in a
+              Strata file, a log, or an export.
             </p>
-          )}
-        </div>
 
-        <div className="dialog__actions">
-          <button
-            type="button"
-            className="button"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={!key.trim() || busy}
-            onClick={() => void submit()}
-          >
-            {busy ? "Storing…" : "Store key"}
-          </button>
+            <label className="properties__field">
+              <span className="label">API key</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="off"
+                autoFocus
+                value={key}
+                aria-label={`${provider.display_name} API key`}
+                onChange={(event) => setKey(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void submit();
+                }}
+              />
+            </label>
+
+            {error && (
+              <p
+                className="composer__status composer__status--error"
+                role="alert"
+              >
+                {error}
+              </p>
+            )}
+          </div>
+
+          <div className="dialog__actions">
+            <button
+              type="button"
+              className="button"
+              onClick={onClose}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={!key.trim() || busy}
+              onClick={() => void submit()}
+            >
+              {busy ? "Storing…" : "Store key"}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </DialogPortal>
   );
 }

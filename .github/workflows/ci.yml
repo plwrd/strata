@@ -186,17 +186,15 @@ jobs:
         run: |
           pip install pip-audit
           pip install -e .
-          pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph || true
+          pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph
 
-      # Advisory, not a merge gate: dependency CVEs are disclosed continuously and
-      # independent of any one PR, so a new advisory must not wedge the merge
-      # queue. The report still prints. Production-affecting advisories (e.g. the
-      # sanitizer) are fixed by bumping the dependency, not by muting this.
+      # High/critical npm advisories fail the gate. Direct-dependency bumps are
+      # the fix; do not restore `|| true` to silence them.
       - name: Audit npm dependencies
         working-directory: frontend
         run: |
           npm ci
-          npm audit --audit-level=high || true
+          npm audit --audit-level=high
 
       - name: Generate an SBOM
         run: |

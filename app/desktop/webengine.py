@@ -43,7 +43,8 @@ APP_URL = f"{SCHEME}://{HOST}/index.html"
 # and is unaffected by connect-src.
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; "
-    "script-src 'self'; "
+    # blob: is required for Vite ES module workers and nested drei/troika workers.
+    "script-src 'self' blob:; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; "
     "font-src 'self' data:; "
@@ -96,6 +97,16 @@ def register_scheme() -> None:
     QWebEngineUrlScheme.registerScheme(scheme)
 
 
+def _origin_of(url: str) -> str | None:
+    """``scheme://host:port`` for a URL, or ``None`` if it has no usable origin."""
+    parsed = QUrl(url.strip())
+    if not parsed.isValid() or not parsed.host():
+        return None
+    port = parsed.port(-1)
+    suffix = f":{port}" if port != -1 else ""
+    return f"{parsed.scheme().lower()}://{parsed.host().lower()}{suffix}"
+
+
 class FrontendSchemeHandler(QWebEngineUrlSchemeHandler):
     """Serves the bundled frontend from disk. Read-only, and only from ``root``."""
 
@@ -138,7 +149,36 @@ class FrontendSchemeHandler(QWebEngineUrlSchemeHandler):
         buffer = QBuffer(job)
         buffer.setData(QByteArray(data))
         buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+        _set_security_headers(job)
         job.reply(QByteArray(mime.encode()), buffer)
+
+
+# Sent with every response this scheme serves. The frontend also carries the
+# policy in a `<meta>` tag, but a meta tag is parsed by the document it is in:
+# it cannot govern a subresource, and `frame-ancestors` is ignored there
+# entirely. A real header is the enforcement; the meta tag is the copy of it a
+# reader finds when they open index.html.
+_RESPONSE_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    (b"Content-Security-Policy", CONTENT_SECURITY_POLICY.encode()),
+    (b"X-Content-Type-Options", b"nosniff"),
+    (b"Referrer-Policy", b"no-referrer"),
+)
+
+
+def _set_security_headers(job: QWebEngineUrlRequestJob) -> None:
+    """Attach the security headers, where Qt supports them.
+
+    ``setAdditionalResponseHeaders`` arrived in Qt 6.6. Strata pins a newer
+    PySide6 than that, so this is a guard against a future downgrade rather than
+    a live branch — and a missing header must not take the app down.
+    """
+    setter = getattr(job, "setAdditionalResponseHeaders", None)
+    if setter is None:  # pragma: no cover - depends on the Qt build
+        return
+    try:
+        setter({QByteArray(name): QByteArray(value) for name, value in _RESPONSE_HEADERS})
+    except (TypeError, RuntimeError):  # pragma: no cover - defensive
+        logger.warning("scheme.headers_unsupported")
 
 
 class StrataPage(QWebEnginePage):
@@ -152,7 +192,8 @@ class StrataPage(QWebEnginePage):
         allow_dev_server: str | None = None,
     ) -> None:
         super().__init__(profile, parent)
-        self._allow_dev_server = allow_dev_server
+        # Kept as an *origin*, not a prefix: see `_is_dev_server`.
+        self._allow_dev_server = _origin_of(allow_dev_server) if allow_dev_server else None
         self.certificateError.connect(self._reject_certificate)
 
     def acceptNavigationRequest(
@@ -165,7 +206,7 @@ class StrataPage(QWebEnginePage):
 
         if target.scheme() == SCHEME:
             return True
-        if self._allow_dev_server and target.toString().startswith(self._allow_dev_server):
+        if self._is_dev_server(target):
             return True
         if not is_main_frame:
             return False
@@ -176,6 +217,19 @@ class StrataPage(QWebEnginePage):
         else:
             logger.warning("navigation.blocked", scheme=target.scheme())
         return False
+
+    def _is_dev_server(self, target: QUrl) -> bool:
+        """Whether ``target`` is the configured dev server, by origin.
+
+        Compared as scheme+host+port rather than as a string prefix: a prefix
+        match on ``http://localhost:5173`` also accepts
+        ``http://localhost:5173.attacker.example``, and this page carries the
+        WebChannel — the one place where getting a URL comparison slightly wrong
+        hands out every bridge.
+        """
+        if not self._allow_dev_server:
+            return False
+        return _origin_of(target.toString()) == self._allow_dev_server
 
     def _confirm_external(self, url: QUrl) -> None:
         from PySide6.QtGui import QDesktopServices

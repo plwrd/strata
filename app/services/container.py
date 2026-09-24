@@ -12,14 +12,17 @@ from pathlib import Path
 
 from app.domain.collaboration import TreeNode
 from app.infrastructure.crdt.relay import DirectoryRelay, HttpRelay, Relay
+from app.infrastructure.keychain.credentials import LAYER_UNLOCK_SERVICE, CredentialStore
 from app.services.ai_generation_service import AIGenerationService
 from app.services.ai_history_service import AIHistoryService
 from app.services.ai_service import AIService
+from app.services.browser_service import BrowserService
 from app.services.capture_service import CaptureService
 from app.services.collaboration_service import CollaborationService
 from app.services.connection_service import ConnectionService
 from app.services.context_export_service import ContextExportService
 from app.services.conversation_service import ConversationService
+from app.services.digest_service import WebDigestService
 from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
@@ -28,6 +31,7 @@ from app.services.memory_service import MemoryService
 from app.services.note_service import NoteService
 from app.services.operation_service import OperationService
 from app.services.prompt_library_service import PromptLibraryService
+from app.services.research_service import ResearchService
 from app.services.retrieval_service import RetrievalService
 from app.services.review_service import ReviewService
 from app.services.search_service import SearchService
@@ -69,6 +73,7 @@ class Services:
             on_open=self.watcher.start,
             on_close=self.watcher.stop,
             encryption=self.encryption,
+            layer_passwords=CredentialStore(LAYER_UNLOCK_SERVICE),
         )
         self.versions = VersionService(self.workspace)
         self.notes = NoteService(self.workspace, versions=self.versions)
@@ -87,8 +92,13 @@ class Services:
         )
         self.ai_generation = AIGenerationService(self.ai)
         self.capture = CaptureService(self.workspace, self.notes, self.settings)
+        self.digest = WebDigestService(self.ai, self.exports)
+        self.browser = BrowserService(self.settings, paths.data_dir)
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
         self.retrieval = RetrievalService(self.search)
+        self.research = ResearchService(
+            self.ai, self.notes, self.exports, self.search, self.workspace
+        )
         self.prompts = PromptLibraryService(self.workspace)
         self.conversations = ConversationService(self.workspace)
         self.synthesis = SynthesisService(self.ai, self.notes, self.exports)

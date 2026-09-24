@@ -128,6 +128,33 @@ def test_graph_contains_notes_folders_and_tags(workspace: Services) -> None:
     assert "tag" in types
 
 
+def test_folders_connect_to_their_notes(workspace: Services) -> None:
+    layer_id = workspace.workspace.descriptor.layers[0].id
+    workspace.notes.create_folder(layer_id, "", "Projects")
+    workspace.notes.create_folder(layer_id, "Projects", "Alpha")
+    note = workspace.notes.create_note(
+        layer_id=layer_id,
+        folder_path="Projects/Alpha",
+        title="Folder Edge Probe",
+        content="A note nested under folders.",
+    )
+
+    snapshot = workspace.graph.build(include_tags=False)
+    folders = {
+        node.folder_path: node.id
+        for node in snapshot.nodes
+        if node.type == "folder" and node.layer_id == layer_id
+    }
+    membership = {
+        (edge.source, edge.target) for edge in snapshot.edges if edge.type == "folder_membership"
+    }
+
+    assert folders["Projects"]
+    assert folders["Projects/Alpha"]
+    assert (folders["Projects"], folders["Projects/Alpha"]) in membership
+    assert (folders["Projects/Alpha"], note.metadata.id) in membership
+
+
 def test_graph_can_omit_tags_and_folders(workspace: Services) -> None:
     snapshot = workspace.graph.build(include_tags=False, include_folders=False)
     types = {node.type for node in snapshot.nodes}

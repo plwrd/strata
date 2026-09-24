@@ -160,6 +160,13 @@ class RenameFolderRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
+class MoveFolderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: str = Field(min_length=1, max_length=128)
+    parent_folder_path: str = Field(default="", max_length=1024)
+
+
 class FolderResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -419,6 +426,13 @@ class NotesBridge(QObject):
     @bridge_method(RenameFolderRequest)
     def rename_folder(self, request: RenameFolderRequest) -> FolderResponse:
         folder = self._services.notes.rename_folder(request.folder_id, request.name)
+        self._announce()
+        return FolderResponse(folder=TreeFolder(**folder.model_dump()))
+
+    @Slot(str, result=str)
+    @bridge_method(MoveFolderRequest)
+    def move_folder(self, request: MoveFolderRequest) -> FolderResponse:
+        folder = self._services.notes.move_folder(request.folder_id, request.parent_folder_path)
         self._announce()
         return FolderResponse(folder=TreeFolder(**folder.model_dump()))
 

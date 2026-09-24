@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.infrastructure.storage.paths import replace_atomic
+from app.infrastructure.storage.paths import replace_atomic, write_text_atomic
 
 
 def test_replaces_on_the_first_try(tmp_path: Path) -> None:
@@ -66,3 +66,11 @@ def test_a_persistent_error_still_raises(tmp_path: Path, monkeypatch: pytest.Mon
     with pytest.raises(PermissionError):
         replace_atomic(source, tmp_path / "file.json", attempts=3)
     assert calls["count"] == 3
+
+
+def test_write_text_atomic_replaces_the_target(tmp_path: Path) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("old", encoding="utf-8")
+    write_text_atomic(path, "new body")
+    assert path.read_text(encoding="utf-8") == "new body"
+    assert not (tmp_path / "note.md.tmp").exists()

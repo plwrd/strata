@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import { DialogPortal } from "../../ui/DialogPortal";
 import { stubbornClipboardWarning } from "./clipboardNotice";
 
 interface Props {
@@ -54,75 +55,77 @@ export function RecoveryKeyDialog({
   };
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="recovery-title"
-        aria-describedby="recovery-body"
-      >
-        <h2 id="recovery-title" className="dialog__title">
-          <span className="tag tag--warning">Shown once</span> Recovery key for{" "}
-          {layerName}
-        </h2>
+    <DialogPortal>
+      <div className="dialog-backdrop" role="presentation">
+        <div
+          className="dialog"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="recovery-title"
+          aria-describedby="recovery-body"
+        >
+          <h2 id="recovery-title" className="dialog__title">
+            <span className="tag tag--warning">Shown once</span> Recovery key
+            for {layerName}
+          </h2>
 
-        <div id="recovery-body" className="dialog__body">
-          <p>
-            Write this down and keep it somewhere safe and offline. It opens the
-            layer
-            <strong> without the password</strong>.
-          </p>
+          <div id="recovery-body" className="dialog__body">
+            <p>
+              Write this down and keep it somewhere safe and offline. It opens
+              the layer
+              <strong> without the password</strong>.
+            </p>
 
-          <pre className="recovery-key" data-testid="recovery-key">
-            {recoveryKey}
-          </pre>
+            <pre className="recovery-key" data-testid="recovery-key">
+              {recoveryKey}
+            </pre>
 
-          <p className="dialog__warning">
-            <span className="tag tag--danger">There is no second copy</span>{" "}
-            Strata does not store this key and cannot show it to you again. If
-            you lose it and forget the password, the layer&apos;s contents are
-            gone permanently.
-          </p>
+            <p className="dialog__warning">
+              <span className="tag tag--danger">There is no second copy</span>{" "}
+              Strata does not store this key and cannot show it to you again. If
+              you lose it and forget the password, the layer&apos;s contents are
+              gone permanently.
+            </p>
 
-          <div className="dialog__actions dialog__actions--inline">
-            <button
-              type="button"
-              className="button"
-              onClick={() => void copy()}
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-            <button type="button" className="button" onClick={download}>
-              Save to a file
-            </button>
+            <div className="dialog__actions dialog__actions--inline">
+              <button
+                type="button"
+                className="button"
+                onClick={() => void copy()}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <button type="button" className="button" onClick={download}>
+                Save to a file
+              </button>
+            </div>
+
+            {copied && (
+              <p className="dialog__footnote">{stubbornClipboardWarning}</p>
+            )}
+
+            <label className="dialog__choice dialog__choice--confirm">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={(event) => setAcknowledged(event.target.checked)}
+              />
+              <span>I have saved this recovery key somewhere safe.</span>
+            </label>
           </div>
 
-          {copied && (
-            <p className="dialog__footnote">{stubbornClipboardWarning}</p>
-          )}
-
-          <label className="dialog__choice dialog__choice--confirm">
-            <input
-              type="checkbox"
-              checked={acknowledged}
-              onChange={(event) => setAcknowledged(event.target.checked)}
-            />
-            <span>I have saved this recovery key somewhere safe.</span>
-          </label>
-        </div>
-
-        <div className="dialog__actions">
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={!acknowledged}
-            onClick={onClose}
-          >
-            Done
-          </button>
+          <div className="dialog__actions">
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={!acknowledged}
+              onClick={onClose}
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </DialogPortal>
   );
 }

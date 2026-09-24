@@ -66,6 +66,6 @@ describe("PromptLibraryPanel", () => {
     installFakeBridge({ prompts: [] });
     render(<PromptLibraryPanel />);
 
-    expect(await screen.findByText("No saved prompts yet")).toBeInTheDocument();
+    expect(await screen.findByText("No saved prompts")).toBeInTheDocument();
   });
 });

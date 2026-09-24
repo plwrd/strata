@@ -112,6 +112,19 @@ export function MarkdownPreview({
           // Untrusted input: no HTML labels, no click bindings, no script tags.
           securityLevel: "strict",
           darkMode: true,
+          themeVariables: {
+            background: "#080b16",
+            primaryTextColor: "#e8edf7",
+            secondaryTextColor: "#93a1bd",
+            tertiaryTextColor: "#93a1bd",
+            lineColor: "#93a1bd",
+            textColor: "#e8edf7",
+            mainBkg: "#141a2c",
+            nodeBorder: "#22e0f5",
+            clusterBkg: "#0e1322",
+            titleColor: "#e8edf7",
+            edgeLabelBackground: "#0e1322",
+          },
         });
 
         for (const [index, block] of Array.from(blocks).entries()) {

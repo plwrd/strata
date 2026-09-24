@@ -1,6 +1,7 @@
 # Strata — System Architecture
 
-Version 0.1.0. **M0 and M1 are implemented**; everything tagged M2+ is design.
+Version 1.3.1. Encryption, notes, search, graph, AI operations, and collaboration
+are implemented. Remaining work is hardening (M11), not the original M2/M3 scaffold.
 
 Related: [storage-layout.md](storage-layout.md) · [encryption-format.md](../security/encryption-format.md) ·
 [THREAT_MODEL.md](../../THREAT_MODEL.md) · [glossary.md](../product/glossary.md)

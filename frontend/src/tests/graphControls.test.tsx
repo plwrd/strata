@@ -38,6 +38,7 @@ describe("GraphControls", () => {
   it("shows the lasso hint only in 2D", () => {
     const { rerender } = render(<GraphControls />);
     expect(screen.getByText(/shift-drag to lasso/)).toBeInTheDocument();
+    expect(screen.getByText(/scroll to zoom/)).toBeInTheDocument();
 
     useStore.setState({ dimension: "3d" });
     rerender(<GraphControls />);
@@ -69,5 +70,13 @@ describe("GraphControls", () => {
     render(<GraphControls />);
     await userEvent.click(screen.getByLabelText("Semantic edges"));
     expect(useStore.getState().semanticEdges).toBe(true);
+  });
+
+  it("announces a truncated graph", () => {
+    useStore.setState({
+      graph: { ...SAMPLE_GRAPH, truncated: true, total_nodes: 400 },
+    });
+    render(<GraphControls />);
+    expect(screen.getByText(/Showing 5 of 400 nodes/)).toBeInTheDocument();
   });
 });

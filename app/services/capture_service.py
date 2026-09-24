@@ -71,8 +71,15 @@ class CaptureService:
         source_author: str = "",
         capture_reason: str = "",
         tags: list[str] | None = None,
+        extra_properties: dict[str, str] | None = None,
     ) -> Note:
-        """Create a raw capture in the layer's Inbox. Fast path, no questions."""
+        """Create a capture in the layer's Inbox.
+
+        ``extra_properties`` lets a caller stamp provenance on a capture that is
+        not raw page text — an AI digest carries ``review_status: ai-inferred``,
+        the execution that made it, and its ``digest_mode`` — without every
+        caller having to know the capture schema.
+        """
         text = content.strip()
         if not text and not title.strip():
             raise InvalidRequestError("There is nothing to capture.")
@@ -93,11 +100,14 @@ class CaptureService:
             properties["capture_reason"] = capture_reason
         if tags:
             properties["tags"] = [tag.strip() for tag in tags if tag.strip()][:20]
+        if extra_properties:
+            # A digest is not raw material — it has already been processed.
+            properties.update(extra_properties)
 
         note = self._notes.create_note(
             layer_id=target_layer,
             folder_path=INBOX_FOLDER,
-            title=self._title_for(title, text),
+            title=self._unique_title(target_layer, self._title_for(title, text)),
             content=text,
             properties=properties,
         )
@@ -119,6 +129,24 @@ class CaptureService:
         if first_public is None:
             raise InvalidRequestError("No writable public layer is available for capture.")
         return first_public
+
+    def _unique_title(self, layer_id: str, title: str) -> str:
+        """Capture must not fail because you saved the same page twice.
+
+        Re-reading a page you already kept is an ordinary thing to do — the
+        second one is a new capture at a new time, not an error — so a clashing
+        title gets a counter rather than a refusal."""
+        existing = {
+            note.metadata.title.strip().lower()
+            for note in self._notes.list_notes([layer_id])
+            if note.metadata.folder_path == INBOX_FOLDER
+        }
+        if title.strip().lower() not in existing:
+            return title
+        counter = 2
+        while f"{title} {counter}".strip().lower() in existing:
+            counter += 1
+        return f"{title} {counter}"[:120]
 
     def _title_for(self, title: str, text: str) -> str:
         cleaned = title.strip()

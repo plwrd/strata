@@ -59,6 +59,25 @@ class ProcessNotesRequest(BaseModel):
     profile: ProcessingProfile = "general"
 
 
+class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=128)
+    note_ids: list[str] = Field(min_length=1, max_length=10)
+    # The layers the user ticked. This is the outer boundary of the whole
+    # operation: retrieval reads nothing outside it and no proposed operation
+    # may target a layer that is not in it.
+    layer_ids: list[str] = Field(min_length=1, max_length=200)
+    # Where nodes with no existing parent land. Must be one of `layer_ids`.
+    target_layer_id: str = Field(default="", max_length=128)
+    # An optional steer for this run only — "pricing and limits", "just the API
+    # surface". Capped because it is pasted into a prompt, and not stored: the
+    # next analysis starts from whatever the user types then.
+    focus: str = Field(default="", max_length=500)
+    confirmed_remote: bool = False
+
+
 class ProcessNotesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -265,6 +284,68 @@ class OperationsBridge(QObject):
         record = self._services.jobs.submit(
             job_type="ai_request",
             title=f"Process {len(notes)} note(s) into knowledge",
+            work=work,
+            privacy="private" if involves_private else "public",
+        )
+        return ProcessNotesResponse(request_id=record.id)
+
+    # -- research filing ------------------------------------------------------
+
+    @Slot(str, result=str)
+    @bridge_method(ResearchRequest)
+    def file_research(self, request: ResearchRequest) -> ProcessNotesResponse:
+        """Work out where scraped material belongs — as a plan.
+
+        Unlike processing, this proposes changes to notes that already exist
+        (``append_note`` under a visible provenance line) as well as new
+        subnodes beneath them. Every target is validated against the retrieved
+        candidate shortlist *and* the selected layers before it reaches the
+        plan, and the plan still goes through the normal review → apply flow.
+        """
+        notes = self._services.notes.get_notes(request.note_ids)
+        if not notes:
+            raise InvalidRequestError("None of the selected captures are readable.")
+        private_layers = {
+            layer.id
+            for layer in self._services.workspace.descriptor.layers
+            if layer.visibility == "private"
+        }
+        involves_private = any(note.metadata.layer_id in private_layers for note in notes) or any(
+            layer_id in private_layers for layer_id in request.layer_ids
+        )
+
+        def work(handle: Any) -> dict[str, Any]:
+            handle.progress(0.1, f"Filing {len(notes)} capture(s)")
+            try:
+                proposal = self._services.research.analyse_sync(
+                    note_ids=request.note_ids,
+                    layer_ids=request.layer_ids,
+                    provider_id=request.provider_id,
+                    model=request.model,
+                    target_layer_id=request.target_layer_id,
+                    focus=request.focus,
+                    confirmed_remote=request.confirmed_remote,
+                )
+            except Exception as exc:
+                from app.domain.errors import StrataError
+
+                message = exc.message if isinstance(exc, StrataError) else "Filing failed."
+                self._emit(handle.id, {"kind": "error", "error": message})
+                raise
+            handle.progress(0.9, "Proposal ready for review")
+            self._emit(
+                handle.id,
+                {
+                    "kind": "plan",
+                    "plan": proposal.plan.model_dump(),
+                    "warnings": proposal.warnings,
+                },
+            )
+            return {"operations": len(proposal.plan.operations)}
+
+        record = self._services.jobs.submit(
+            job_type="ai_request",
+            title=f"File {len(notes)} capture(s) into the graph",
             work=work,
             privacy="private" if involves_private else "public",
         )

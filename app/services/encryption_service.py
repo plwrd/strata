@@ -23,6 +23,7 @@ from app.infrastructure.encryption.layer_header import (
     generate_recovery_key,
 )
 from app.infrastructure.encryption.primitives import DecryptionError, random_key
+from app.infrastructure.encryption.rotation_journal import RotationJournal
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.encrypted_store import EncryptedLayerStore
 
@@ -103,6 +104,7 @@ class EncryptionService:
             logger.warning("layer.unlock_failed", layer_id=layer_id)
             raise
         self.keys.unlock(layer_id, layer_key)
+        self._resume_rotation(layer_id, root, layer_key, password)
         return header
 
     def unlock_with_recovery_key(self, layer_id: str, root: Path, recovery_key: str) -> LayerHeader:
@@ -110,6 +112,7 @@ class EncryptionService:
         layer_key = header.unlock_with_recovery_key(recovery_key)
         self.keys.unlock(layer_id, layer_key)
         logger.info("layer.unlocked_via_recovery", layer_id=layer_id)
+        self._resume_rotation(layer_id, root, layer_key, password=None)
         return header
 
     def lock(self, layer_id: str) -> bool:
@@ -164,23 +167,94 @@ class EncryptionService:
         This is the operation that actually revokes a former collaborator — a
         password change does not, because they may already hold the layer key.
 
-        It is not atomic across a crash: if the process dies mid-rotation, some
-        objects are under the new key and some under the old. The header is only
-        written *after* every object succeeds, so a crashed rotation leaves the old
-        header in place, and the old key still opens the objects that were not yet
-        rewritten. Recovering the ones that were is Milestone 11's job (a rotation
-        journal); until then, back up before rotating, and the UI says so.
+        Progress is journalled: the new key is stored wrapped with the old key,
+        and each rewritten object id is recorded before the header is committed.
+        A crash mid-rotation is resumed on the next unlock or rotate.
         """
         header = self._load_header(root, layer_id)
         old_key = header.unlock_with_password(password)
-        new_key = random_key()
+        return self._rotate_with_old_key(layer_id, root, header, old_key, password)
+
+    def _resume_rotation(
+        self, layer_id: str, root: Path, old_key: bytes, password: str | None
+    ) -> None:
+        journal = RotationJournal(root)
+        if not journal.exists():
+            return
+        try:
+            header = self._load_header(root, layer_id)
+            self._finish_rotation(layer_id, root, header, old_key, password)
+        except Exception:
+            logger.exception("layer.rotation_resume_failed", layer_id=layer_id)
+
+    def _rotate_with_old_key(
+        self,
+        layer_id: str,
+        root: Path,
+        header: LayerHeader,
+        old_key: bytes,
+        password: str,
+    ) -> int:
+        return self._finish_rotation(layer_id, root, header, old_key, password)
+
+    def _finish_rotation(
+        self,
+        layer_id: str,
+        root: Path,
+        header: LayerHeader,
+        old_key: bytes,
+        password: str | None,
+    ) -> int:
+        journal = RotationJournal(root)
+        if journal.exists():
+            state = journal.load(old_key)
+            new_key = state.new_key
+            done = set(state.done_object_ids)
+        else:
+            new_key = random_key()
+            done = set()
+            journal.save(
+                layer_id=layer_id,
+                manifest_object_id=header.manifest_object_id,
+                padding_enabled=header.padding_enabled,
+                done_object_ids=[],
+                old_key=old_key,
+                new_key=new_key,
+            )
 
         store = EncryptedLayerStore(layer_id, root, padding=header.padding_enabled)
-        rewritten = store.rotate(old_key, new_key, header.manifest_object_id)
+
+        def persist(object_id: str) -> None:
+            done.add(object_id)
+            journal.save(
+                layer_id=layer_id,
+                manifest_object_id=header.manifest_object_id,
+                padding_enabled=header.padding_enabled,
+                done_object_ids=sorted(done),
+                old_key=old_key,
+                new_key=new_key,
+            )
+
+        rewritten = store.rotate(
+            old_key,
+            new_key,
+            header.manifest_object_id,
+            done=set(done),
+            on_progress=persist,
+        )
+
+        if password is None:
+            # Unlock-time resume: objects are on the new key, but committing the
+            # header requires the password (to rewrap). Keep the journal and hold
+            # the new key in memory so the layer is usable until rotate finishes.
+            self.keys.unlock(layer_id, new_key)
+            logger.warning("layer.rotation_incomplete_header", layer_id=layer_id)
+            return rewritten
 
         header.rewrap_for_rotation(password, new_key)
         header.updated_at = _now()
         header.save(root)
+        journal.clear()
 
         self.keys.unlock(layer_id, new_key)
         logger.info(

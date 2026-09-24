@@ -110,6 +110,14 @@ blob sizes, timing, peer identities (pseudonymous), and nothing else — no text
 structure. This is stated as a requirement on the transport, and it is why the CRDT must live behind the
 encryption boundary rather than in front of it.
 
+**Awareness/presence is inside that boundary too.** It is tempting to treat presence as metadata and
+send it in the clear — it is ephemeral, and it is not document content. But it names the person, the
+note they have open and their cursor offset, which is precisely the "who is working on what, and when"
+this ADR promises the relay cannot see. Each awareness blob is sealed under the LDK with its own object
+type, with the AAD binding the layer, the document *and the peer id* — the relay indexes presence by
+peer, so without that last binding it could re-serve one peer's blob in another's slot. A blob that
+fails to open is dropped, which also means a relay cannot invent a collaborator for the UI to show.
+
 Persistence: updates accumulate as encrypted objects (ADR-0004) and are periodically **compacted** into
 a new base state, with the old update objects GC'd. Without compaction a Yjs document's update log grows
 without bound; with it, a long-lived layer stays proportional to its live content plus its tombstones.

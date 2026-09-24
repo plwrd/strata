@@ -50,6 +50,11 @@ export function AppContextMenu(): JSX.Element | null {
       const target = event.target as HTMLElement | null;
       // Editable surfaces keep the OS cut/copy/paste menu.
       if (target?.closest(EDITABLE)) return;
+      // The Files panel owns its own tree-scoped menu.
+      if (target?.closest('[data-tour="files"]')) {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       setPosition({ x: event.clientX, y: event.clientY });
     };

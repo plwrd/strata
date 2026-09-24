@@ -255,7 +255,17 @@ def test_unlocking_reveals_the_content(services: Services, paths: Paths) -> None
     assert note.metadata.properties["status"] == "confidential"
 
     assert reopened.search.search("Northwind")[0].title == SECRET_TITLE
-    assert SECRET_TITLE in {node.label for node in reopened.graph.build().nodes}
+    snapshot = reopened.graph.build()
+    assert SECRET_TITLE in {node.label for node in snapshot.nodes}
+    folder = next(
+        node
+        for node in snapshot.nodes
+        if node.type == "folder" and node.folder_path == SECRET_FOLDER
+    )
+    assert any(
+        edge.type == "folder_membership" and edge.source == folder.id and edge.target == note_id
+        for edge in snapshot.edges
+    )
 
 
 def test_locking_again_forgets_everything(services: Services) -> None:

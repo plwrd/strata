@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
 
     <!--
       The Content Security Policy is declared here *and* enforced by the Qt
@@ -16,7 +17,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
     />
 
     <title>Strata</title>
@@ -25,6 +26,8 @@
       qwebchannel.js is extracted from Qt's own resources at build time by
       scripts/sync_qwebchannel.py, so it is served from our origin under
       `script-src 'self'` rather than from `qrc:`.
+      `script-src blob:` is required for Vite ES module workers (graph layout)
+      and for drei/troika workers nested under worker-src blob:.
     -->
     <script src="./qwebchannel.js"></script>
   </head>

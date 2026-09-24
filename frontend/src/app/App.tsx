@@ -2,16 +2,22 @@
  * The application shell: three columns, three modes, one selection.
  *
  * The layout is responsive by *collapsing structure*, not by hiding function:
- * below 1200px the inspector becomes a drawer, below 900px the navigator does
+ * below 1280px the inspector becomes a drawer, below 960px the navigator does
  * too, and every control remains reachable from the keyboard at every size.
  */
 
 import { useEffect, useState } from "react";
 import { AIComposerPanel } from "../features/ai-composer/AIComposerPanel";
+import { BrowserPanel } from "../features/browser/BrowserPanel";
 import { CollaborationPanel } from "../features/collaboration/CollaborationPanel";
 import { EditorPane } from "../features/editor/EditorPane";
 import { FileTree } from "../features/explorer/FileTree";
 import { LinksPanel } from "../features/links/LinksPanel";
+import { OnboardingTour } from "../features/onboarding/OnboardingTour";
+import {
+  registerShellChrome,
+  type InspectorTab,
+} from "../features/onboarding/shellChrome";
 import { OperationsPanel } from "../features/operations/OperationsPanel";
 import { PropertiesPanel } from "../features/properties/PropertiesPanel";
 import { Graph2D } from "../features/graph-2d/Graph2D";
@@ -22,6 +28,7 @@ import { GraphList } from "../features/graph/GraphList";
 import { useGraphLayout } from "../features/graph/useGraphLayout";
 import { isWebGLAvailable } from "../features/graph/webgl";
 import { LayerPanel } from "../features/layers/LayerPanel";
+import { CommandStage } from "../features/operations/CommandStage";
 import { SearchPanel } from "../features/search/SearchPanel";
 import { ViewsStage } from "../features/views/ViewsStage";
 import { CommandBar } from "../features/workspace/CommandBar";
@@ -29,9 +36,10 @@ import { StatusBar } from "../features/workspace/StatusBar";
 import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useStore } from "../state/store";
 import { AppContextMenu } from "./ContextMenu";
+import { ErrorBanner } from "./ErrorBanner";
+import { NavigatorAccordion } from "./NavigatorAccordion";
 import { SelectionRing } from "./SelectionRing";
-
-type InspectorTab = "ai" | "operations" | "properties" | "links";
+import { handleGlobalShortcut } from "./shortcuts";
 
 const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
   { value: "ai", label: "AI" },
@@ -40,6 +48,66 @@ const INSPECTOR_TABS: { value: InspectorTab; label: string }[] = [
   { value: "links", label: "Links" },
 ];
 
+const CHEVRON_LEFT =
+  "M10.2 3.2a.75.75 0 0 1 0 1.06L6.46 8l3.74 3.74a.75.75 0 1 1-1.06 1.06l-4.27-4.27a.75.75 0 0 1 0-1.06l4.27-4.27a.75.75 0 0 1 1.06 0Z";
+const CHEVRON_RIGHT =
+  "M5.8 3.2a.75.75 0 0 1 1.06 0l4.27 4.27a.75.75 0 0 1 0 1.06L6.86 12.8a.75.75 0 1 1-1.06-1.06L9.54 8 5.8 4.26a.75.75 0 0 1 0-1.06Z";
+
+function RailToggle(props: {
+  kind: "nav" | "inspector";
+  open: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  const collapsing = props.open;
+  const label =
+    props.kind === "nav"
+      ? collapsing
+        ? "Collapse navigator"
+        : "Expand navigator"
+      : collapsing
+        ? "Collapse inspector"
+        : "Expand inspector";
+  // Nav open → point left (collapse); nav closed → point right (expand).
+  // Inspector open → point right; inspector closed → point left.
+  const path =
+    props.kind === "nav"
+      ? collapsing
+        ? CHEVRON_LEFT
+        : CHEVRON_RIGHT
+      : collapsing
+        ? CHEVRON_RIGHT
+        : CHEVRON_LEFT;
+
+  return (
+    <button
+      type="button"
+      className={[
+        "drawer-toggle",
+        `drawer-toggle--${props.kind}`,
+        props.open ? "" : "drawer-toggle--recover",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-expanded={props.open}
+      aria-controls={props.kind === "nav" ? "navigator" : "inspector"}
+      aria-label={label}
+      title={label}
+      onClick={props.onToggle}
+    >
+      <svg
+        className="drawer-toggle__icon"
+        viewBox="0 0 16 16"
+        width="12"
+        height="12"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path fill="currentColor" d={path} />
+      </svg>
+    </button>
+  );
+}
+
 export function App(): JSX.Element {
   const state = useStore();
   const reducedMotion = useReducedMotion();
@@ -47,16 +115,10 @@ export function App(): JSX.Element {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("ai");
 
-  // The inspector follows the mode: Focus is about the note (properties), Command
-  // is about bulk AI change (Changes), Explore/Views are about selection (AI).
+  // The inspector follows the mode: Focus → Properties; otherwise AI.
+  // Command hosts Changes in the centre stage, so the inspector stays on AI.
   useEffect(() => {
-    setInspectorTab(
-      state.mode === "focus"
-        ? "properties"
-        : state.mode === "command"
-          ? "operations"
-          : "ai",
-    );
+    setInspectorTab(state.mode === "focus" ? "properties" : "ai");
   }, [state.mode]);
 
   useEffect(() => {
@@ -65,25 +127,28 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ctrl/Cmd+N: new note in the first unlocked layer — the shortcut the empty
-  // editor advertises. Qt WebEngine has no browser chrome, so nothing else
-  // claims the combination.
+  useEffect(() => {
+    registerShellChrome({
+      setNavOpen,
+      setInspectorOpen,
+      setInspectorTab,
+    });
+    return () => registerShellChrome(null);
+  }, []);
+
+  // Global shortcuts. The mapping lives in `shortcuts.ts`; this only wires it
+  // to the window for the life of the shell.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "n")
-        return;
-      const target = useStore
-        .getState()
-        .layers.find((layer) => layer.state !== "locked");
-      if (!target) return;
-      event.preventDefault();
-      void useStore.getState().createNote(target.id, "");
+      handleGlobalShortcut(event, useStore.getState());
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const quality = state.settings?.graph_quality ?? "balanced";
+  const qualitySetting = state.settings?.graph_quality ?? "balanced";
+  const quality =
+    state.settings?.battery_saver === true ? "low-gpu" : qualitySetting;
   // Low-GPU mode is a user choice; missing WebGL is a fact. Either one means the
   // 3D canvas is never mounted, rather than mounted and then crashing.
   const webgl = isWebGLAvailable();
@@ -98,9 +163,16 @@ export function App(): JSX.Element {
     id: string,
     modifiers: { ctrl: boolean; shift: boolean },
   ): void => {
-    if (modifiers.shift) state.rangeSelect(id);
-    else if (modifiers.ctrl) state.toggleSelect(id);
-    else state.select(id);
+    const store = useStore.getState();
+    if (modifiers.shift) {
+      store.rangeSelect(id);
+      return;
+    }
+    if (modifiers.ctrl) {
+      store.toggleSelect(id);
+      return;
+    }
+    store.select(id);
   };
 
   if (state.connection === "connecting") {
@@ -130,47 +202,90 @@ export function App(): JSX.Element {
     <div className="shell" data-mode={state.mode}>
       <CommandBar />
 
-      <div className="shell__body">
-        <button
-          type="button"
-          className="drawer-toggle drawer-toggle--left"
-          aria-expanded={navOpen}
-          aria-controls="navigator"
-          onClick={() => setNavOpen((open) => !open)}
-        >
-          {navOpen ? "◀" : "▶"}
-          <span className="visually-hidden">Toggle the navigator</span>
-        </button>
-
+      <div
+        className={[
+          "shell__body",
+          navOpen ? "" : "shell__body--nav-closed",
+          inspectorOpen ? "" : "shell__body--inspector-closed",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <aside
           id="navigator"
           className={`navigator ${navOpen ? "" : "navigator--closed"}`}
           aria-label="Navigator"
+          aria-hidden={!navOpen}
         >
           <div className="scroll-y navigator__scroll">
-            <LayerPanel />
-            <FileTree />
-            <SearchPanel />
-            <CollaborationPanel />
-            {state.graph && (
-              <GraphList
-                graph={state.graph}
-                selectedIds={state.selectedIds}
-                onSelect={handleSelect}
-                onOpen={(id) => void state.openNoteById(id)}
-                onSelectAll={(ids) => state.selectMany(ids)}
-              />
-            )}
+            <NavigatorAccordion
+              sections={[
+                {
+                  id: "layers",
+                  label: "Layers",
+                  defaultOpen: true,
+                  children: <LayerPanel />,
+                },
+                {
+                  id: "files",
+                  label: "Files",
+                  defaultOpen: true,
+                  children: <FileTree />,
+                },
+                {
+                  id: "search",
+                  label: "Search",
+                  children: <SearchPanel />,
+                },
+                {
+                  id: "research",
+                  label: "Research",
+                  children: <BrowserPanel />,
+                },
+                {
+                  id: "collab",
+                  label: "Collaboration",
+                  children: <CollaborationPanel />,
+                },
+                {
+                  id: "graph",
+                  label: "Graph",
+                  children: state.graph ? (
+                    <GraphList
+                      graph={state.graph}
+                      selectedIds={state.selectedIds}
+                      onSelect={handleSelect}
+                      onOpen={(id) => void state.openNoteById(id)}
+                      onSelectAll={(ids) => state.selectMany(ids)}
+                    />
+                  ) : (
+                    <p className="empty-state">Graph not loaded yet.</p>
+                  ),
+                },
+              ]}
+            />
           </div>
         </aside>
 
         <main className="stage" aria-label="Workspace">
+          <RailToggle
+            kind="nav"
+            open={navOpen}
+            onToggle={() => setNavOpen((open) => !open)}
+          />
+          <RailToggle
+            kind="inspector"
+            open={inspectorOpen}
+            onToggle={() => setInspectorOpen((open) => !open)}
+          />
           {state.mode === "focus" ? (
             <EditorPane />
           ) : state.mode === "views" ? (
             <ViewsStage />
+          ) : state.mode === "command" ? (
+            <CommandStage />
           ) : (
-            <div className="stage__graph">
+            <div className="stage__graph" data-tour="graph">
               {state.loadingGraph || computing ? (
                 <p className="stage__loading mono" role="status">
                   {computing ? "computing layout…" : "loading graph…"}
@@ -183,6 +298,14 @@ export function App(): JSX.Element {
 
               {state.graph && state.graph.nodes.length > 0 && (
                 <>
+                  {state.graph.truncated && (
+                    <p className="stage__fallback mono" role="status">
+                      Showing {state.graph.nodes.length} of{" "}
+                      {state.graph.total_nodes} nodes. The rest are omitted
+                      until the graph is filtered.
+                    </p>
+                  )}
+
                   {state.dimension === "3d" && !webgl && (
                     <p className="stage__fallback mono" role="status">
                       This display has no WebGL, so the 2D graph is shown.
@@ -240,21 +363,11 @@ export function App(): JSX.Element {
           )}
         </main>
 
-        <button
-          type="button"
-          className="drawer-toggle drawer-toggle--right"
-          aria-expanded={inspectorOpen}
-          aria-controls="inspector"
-          onClick={() => setInspectorOpen((open) => !open)}
-        >
-          {inspectorOpen ? "▶" : "◀"}
-          <span className="visually-hidden">Toggle the inspector</span>
-        </button>
-
         <aside
           id="inspector"
           className={`inspector ${inspectorOpen ? "" : "inspector--closed"}`}
           aria-label="Inspector"
+          aria-hidden={!inspectorOpen}
         >
           <div
             className="inspector__tabs"
@@ -268,6 +381,7 @@ export function App(): JSX.Element {
                 role="tab"
                 aria-selected={inspectorTab === tab.value}
                 className={`inspector__tab ${inspectorTab === tab.value ? "inspector__tab--active" : ""}`}
+                data-tour={tab.value === "ai" ? "inspector-ai-tab" : undefined}
                 onClick={() => setInspectorTab(tab.value)}
               >
                 {tab.label}
@@ -276,16 +390,34 @@ export function App(): JSX.Element {
           </div>
 
           <div className="inspector__body scroll-y">
-            {inspectorTab === "ai" && <AIComposerPanel />}
-            {inspectorTab === "operations" && <OperationsPanel />}
+            {inspectorTab === "ai" &&
+              (state.mode === "command" ? (
+                <p className="empty-state">
+                  Ask / export lives in the Command stage under the{" "}
+                  <strong>Ask / export</strong> tab.
+                </p>
+              ) : (
+                <AIComposerPanel />
+              ))}
+            {inspectorTab === "operations" &&
+              (state.mode === "command" ? (
+                <p className="empty-state">
+                  Change plans live in the Command stage under{" "}
+                  <strong>Changes</strong>.
+                </p>
+              ) : (
+                <OperationsPanel />
+              ))}
             {inspectorTab === "properties" && <PropertiesPanel />}
             {inspectorTab === "links" && <LinksPanel />}
           </div>
         </aside>
       </div>
 
+      <ErrorBanner />
       <StatusBar />
       <AppContextMenu />
+      <OnboardingTour />
     </div>
   );
 }

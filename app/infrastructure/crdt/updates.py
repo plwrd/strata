@@ -22,6 +22,7 @@ import hashlib
 from app.infrastructure.encryption.container import (
     TYPE_CRDT_STATE,
     TYPE_CRDT_UPDATE,
+    TYPE_PRESENCE,
     ObjectHeader,
     open_sealed,
     seal,
@@ -78,3 +79,43 @@ def open_update(
     if header.object_id != update_object_id(doc_id, plaintext):
         raise DecryptionError("The update object id does not bind its content.")
     return plaintext
+
+
+def presence_object_id(doc_id: str, peer_id: str) -> bytes:
+    """A 16-byte id binding a presence blob to its document *and its peer*.
+
+    The peer id is bound rather than merely contained: the relay indexes presence
+    by peer, and without this binding it could serve peer A's sealed blob under
+    peer B's slot and the reader would believe it. Here the reader re-derives the
+    id from the slot it fetched, so a moved blob fails to open.
+    """
+    material = doc_id.encode("utf-8") + b"\x00" + peer_id.encode("utf-8")
+    return hashlib.blake2b(material, digest_size=16).digest()
+
+
+def seal_presence(*, key: bytes, layer_id: str, doc_id: str, peer_id: str, payload: bytes) -> bytes:
+    """Seal one awareness blob for the relay.
+
+    Presence is ephemeral, but it is not nothing: it says who is here, which note
+    they have open and where their cursor is. ADR-0006 promises the relay sees
+    ciphertext only, and that promise has to cover this too.
+    """
+    return seal(
+        key=key,
+        layer_id=layer_id,
+        object_id=presence_object_id(doc_id, peer_id),
+        object_type=TYPE_PRESENCE,
+        plaintext=payload,
+        pad=True,
+    )
+
+
+def open_presence(*, key: bytes, layer_id: str, doc_id: str, peer_id: str, blob: bytes) -> bytes:
+    """Verify and decrypt an awareness blob announced under ``peer_id``."""
+    return open_sealed(
+        key=key,
+        layer_id=layer_id,
+        object_id=presence_object_id(doc_id, peer_id),
+        expected_type=TYPE_PRESENCE,
+        blob=blob,
+    )

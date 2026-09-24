@@ -1,6 +1,9 @@
 import react from "@vitejs/plugin-react";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vitest/config";
+
+const rootDir = dirname(fileURLToPath(import.meta.url));
 
 // The bundle is loaded from `strata://app/index.html` inside Qt WebEngine, never
 // from a web server. Relative asset paths are therefore mandatory: an absolute
@@ -20,6 +23,10 @@ export default defineConfig({
     target: "chrome120", // Qt 6.8 ships Chromium 122
     sourcemap: true,
     rollupOptions: {
+      input: {
+        main: resolve(rootDir, "index.html"),
+        humazie: resolve(rootDir, "humazie.html"),
+      },
       output: {
         manualChunks: {
           three: ["three", "@react-three/fiber", "@react-three/drei"],

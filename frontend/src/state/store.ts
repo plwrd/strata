@@ -12,9 +12,15 @@ import { create } from "zustand";
 import { bridge, BridgeCallError } from "../bridge/client";
 import { dropSession } from "../features/collaboration/collabDoc";
 import type { ImportedFile } from "../features/explorer/importDrop";
+import { applyTheme } from "../features/settings/applyTheme";
+import {
+  DEFAULT_LOCAL_MODEL,
+  pickInstalledModel,
+} from "../features/ai-composer/localModel";
 import type {
   AIStreamEvent,
   AppSettings,
+  CaptureProtection,
   CollaborationState,
   ConflictRecord,
   ContentMode,
@@ -32,6 +38,7 @@ import type {
   PolicyView,
   PrivacyReceipt,
   UsedSource,
+  ProviderHealthView,
   ProviderView,
   SearchResult,
   TrashEntry,
@@ -70,6 +77,9 @@ const saveQueue = new Map<string, string>();
 const savingNotes = new Set<string>();
 // Monotonic token so a slow note-open response cannot overwrite a newer one.
 let openRequestToken = 0;
+// Recently closed tab ids for Ctrl/Cmd+Shift+T (session-only, newest last).
+const closedTabStack: string[] = [];
+const MAX_CLOSED_TABS = 30;
 
 export interface SelectionSummary {
   count: number;
@@ -79,10 +89,11 @@ export interface SelectionSummary {
   privateCount: number;
 }
 
-interface StrataState {
+export interface StrataState {
   // connection
   connection: ConnectionState;
   connectionMessage: string;
+  lastError: string | null;
   health: HealthResponse | null;
 
   // workspace
@@ -96,11 +107,22 @@ interface StrataState {
   mode: AppMode;
   dimension: GraphDimension;
   settings: AppSettings | null;
+  /**
+   * What the OS granted for "Hidden for sharing" — not what was asked for.
+   * The settings dialog renders this rather than the toggle's own value, so a
+   * platform that refused the request cannot be displayed as protection.
+   */
+  captureProtection: CaptureProtection;
   activeLensId: string;
 
   // graph display options
   semanticEdges: boolean;
   clusterColors: boolean;
+
+  // Files panel chrome (session-only; not persisted to AppSettings)
+  explorerDensity: "list" | "large";
+  /** When true, Files drag-and-drop (moves + OS import) is disabled. */
+  explorerFrozen: boolean;
 
   // collaboration (M9)
   collab: Record<string, CollaborationState>;
@@ -142,6 +164,9 @@ interface StrataState {
   tokenBudget: number | null;
   providers: ProviderView[];
   keychainAvailable: boolean;
+  providerModels: ProviderHealthView["models"];
+  providerReachable: boolean | null;
+  providerHealthDetail: string;
   plan: ContextPlan | null;
   planning: boolean;
   planError: string | null;
@@ -161,11 +186,36 @@ interface StrataState {
   aiExecutionId: string | null;
   aiSources: UsedSource[];
 
+  // A plan job started somewhere other than the Changes panel — research
+  // filing, today. The panel that owns plan review adopts it and takes over the
+  // waiting, so a second copy of the review UI never has to exist.
+  /** Settings dialog visibility. In the store, not CommandBar's local state,
+   * because a global shortcut has to be able to open it. */
+  settingsOpen: boolean;
+  /** Bumped whenever the browser pane is toggled from outside the Research
+   * panel, so the panel knows to re-read a status it did not change itself. */
+  browserRevision: number;
+
+  handedOffPlanRequestId: string | null;
+  /** The layers that plan is allowed to touch — the ones the user ticked. */
+  handedOffPlanLayerIds: string[];
+
   // actions
   initialise: () => Promise<void>;
+  clearLastError: () => void;
+  setSettingsOpen: (open: boolean) => void;
+  /** Open or close the research browser pane (Ctrl/Cmd+Shift+B). */
+  toggleBrowserPane: () => Promise<void>;
+  toggleBrowserBlur: () => Promise<void>;
+  /** Hand a running plan job to the Changes panel and switch to it. */
+  handOffPlanRequest: (requestId: string, layerIds: string[]) => void;
+  /** Take the handed-off job, once. Null when there is none. */
+  claimPlanRequest: () => { requestId: string; layerIds: string[] } | null;
   setMode: (mode: AppMode) => void;
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
+  chooseBrowserExtension: () => Promise<void>;
+  chooseUserScript: () => Promise<void>;
 
   reloadGraph: () => Promise<void>;
   reloadTree: () => Promise<void>;
@@ -173,6 +223,8 @@ interface StrataState {
   // editor + files
   openNoteById: (noteId: string) => Promise<void>;
   closeTab: (noteId: string) => void;
+  /** Reopen the most recently closed tab (Ctrl/Cmd+Shift+T). */
+  reopenClosedTab: () => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
   setDraft: (noteId: string, content: string) => void;
   saveNote: (noteId: string, content: string) => Promise<void>;
@@ -189,8 +241,12 @@ interface StrataState {
   duplicateNote: (noteId: string) => Promise<void>;
   deleteNote: (noteId: string) => Promise<void>;
   restoreNote: (entry: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
+  setExplorerDensity: (density: "list" | "large") => void;
+  setExplorerFrozen: (frozen: boolean) => void;
   createFolder: (layerId: string, folderPath: string) => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
+  moveFolder: (folderId: string, parentFolderPath: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   attachFile: (
     layerId: string,
@@ -220,7 +276,12 @@ interface StrataState {
     withRecoveryKey: boolean,
     starter?: LayerStarter,
   ) => Promise<string | null>;
-  unlockLayer: (layerId: string, password: string) => Promise<void>;
+  unlockLayer: (
+    layerId: string,
+    password: string,
+    rememberOnThisDevice?: boolean,
+  ) => Promise<void>;
+  forgetSavedPassword: (layerId: string) => Promise<void>;
   unlockLayerWithRecoveryKey: (
     layerId: string,
     recoveryKey: string,
@@ -281,6 +342,7 @@ interface StrataState {
   // AI request
   setProvider: (providerId: string) => Promise<void>;
   setModel: (model: string) => void;
+  refreshProviderHealth: () => Promise<void>;
   refreshPolicy: () => Promise<void>;
   storeCredential: (providerId: string, apiKey: string) => Promise<boolean>;
   sendToModel: (confirmedRemote: boolean) => Promise<void>;
@@ -314,6 +376,7 @@ function uniqueTitle(existing: string[], base = "Untitled"): string {
 export const useStore = create<StrataState>((set, get) => ({
   connection: "connecting",
   connectionMessage: "",
+  lastError: null,
   health: null,
 
   workspace: null,
@@ -325,9 +388,12 @@ export const useStore = create<StrataState>((set, get) => ({
   mode: "explore",
   dimension: "3d",
   settings: null,
+  captureProtection: "unknown",
   activeLensId: "lens_all",
   semanticEdges: false,
   clusterColors: false,
+  explorerDensity: "list",
+  explorerFrozen: false,
 
   collab: {},
   collabConflicts: {},
@@ -363,6 +429,9 @@ export const useStore = create<StrataState>((set, get) => ({
   tokenBudget: null,
   providers: [],
   keychainAvailable: true,
+  providerModels: [],
+  providerReachable: null,
+  providerHealthDetail: "",
   plan: null,
   planning: false,
   planError: null,
@@ -379,11 +448,16 @@ export const useStore = create<StrataState>((set, get) => ({
   conversationId: null,
   aiExecutionId: null,
   aiSources: [],
+  settingsOpen: false,
+  browserRevision: 0,
+  handedOffPlanRequestId: null,
+  handedOffPlanLayerIds: [],
 
   async initialise() {
     try {
       const health = await bridge.workspace.health();
-      const settings = (await bridge.settings.get()).settings;
+      const settingsReply = await bridge.settings.get();
+      const settings = settingsReply.settings;
       const state = await bridge.workspace.openDefault();
       const providerInfo = await bridge.ai.providers();
       const schemas = (await bridge.notes.schemas()).schemas;
@@ -398,14 +472,19 @@ export const useStore = create<StrataState>((set, get) => ({
         connection: "ready",
         health,
         settings,
+        captureProtection: settingsReply.capture_protection ?? "unknown",
         workspace: state,
         layers: state.workspace?.layers ?? [],
         providers: providerInfo.providers,
         keychainAvailable: providerInfo.keychain_available,
-        providerId: firstConfigured?.provider_id ?? "ollama",
+        providerId:
+          settings.default_provider || firstConfigured?.provider_id || "ollama",
+        model: settings.default_model || DEFAULT_LOCAL_MODEL,
         schemas,
         activeLensId: settings.default_lens_id,
       });
+
+      await get().refreshProviderHealth();
 
       // AI output streams in over this signal, keyed by request id.
       await bridge.ai.onEvent((raw) => {
@@ -451,13 +530,95 @@ export const useStore = create<StrataState>((set, get) => ({
     }
   },
 
+  clearLastError: () => set({ lastError: null }),
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
+  toggleBrowserPane: async () => {
+    try {
+      const { status } = await bridge.browser.getStatus();
+      if (!status.enabled) {
+        // Not an error the user caused — tell them where the switch is.
+        set({
+          lastError:
+            "Browser research is off. Turn it on in Settings (Ctrl/Cmd+,).",
+        });
+        return;
+      }
+      if (status.running) await bridge.browser.closeBrowser();
+      else await bridge.browser.launch();
+      set((state) => ({ browserRevision: state.browserRevision + 1 }));
+    } catch (error) {
+      set({ lastError: describeError(error) });
+    }
+  },
+  toggleBrowserBlur: async () => {
+    try {
+      const { status } = await bridge.browser.toggleBlur();
+      if (!status.blur_supported) {
+        // The key did something; it just could not do *this*. Silence is what
+        // made the shortcut feel broken.
+        set({
+          lastError:
+            status.backend === "chrome"
+              ? "Media blur only works in the built-in pane — Chrome is a browser Strata does not draw."
+              : "Open the research pane first (Ctrl/Cmd+Shift+B) — there is nothing to blur yet.",
+        });
+        return;
+      }
+      set((state) => ({ browserRevision: state.browserRevision + 1 }));
+    } catch (error) {
+      set({ lastError: describeError(error) });
+    }
+  },
+  handOffPlanRequest: (requestId, layerIds) =>
+    set({
+      handedOffPlanRequestId: requestId,
+      handedOffPlanLayerIds: layerIds,
+      mode: "command",
+    }),
+  claimPlanRequest: () => {
+    const { handedOffPlanRequestId, handedOffPlanLayerIds } = get();
+    if (!handedOffPlanRequestId) return null;
+    set({ handedOffPlanRequestId: null, handedOffPlanLayerIds: [] });
+    return {
+      requestId: handedOffPlanRequestId,
+      layerIds: handedOffPlanLayerIds,
+    };
+  },
   setMode: (mode) => set({ mode }),
   setDimension: (dimension) => set({ dimension }),
+  setExplorerDensity: (density) => set({ explorerDensity: density }),
+  setExplorerFrozen: (frozen) => set({ explorerFrozen: frozen }),
 
   async applySettings(values) {
-    const settings = (await bridge.settings.update(values)).settings;
-    set({ settings });
+    const reply = await bridge.settings.update(values);
+    const settings = reply.settings;
+    set({
+      settings,
+      captureProtection: reply.capture_protection ?? "unknown",
+    });
     applyDocumentSettings(settings);
+  },
+
+  async chooseUserScript() {
+    try {
+      const settings = (await bridge.settings.chooseUserScript()).settings;
+      set({ settings });
+      applyDocumentSettings(settings);
+    } catch {
+      return;
+    }
+  },
+
+  async chooseBrowserExtension() {
+    // The picker is native, so cancelling comes back as a rejection rather
+    // than an empty result. Cancelling is not an error the user needs told.
+    try {
+      const settings = (await bridge.settings.chooseExtension()).settings;
+      set({ settings });
+      applyDocumentSettings(settings);
+    } catch {
+      return;
+    }
   },
 
   async reloadGraph() {
@@ -472,7 +633,7 @@ export const useStore = create<StrataState>((set, get) => ({
       ]);
       set({ graph, tree, loadingGraph: false });
     } catch (error) {
-      set({ loadingGraph: false, connectionMessage: describeError(error) });
+      set({ loadingGraph: false, lastError: describeError(error) });
     }
   },
 
@@ -485,7 +646,7 @@ export const useStore = create<StrataState>((set, get) => ({
       ]);
       set({ tree, linkHealth, trash: trash.entries });
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -517,12 +678,20 @@ export const useStore = create<StrataState>((set, get) => ({
       if (token !== openRequestToken) return;
       set({ links });
     } catch (error) {
-      if (token === openRequestToken)
-        set({ connectionMessage: describeError(error) });
+      if (token === openRequestToken) set({ lastError: describeError(error) });
     }
   },
 
   closeTab: (noteId) => {
+    const existing = get().tabs.find((tab) => tab.id === noteId);
+    if (existing) {
+      // Avoid duplicate adjacent entries when the same tab is closed twice.
+      if (closedTabStack[closedTabStack.length - 1] !== noteId) {
+        closedTabStack.push(noteId);
+        if (closedTabStack.length > MAX_CLOSED_TABS) closedTabStack.shift();
+      }
+    }
+
     const tabs = get().tabs.filter((tab) => tab.id !== noteId);
     const wasActive = get().activeNoteId === noteId;
     const dirty = { ...get().dirty };
@@ -541,6 +710,22 @@ export const useStore = create<StrataState>((set, get) => ({
         draft: null,
         links: EMPTY_LINKS,
       });
+    }
+  },
+
+  async reopenClosedTab() {
+    while (closedTabStack.length > 0) {
+      const noteId = closedTabStack.pop();
+      if (!noteId) return;
+      if (get().tabs.some((tab) => tab.id === noteId)) continue;
+      try {
+        await get().openNoteById(noteId);
+        // openNoteById reports failures via lastError; if the note is
+        // gone, activeNoteId will not become noteId — try the next entry.
+        if (get().activeNoteId === noteId) return;
+      } catch {
+        // keep draining the stack
+      }
     }
   },
 
@@ -589,7 +774,7 @@ export const useStore = create<StrataState>((set, get) => ({
         set({ links });
       }
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     } finally {
       savingNotes.delete(noteId);
       set({ saving: savingNotes.size > 0 });
@@ -607,7 +792,7 @@ export const useStore = create<StrataState>((set, get) => ({
       void get().reloadTree();
       void get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -655,7 +840,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -674,7 +859,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       if (get().activeNoteId === noteId) await get().openNoteById(newId);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -691,7 +876,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       if (get().activeNoteId === noteId) await get().openNoteById(newId);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -702,7 +887,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -713,7 +898,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -724,7 +909,17 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadGraph();
       await get().openNoteById(response.note.metadata.id);
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
+    }
+  },
+
+  async emptyTrash() {
+    try {
+      await bridge.notes.emptyTrash();
+      await get().reloadTree();
+      await get().reloadGraph();
+    } catch (error) {
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -738,7 +933,7 @@ export const useStore = create<StrataState>((set, get) => ({
       );
       await get().reloadTree();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -748,7 +943,17 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
+    }
+  },
+
+  async moveFolder(folderId, parentFolderPath) {
+    try {
+      await bridge.notes.moveFolder(folderId, parentFolderPath);
+      await get().reloadTree();
+      await get().reloadGraph();
+    } catch (error) {
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -758,7 +963,7 @@ export const useStore = create<StrataState>((set, get) => ({
       await get().reloadTree();
       await get().reloadGraph();
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
   },
 
@@ -801,7 +1006,7 @@ export const useStore = create<StrataState>((set, get) => ({
         imported += 1;
       }
     } catch (error) {
-      set({ connectionMessage: describeError(error) });
+      set({ lastError: describeError(error) });
     }
     await get().reloadTree();
     await get().reloadGraph();
@@ -838,24 +1043,35 @@ export const useStore = create<StrataState>((set, get) => ({
           );
         }
       } catch (error) {
-        set({ connectionMessage: describeError(error) });
+        set({ lastError: describeError(error) });
       }
       await get().reloadTree();
-      await get().reloadGraph();
     }
     await get().refreshLayers();
+    // Graph reload is deferred to the dialog close path — rebuilding WebGL under
+    // an open modal (especially with backdrop-filter) reads as full-window flicker.
     // Returned to the caller to display once, and never written into the store.
     return response.recovery_key;
   },
 
-  async unlockLayer(layerId, password) {
-    await bridge.layers.unlock(layerId, password);
-    await get().afterLockStateChanged();
+  async unlockLayer(layerId, password, rememberOnThisDevice = false) {
+    await bridge.layers.unlock(layerId, password, rememberOnThisDevice);
+    // Layers + tree update now; graph reload is deferred until the unlock
+    // dialog closes (same reason as createLayer — WebGL under a modal flickers
+    // / can lose context, so 2D/3D never pick up the decrypted nodes).
+    await get().refreshLayers();
+    await get().reloadTree();
+  },
+
+  async forgetSavedPassword(layerId) {
+    await bridge.layers.forgetSavedPassword(layerId);
+    await get().refreshLayers();
   },
 
   async unlockLayerWithRecoveryKey(layerId, recoveryKey) {
     await bridge.layers.unlockWithRecoveryKey(layerId, recoveryKey);
-    await get().afterLockStateChanged();
+    await get().refreshLayers();
+    await get().reloadTree();
   },
 
   async lockLayer(layerId) {
@@ -1068,7 +1284,8 @@ export const useStore = create<StrataState>((set, get) => ({
     get().selectMany(ids);
   },
 
-  setHovered: (id) => set({ hoveredId: id }),
+  setHovered: (id) =>
+    set((state) => (state.hoveredId === id ? state : { hoveredId: id })),
 
   async setSemanticEdges(on) {
     set({ semanticEdges: on });
@@ -1150,7 +1367,7 @@ export const useStore = create<StrataState>((set, get) => ({
       set({
         searching: false,
         searchResults: [],
-        connectionMessage: describeError(error),
+        lastError: describeError(error),
       });
     }
   },
@@ -1171,7 +1388,7 @@ export const useStore = create<StrataState>((set, get) => ({
         searchQuery: "",
       });
     } catch (error) {
-      set({ searching: false, connectionMessage: describeError(error) });
+      set({ searching: false, lastError: describeError(error) });
     }
   },
 
@@ -1245,11 +1462,45 @@ export const useStore = create<StrataState>((set, get) => ({
   // -- AI request -----------------------------------------------------------
 
   async setProvider(providerId) {
-    set({ providerId, model: "" });
+    const { settings } = get();
+    const local =
+      providerId === "ollama" ||
+      providerId === "llamacpp" ||
+      providerId === "lmstudio";
+    set({
+      providerId,
+      model: local ? settings?.default_model || DEFAULT_LOCAL_MODEL : "",
+      providerModels: [],
+      providerReachable: null,
+      providerHealthDetail: "",
+    });
+    await get().refreshProviderHealth();
     await get().refreshPolicy();
   },
 
   setModel: (model) => set({ model }),
+
+  async refreshProviderHealth() {
+    const { providerId, model, settings } = get();
+    if (!providerId) return;
+    try {
+      const health = await bridge.ai.health(providerId);
+      const ids = health.models.map((entry) => entry.id);
+      const preferred = model || settings?.default_model || DEFAULT_LOCAL_MODEL;
+      set({
+        providerModels: health.models,
+        providerReachable: health.reachable,
+        providerHealthDetail: health.detail,
+        model: pickInstalledModel(ids, preferred),
+      });
+    } catch (error) {
+      set({
+        providerModels: [],
+        providerReachable: false,
+        providerHealthDetail: describeError(error),
+      });
+    }
+  },
 
   async refreshPolicy() {
     const { selectedIds, graph, providerId } = get();
@@ -1291,6 +1542,14 @@ export const useStore = create<StrataState>((set, get) => ({
       return;
     }
 
+    const localProvider =
+      providerId === "ollama" ||
+      providerId === "llamacpp" ||
+      providerId === "lmstudio";
+    const resolvedModel = localProvider
+      ? model || get().settings?.default_model || DEFAULT_LOCAL_MODEL
+      : model || "default";
+
     set({
       aiOutput: "",
       aiError: null,
@@ -1301,8 +1560,7 @@ export const useStore = create<StrataState>((set, get) => ({
     try {
       const response = await bridge.ai.send({
         provider_id: providerId,
-        // The CLI picks its own model; everything else needs one chosen.
-        model: model || "default",
+        model: resolvedModel,
         object_ids: selectable,
         prompt,
         depth,
@@ -1369,7 +1627,9 @@ function isExportable(graph: GraphSnapshot | null, id: string): boolean {
   return !node.locked && node.type !== "tag" && node.type !== "folder";
 }
 
-export function summariseSelection(state: StrataState): SelectionSummary {
+export function summariseSelection(
+  state: Pick<StrataState, "graph" | "selectedIds" | "layers">,
+): SelectionSummary {
   const nodes = (state.graph?.nodes ?? []).filter((node) =>
     state.selectedIds.includes(node.id),
   );
@@ -1427,9 +1687,5 @@ export function shortestPath(
 }
 
 export function applyDocumentSettings(settings: AppSettings): void {
-  const root = document.documentElement;
-  root.dataset["appearance"] = settings.appearance;
-  root.dataset["motion"] =
-    settings.motion === "system" ? "system" : settings.motion;
-  root.dataset["graphQuality"] = settings.graph_quality;
+  applyTheme(settings);
 }

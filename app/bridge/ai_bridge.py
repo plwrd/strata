@@ -431,9 +431,11 @@ class AIComposerBridge(QObject):
         The policy gate runs again inside `AIService.run`, before a provider is even
         constructed — so a caller that skipped `check_policy` gains nothing by it.
         """
-        capabilities = CATALOGUE.get(request.provider_id)
-        if capabilities is None:
+        if request.provider_id not in CATALOGUE:
             raise InvalidRequestError("Unknown provider.")
+        # The *effective* capabilities: a "local" provider pointed at another host
+        # is reported as remote, here as everywhere else.
+        capabilities = self._services.ai.capabilities_for(request.provider_id)
         if not capabilities.supports(Capability.STREAMING):
             raise InvalidRequestError(f"{capabilities.display_name} cannot stream.")
 

@@ -16,12 +16,8 @@ Every page the plan creates carries provenance: `review_status: ai-inferred`,
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 from datetime import datetime, timezone
 from typing import Literal
-
-from pydantic import ValidationError
 
 from app.domain.errors import ProviderError
 from app.domain.ids import new_execution_id, new_job_id
@@ -32,11 +28,10 @@ from app.domain.schema import KNOWLEDGE_FOLDER
 from app.infrastructure.logging.logger import get_logger
 from app.services.ai_service import AIService
 from app.services.context_export_service import ContextExportService
+from app.services.model_answer import parse_model_json
 from app.services.note_service import NoteService
 
 logger = get_logger(__name__)
-
-_JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 ProcessingProfile = Literal["general", "meeting"]
 
@@ -175,11 +170,13 @@ class KnowledgeService:
             elif event.kind == "error":
                 raise ProviderError(event.error or "The model failed to process the notes.")
 
-        extraction = self._parse(full)
+        extraction, parse_problem = parse_model_json(full, KnowledgeExtraction)
         sources = [
             note for note in self._notes.get_notes(note_ids) if note.metadata.id in set(note_ids)
         ]
-        return self._propose(extraction, sources, execution_id, provider_id, model, profile)
+        return self._propose(
+            extraction, sources, execution_id, provider_id, model, profile, parse_problem
+        )
 
     def process_sync(self, **kwargs: object) -> KnowledgeProposal:
         """Blocking wrapper for the bridge's worker thread."""
@@ -188,37 +185,6 @@ class KnowledgeService:
             return loop.run_until_complete(self.process(**kwargs))  # type: ignore[arg-type]
         finally:
             loop.close()
-
-    # -- parsing -------------------------------------------------------------
-
-    def _parse(self, text: str) -> KnowledgeExtraction:
-        """Validated or empty — a garbage answer proposes nothing, silently
-        inventing knowledge is not an option."""
-        match = _JSON_BLOCK.search(text)
-        if not match:
-            return KnowledgeExtraction(summary="The model did not return an extraction.")
-        try:
-            payload = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return KnowledgeExtraction(summary="The model's extraction was not valid JSON.")
-        if not isinstance(payload, dict):
-            return KnowledgeExtraction(summary="The model's extraction was not an object.")
-        try:
-            return KnowledgeExtraction.model_validate(payload)
-        except ValidationError:
-            # Salvage the shape field by field rather than dropping everything.
-            salvaged = KnowledgeExtraction()
-            for field in KnowledgeExtraction.model_fields:
-                if field not in payload:
-                    continue
-                try:
-                    partial = KnowledgeExtraction.model_validate({field: payload[field]})
-                except ValidationError:
-                    continue
-                setattr(salvaged, field, getattr(partial, field))
-            if not salvaged.summary:
-                salvaged.summary = "Parts of the extraction did not fit the schema."
-            return salvaged
 
     # -- proposal building ---------------------------------------------------
 
@@ -230,6 +196,7 @@ class KnowledgeService:
         provider: str,
         model: str,
         profile: ProcessingProfile = "general",
+        parse_problem: str = "",
     ) -> KnowledgeProposal:
         all_notes = self._notes.list_notes()
         existing_titles = {note.metadata.title.strip().lower() for note in all_notes}
@@ -437,6 +404,8 @@ class KnowledgeService:
                     )
                 )
 
+        if parse_problem:
+            warnings.append(parse_problem)
         summary = extraction.summary or "Process the selected notes into knowledge."
         if extraction.open_questions:
             warnings.append("Open questions: " + " · ".join(extraction.open_questions[:5]))

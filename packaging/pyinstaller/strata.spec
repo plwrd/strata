@@ -24,8 +24,18 @@ if not (FRONTEND_DIST / "index.html").is_file():
 datas = [
     (str(FRONTEND_DIST), "frontend/dist"),
     (str(ROOT / "packaging" / "icons"), "packaging/icons"),
+    # Identity prompt (Qwythos / Distill Qwen) — loaded at runtime via resource_root().
+    (str(ROOT / "SystemPrompt.md"), "."),
 ]
 datas += collect_data_files("certifi")
+
+# The WebView2 loader, for the Edge-engine research pane (ADR-0012). A ~166 KB
+# shim that finds the installed Evergreen runtime — the runtime itself is not
+# bundled and not installed by us. Windows only, and optional: without it the
+# pane falls back to Qt WebEngine, so a Linux build simply has nothing to add.
+WEBVIEW2_LOADER = ROOT / "packaging" / "webview2" / "WebView2Loader.dll"
+if WEBVIEW2_LOADER.is_file():
+    datas.append((str(WEBVIEW2_LOADER), "packaging/webview2"))
 
 hiddenimports = [
     "app.bridge.workspace_bridge",

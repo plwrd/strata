@@ -75,16 +75,12 @@ Found by audit (no TODO markers exist in code; gaps are milestone-deferred by do
 8. Composer responses dead-end: no save-as-note, no promote-to-plan, no citation resolution.
 
 **Technical debt**
-9. `JobService.submit()` never called; long-running work runs on ad-hoc threads.
-10. Structured output is decorative: `AIRequest.json_schema` ignored by `AnthropicProvider`,
+9. Structured output is decorative: `AIRequest.json_schema` ignored by `AnthropicProvider`,
     generic `json_object` only on OpenAI-compatible; plan parsing is regex-based.
-11. No retry/backoff (`retryable` set on 429, never consumed); no mid-request fallback.
-12. Token accounting rough (chunk-counting on OpenAI-compatible; chars/3.6 elsewhere); no cost tracking.
-13. Markdown note writes are not atomic (unlike everything else).
-14. Key rotation not crash-atomic (rotation journal deferred to M11).
-15. Schema `formula` type stored, never evaluated.
-16. Planning docs drift: ROADMAP status table and the PRD milestone map disagree with TASKS.md
-    (which is current truth); M9 collaboration is further along than the docs admit.
+10. No retry/backoff (`retryable` set on 429, never consumed); no mid-request fallback.
+11. Token accounting rough (chunk-counting on OpenAI-compatible; chars/3.6 elsewhere); no cost tracking.
+12. Schema `formula` type stored, never evaluated.
+13. Semantic search uses `HashingEmbedder` (the UI now labels this). A model embedder remains optional.
 
 ## 5. Constraints every new feature inherits
 

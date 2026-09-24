@@ -54,8 +54,41 @@ const CLUSTER_PALETTE = [
   "#5c8dff",
 ];
 
-export function nodeColor(node: GraphNode, selected: boolean): string {
-  if (selected) return cssToken("--graph-node-selected", "#ffffff");
+/** One-hop neighbours of the selection (excluding the selection itself). */
+export function neighborIds(
+  edges: ReadonlyArray<{ source: string; target: string }>,
+  selected: ReadonlySet<string>,
+): Set<string> {
+  const out = new Set<string>();
+  if (selected.size === 0) return out;
+  for (const edge of edges) {
+    const sourceSelected = selected.has(edge.source);
+    const targetSelected = selected.has(edge.target);
+    if (sourceSelected && !targetSelected) out.add(edge.target);
+    if (targetSelected && !sourceSelected) out.add(edge.source);
+  }
+  return out;
+}
+
+/** True when the edge touches at least one selected node. */
+export function edgeIsLit(
+  edge: { source: string; target: string },
+  selected: ReadonlySet<string>,
+): boolean {
+  return selected.has(edge.source) || selected.has(edge.target);
+}
+
+export function nodeColor(
+  node: GraphNode,
+  selected: boolean,
+  connected = false,
+): string {
+  // Selection is always pure white — not theme-overridable — so the pick
+  // reads the same under every template and colour override.
+  if (selected) return "#ffffff";
+  // Neighbours of the selection share the bright connected-edge red so the
+  // local constellation reads as one highlight, not a mixed palette.
+  if (connected) return cssToken("--graph-edge-selected-solid", "#ff2d55");
   if (node.locked) return cssToken("--graph-node-locked", "#47506a");
   if (node.cluster >= 0)
     return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;
@@ -64,11 +97,17 @@ export function nodeColor(node: GraphNode, selected: boolean): string {
 
 /**
  * The halo around a node. Unselected nodes glow in their own hue (the galaxy);
- * a selected node's glow shifts to ignition-gold — a colour deliberately absent
- * from the node palette, so selection reads instantly at any zoom.
+ * a selected node's glow shifts to bright ignition-gold — a colour deliberately
+ * absent from the node palette, so selection reads instantly at any zoom.
+ * Connected neighbours glow in the same red as their lit edges.
  */
-export function glowColor(node: GraphNode, selected: boolean): string {
-  if (selected) return cssToken("--graph-glow-selected", "#ffcf6b");
+export function glowColor(
+  node: GraphNode,
+  selected: boolean,
+  connected = false,
+): string {
+  if (selected) return cssToken("--graph-glow-selected", "#ffe566");
+  if (connected) return cssToken("--graph-edge-selected-solid", "#ff2d55");
   if (node.locked) return cssToken("--graph-node-locked", "#47506a");
   if (node.cluster >= 0)
     return CLUSTER_PALETTE[node.cluster % CLUSTER_PALETTE.length]!;
@@ -82,10 +121,10 @@ export function nodeRadius(node: GraphNode): number {
   return Math.min(1.6 + Math.sqrt(node.degree) * 0.55, 5.2);
 }
 
-export function edgeColor(selected: boolean, origin: string): string {
-  if (selected)
-    return cssToken("--graph-edge-selected", "rgba(34,224,245,0.95)");
-  if (origin === "ai-suggested")
-    return cssToken("--graph-edge-ai", "rgba(160,107,255,0.8)");
-  return cssToken("--graph-edge-default", "rgba(111,127,168,0.35)");
+export function edgeColor(selected: boolean, _origin: string): string {
+  // Opaque RGB only — THREE.Color ignores alpha and floods the console when
+  // given rgba(...), which also hid real GPU warnings during Explore.
+  // Incident to selection = bright red; everything else = dark gray.
+  if (selected) return cssToken("--graph-edge-selected-solid", "#ff2d55");
+  return cssToken("--graph-edge-default-solid", "#3a3f4a");
 }

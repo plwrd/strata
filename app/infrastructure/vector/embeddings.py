@@ -12,9 +12,10 @@ its notes:
 
 Milestone 4 ships the abstraction plus a deterministic local embedder, so that
 semantic search, clustering and the hybrid ranker are real and testable end to end
-without a model download. A real local model (Ollama, llama.cpp) and remote
-providers arrive in Milestone 7 behind the same interface — the *policy* around
-them is what matters, and it is enforced here rather than at the call site.
+without a model download. The Search panel labels this as hashed meaning, not a
+language model. A real local model (Ollama, llama.cpp) arrives behind the same
+interface — the *policy* around them is what matters, and it is enforced here
+rather than at the call site.
 """
 
 from __future__ import annotations

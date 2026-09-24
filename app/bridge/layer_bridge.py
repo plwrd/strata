@@ -2,8 +2,9 @@
 
 Password rules enforced here:
 
-* a password crosses the bridge, is used, and is never stored, logged, echoed back,
-  or put in an error;
+* a password crosses the bridge, is used, and is never stored in the app,
+  logs, or workspace files. "Remember on this device" writes it to the OS
+  keychain only, and fails closed if there is no keychain;
 * every failed unlock returns the same generic error, so a caller cannot use the
   response as an oracle for whether the layer exists or what is inside it;
 * the recovery key is returned exactly once, at creation. There is no
@@ -139,7 +140,7 @@ class LayerBridge(QObject):
     def list_layers(self, _request: EmptyRequest) -> LayerListResponse:
         descriptor = self._services.workspace.descriptor
         return LayerListResponse(
-            layers=descriptor.ordered_layers(),
+            layers=self._services.workspace.layers_for_client(),
             layer_order=descriptor.layer_order,
         )
 
@@ -181,8 +182,10 @@ class LayerBridge(QObject):
     @Slot(str, result=str)
     @bridge_method(UnlockRequest)
     def unlock_layer(self, request: UnlockRequest) -> LayerResponse:
-        layer = self._services.workspace.unlock_layer(request.layer_id, request.password)
-        return LayerResponse(layer=layer)
+        layer = self._services.workspace.unlock_layer(
+            request.layer_id, request.password, remember=request.remember_on_this_device
+        )
+        return LayerResponse(layer=self._services.workspace.layer_for_client(layer.id))
 
     @Slot(str, result=str)
     @bridge_method(RecoveryUnlockRequest)
@@ -230,5 +233,12 @@ class LayerBridge(QObject):
         rewritten = self._services.workspace.rotate_layer_key(request.layer_id, request.password)
         return RotationResponse(
             objects_reencrypted=rewritten,
-            layer=self._services.workspace.require_layer(request.layer_id),
+            layer=self._services.workspace.layer_for_client(request.layer_id),
         )
+
+    @Slot(str, result=str)
+    @bridge_method(LayerIdRequest)
+    def forget_saved_password(self, request: LayerIdRequest) -> LayerResponse:
+        """Drop a keychain-remembered layer password. Does not lock the layer."""
+        self._services.workspace.forget_layer_password(request.layer_id)
+        return LayerResponse(layer=self._services.workspace.layer_for_client(request.layer_id))

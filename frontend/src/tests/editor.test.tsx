@@ -119,6 +119,34 @@ describe("EditorPane", () => {
     expect(useStore.getState().activeNoteId).toBeNull();
   });
 
+  it("reopens the most recently closed tab", async () => {
+    await useStore.getState().openNoteById("n1");
+    await useStore.getState().openNoteById("n2");
+
+    await act(async () => {
+      useStore.getState().closeTab("n2");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(useStore.getState().activeNoteId).toBe("n1");
+      expect(useStore.getState().tabs.some((tab) => tab.id === "n2")).toBe(
+        false,
+      );
+    });
+
+    await act(async () => {
+      await useStore.getState().reopenClosedTab();
+    });
+
+    await waitFor(() => {
+      expect(useStore.getState().activeNoteId).toBe("n2");
+      expect(useStore.getState().tabs.some((tab) => tab.id === "n2")).toBe(
+        true,
+      );
+    });
+  });
+
   it("switching notes never carries a draft across", async () => {
     await useStore.getState().openNoteById("n1");
     act(() => {

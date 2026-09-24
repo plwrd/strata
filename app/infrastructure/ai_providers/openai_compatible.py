@@ -27,7 +27,9 @@ from app.domain.ai import (
     ProviderHealth,
 )
 from app.domain.errors import ProviderError
+from app.domain.local_model import is_thinking_model
 from app.infrastructure.ai_providers.base import AIProvider, http_client, iter_sse, provider_error
+from app.infrastructure.ai_providers.thinking import ThinkingStreamFilter, thinking_request_extras
 from app.infrastructure.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,9 +42,12 @@ class OpenAICompatibleProvider(AIProvider):
         base_url: str,
         api_key: str | None = None,
         embedding_model: str = "",
+        fallback_urls: list[str] | None = None,
     ) -> None:
         self.capabilities = capabilities
         self._base_url = base_url.rstrip("/")
+        self._resolved_url = self._base_url
+        self._fallback_urls = [url.rstrip("/") for url in (fallback_urls or [])]
         self._api_key = api_key
         self._embedding_model = embedding_model
 
@@ -88,19 +93,42 @@ class OpenAICompatibleProvider(AIProvider):
             models=models,
         )
 
-    async def list_models(self) -> list[ModelInfo]:
-        async with http_client(self._base_url, self._headers()) as client:
+    def _candidate_urls(self) -> list[str]:
+        urls = [self._base_url]
+        for extra in self._fallback_urls:
+            if extra and extra not in urls:
+                urls.append(extra)
+        return urls
+
+    async def _get_models_payload(self) -> dict[str, object]:
+        last_error: httpx.HTTPError | None = None
+        for url in self._candidate_urls():
             try:
-                response = await client.get("/v1/models")
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise provider_error(exc, self.capabilities.display_name) from exc
-
+                async with http_client(url, self._headers()) as client:
+                    response = await client.get("/v1/models")
+                    response.raise_for_status()
+            except httpx.HTTPError as extra:
+                last_error = extra
+                if isinstance(extra, httpx.ConnectError | httpx.TimeoutException):
+                    continue
+                raise provider_error(extra, self.capabilities.display_name) from extra
+            self._resolved_url = url
             payload = response.json()
+            return payload if isinstance(payload, dict) else {}
+        assert last_error is not None
+        raise provider_error(last_error, self.capabilities.display_name) from last_error
 
-        models = payload.get("data", payload.get("models", []))
+    async def list_models(self) -> list[ModelInfo]:
+        payload = await self._get_models_payload()
+
+        raw_models = payload.get("data", payload.get("models", []))
+        # A provider that answers with the wrong shape lists nothing; it does
+        # not crash the model picker.
+        models = raw_models if isinstance(raw_models, list) else []
         result: list[ModelInfo] = []
         for entry in models:
+            if not isinstance(entry, dict):
+                continue
             identifier = entry.get("id") or entry.get("name") or ""
             if not identifier:
                 continue
@@ -130,12 +158,22 @@ class OpenAICompatibleProvider(AIProvider):
             body["stop"] = request.stop
         if request.json_schema and self.capabilities.supports(Capability.STRUCTURED_OUTPUT):
             body["response_format"] = {"type": "json_object"}
+        body.update(thinking_request_extras(self.provider_id, request.model))
+
+        if self._fallback_urls and self._resolved_url == self._base_url:
+            try:
+                await self._get_models_payload()
+            except ProviderError:
+                # Probe failed; stream against the configured URL and let that
+                # error surface as an event.
+                pass
 
         yield AIEvent(kind="start", model=request.model)
 
         output_tokens = 0
+        think = ThinkingStreamFilter() if is_thinking_model(request.model) else None
         try:
-            async with http_client(self._base_url, self._headers()) as client:
+            async with http_client(self._resolved_url, self._headers()) as client:
                 async with client.stream("POST", "/v1/chat/completions", json=body) as response:
                     if response.status_code >= 400:
                         await response.aread()
@@ -146,15 +184,26 @@ class OpenAICompatibleProvider(AIProvider):
                         if not choices:
                             continue
                         delta = choices[0].get("delta") or {}
+                        # Skip reasoning_content / reasoning (llama.cpp deepseek
+                        # format). Those are chain-of-thought, not the answer.
                         text = delta.get("content") or ""
-                        if text:
+                        if not isinstance(text, str) or not text:
+                            continue
+                        visible = think.push(text) if think else text
+                        if visible:
                             output_tokens += 1
-                            yield AIEvent(kind="delta", text=text)
+                            yield AIEvent(kind="delta", text=visible)
 
             if cancel.is_set():
                 # Cancellation is a normal outcome, not an error. The caller stops
                 # reading and the HTTP connection closes.
                 return
+
+            if think:
+                rest = think.flush()
+                if rest:
+                    output_tokens += 1
+                    yield AIEvent(kind="delta", text=rest)
 
             yield AIEvent(kind="done", model=request.model, output_tokens=output_tokens)
 
@@ -164,7 +213,7 @@ class OpenAICompatibleProvider(AIProvider):
 
     async def create_embeddings(self, request: EmbeddingRequest) -> EmbeddingResult:
         model = request.model or self._embedding_model
-        async with http_client(self._base_url, self._headers()) as client:
+        async with http_client(self._resolved_url, self._headers()) as client:
             try:
                 response = await client.post(
                     "/v1/embeddings",
@@ -194,7 +243,7 @@ OLLAMA = ProviderCapabilities(
         Capability.EMBEDDINGS,
     ],
     max_context_tokens=32_768,
-    note="Runs on this machine. Nothing leaves it.",
+    note="Runs on this machine. Default model: Qwythos-9B (qwythos). Nothing leaves it.",
 )
 
 LLAMACPP = ProviderCapabilities(
@@ -204,7 +253,8 @@ LLAMACPP = ProviderCapabilities(
     requires_api_key=False,
     capabilities=[Capability.TEXT, Capability.STREAMING, Capability.EMBEDDINGS],
     max_context_tokens=32_768,
-    note="Runs on this machine. Nothing leaves it.",
+    note="Runs on this machine. Default port 8080; 8088 is tried if 8080 is "
+    "down (blueteam llama-server). Nothing leaves it.",
 )
 
 LMSTUDIO = ProviderCapabilities(
@@ -257,3 +307,7 @@ DEFAULT_BASE_URLS: dict[str, str] = {
     "lmstudio": "http://127.0.0.1:1234",
     "openai": "https://api.openai.com",
 }
+
+# blueteam's llama-server default. Tried only when the user has not set a
+# custom llamacpp URL and 8080 is not listening.
+LLAMACPP_FALLBACK_URLS: tuple[str, ...] = ("http://127.0.0.1:8088",)

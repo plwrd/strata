@@ -26,7 +26,23 @@ import type {
 } from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
-type Signal = { connect: (listener: (value: string) => void) => void };
+type Signal = {
+  connect: (listener: (value: string) => void) => void;
+  disconnect: (listener: (value: string) => void) => void;
+};
+
+/** A signal proxy over a listener array, with the disconnect Qt really has. */
+function signal(listeners: ((value: string) => void)[]): Signal {
+  return {
+    connect: (listener) => {
+      listeners.push(listener);
+    },
+    disconnect: (listener) => {
+      const index = listeners.indexOf(listener);
+      if (index >= 0) listeners.splice(index, 1);
+    },
+  };
+}
 
 export interface FakeVersion {
   created_at: string;
@@ -49,6 +65,10 @@ export interface FakeBridgeOptions {
   prompts?: SavedPrompt[];
   /** Seed connection suggestions served via `graph.suggest_connections`. */
   suggestions?: ConnectionSuggestion[];
+  /** False models a workspace where browser research was never switched on. */
+  browserEnabled?: boolean;
+  /** Which research browser the fake reports. Defaults to the pane. */
+  browserBackend?: "embedded" | "webview2" | "chrome";
   /** Seed the health report served via `workspace.knowledge_health`. */
   health?: HealthReport;
   failWith?: { code: string; message: string };
@@ -246,10 +266,7 @@ function makeCollaboration(): Record<string, Handler | Signal> {
       return { state: stateOf(p["layer_id"] as string), conflicts: [] };
     },
 
-    collabEvent: {
-      connect: (listener: (value: string) => void) =>
-        collabListeners.push(listener),
-    },
+    collabEvent: signal(collabListeners),
   };
 }
 
@@ -370,6 +387,7 @@ export const PUBLIC_LAYER: LayerDescriptor = {
   updated_at: "",
   color: "layer-public",
   ai_policy: {} as LayerDescriptor["ai_policy"],
+  password_remembered: false,
 };
 
 export const PRIVATE_LAYER: LayerDescriptor = {
@@ -384,6 +402,7 @@ export const PRIVATE_LAYER: LayerDescriptor = {
   updated_at: "",
   color: "layer-private",
   ai_policy: {} as LayerDescriptor["ai_policy"],
+  password_remembered: false,
 };
 
 export const FAKE_RECOVERY_KEY = "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG";
@@ -400,8 +419,44 @@ export const aiListeners: ((value: string) => void)[] = [];
 /** Listeners registered against the `operations.planEvent` signal. */
 export const planListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `browser.pageEvent` signal. */
+export const pageListeners: ((value: string) => void)[] = [];
+
+/** Listeners registered against the `browser.blurEvent` signal. */
+export const blurListeners: ((value: string) => void)[] = [];
+
 /** Listeners registered against the `collaboration.collabEvent` signal. */
 export const collabListeners: ((value: string) => void)[] = [];
+
+/** One scraped page, as Python would send it. */
+function scrapedPage(noteId: string): Record<string, unknown> {
+  return {
+    url: "https://example.com/paper",
+    title: "A research page",
+    text: "Scraped body text.",
+    char_count: 18,
+    truncated: false,
+    target_id: "pane",
+    note_id: noteId,
+  };
+}
+
+/** Deliver a page read on `pageEvent`, after the caller has its request id. */
+function emitPage(requestId: string, payload: Record<string, unknown>): void {
+  const raw = JSON.stringify({ requestId, kind: "page", ...payload });
+  // A macrotask, not a microtask: in Python this arrives from a worker thread,
+  // strictly after the caller has taken its request id and started listening.
+  // A microtask can beat that assignment and the event lands on nobody.
+  setTimeout(() => {
+    for (const listener of pageListeners) listener(raw);
+  }, 0);
+}
+
+/** Fire a page-read failure the way Python would. */
+export function emitPageError(requestId: string, error: string): void {
+  const raw = JSON.stringify({ requestId, kind: "error", error });
+  for (const listener of pageListeners) listener(raw);
+}
 
 /** Fire a collaboration event (remote change / conflict) the way Python would. */
 export function emitCollabEvent(payload: Record<string, unknown>): void {
@@ -462,6 +517,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   changeListeners.length = 0;
   aiListeners.length = 0;
   planListeners.length = 0;
+  pageListeners.length = 0;
+  blurListeners.length = 0;
   collabListeners.length = 0;
   _docs.clear();
   // The client memoises its channel, so a fresh fake must invalidate it or the
@@ -480,6 +537,11 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   captured.length = 0;
   const noteVersions: FakeVersion[] = [...(options.versions ?? [])];
   const versionsSupported = options.versionsSupported ?? true;
+  const browserEnabled = options.browserEnabled ?? true;
+  const browserBackend = options.browserBackend ?? "embedded";
+  // Blur is a live toggle, so the fake holds it: a stateless stub cannot tell a
+  // toggle from a set, which is the distinction under test.
+  let blurEnabled = false;
   const savedPrompts: SavedPrompt[] = (options.prompts ?? []).map((entry) => ({
     ...entry,
   }));
@@ -518,6 +580,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
               updated_at: "",
               color: "layer-public",
               ai_policy: {},
+              password_remembered: false,
             },
           ],
           lenses: [],
@@ -561,29 +624,114 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_lens_id: "lens_all",
           last_workspace_path: "",
           developer_tools: false,
+          font_body: "inter",
+          font_display: "chakra",
+          font_mono: "jetbrains",
+          ui_scale: 1,
+          theme_colors: {},
           relay_url: "",
+          default_provider: "ollama",
+          default_model: "qwythos",
+          onboarding_tour_completed: true,
+          hide_for_sharing: true,
+          minimize_to_tray: false,
+          start_in_tray: false,
+          hide_from_taskbar: false,
+          browser_control_enabled: false,
+          browser_backend: "embedded",
+          browser_extensions: [],
+          browser_user_scripts: [],
+          browser_blocked_hosts: [],
+          browser_executable_path: "",
+          browser_profile_path: "",
+          browser_debug_port: 9333,
+          browser_search_engine: "duckduckgo",
+          browser_blur_media: false,
+          browser_blur_amount: 12,
+          browser_mobile_mode: false,
         },
       }),
+      // The real one opens a native folder picker. The fake stands in for a
+      // user who cancelled, which is the branch the store has to survive.
+      choose_browser_extension: () => {
+        throw new Error("No extension folder was chosen.");
+      },
       update_settings: (payload) => ({
-        settings: {
-          format_version: 1,
-          appearance: "cyberpunk-dark",
-          motion: "system",
-          graph_quality: "balanced",
-          particles_enabled: true,
-          bloom_enabled: true,
-          battery_saver: false,
-          telemetry_enabled: false,
-          default_lens_id: "lens_all",
-          last_workspace_path: "",
-          developer_tools: false,
-          relay_url: "",
-          ...(payload["values"] as object),
-        },
+        // Recorded like every other write, so a test can assert what was asked
+        // for and not only what came back.
+        settings:
+          (captured.push(payload),
+          {
+            format_version: 1,
+            appearance: "cyberpunk-dark",
+            motion: "system",
+            graph_quality: "balanced",
+            particles_enabled: true,
+            bloom_enabled: true,
+            battery_saver: false,
+            telemetry_enabled: false,
+            default_lens_id: "lens_all",
+            last_workspace_path: "",
+            developer_tools: false,
+            font_body: "inter",
+            font_display: "chakra",
+            font_mono: "jetbrains",
+            ui_scale: 1,
+            theme_colors: {},
+            relay_url: "",
+            default_provider: "ollama",
+            default_model: "qwythos",
+            onboarding_tour_completed: true,
+            hide_for_sharing: true,
+            minimize_to_tray: false,
+            start_in_tray: false,
+            hide_from_taskbar: false,
+            browser_control_enabled: false,
+            browser_backend: "embedded",
+            browser_extensions: [],
+            browser_user_scripts: [],
+            browser_blocked_hosts: [],
+            browser_executable_path: "",
+            browser_profile_path: "",
+            browser_debug_port: 9333,
+            browser_search_engine: "duckduckgo",
+            browser_blur_media: false,
+            browser_blur_amount: 12,
+            browser_mobile_mode: false,
+            ...(payload["values"] as object),
+          }),
       }),
     },
     graph: {
-      load_graph: () => ({ graph }),
+      load_graph: () => {
+        // Unlocking must surface private notes on the next graph load — matching
+        // Python GraphService.build after the key is held.
+        if (privateState === "unlocked") {
+          const unlockedNodes = graph.nodes
+            .filter((entry) => !entry.id.startsWith("locked:"))
+            .concat([
+              {
+                ...node("n_private", "Private Secret", "note", 2),
+                layer_id: "layer_p",
+              },
+            ]);
+          const unlockedEdges = [
+            ...graph.edges,
+            edge("e_priv", "n1", "n_private", "references"),
+          ];
+          return {
+            graph: {
+              ...graph,
+              nodes: unlockedNodes,
+              edges: unlockedEdges,
+              total_nodes: unlockedNodes.length,
+              total_edges: unlockedEdges.length,
+              locked_layer_ids: [],
+            },
+          };
+        }
+        return { graph };
+      },
       expand_neighbours: (payload) => ({
         node_ids: graph.edges
           .filter(
@@ -686,6 +834,17 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           layer_id: "layer_a",
           name: "Renamed",
           path: "Renamed",
+          parent_id: null,
+        },
+      }),
+      move_folder: (payload) => ({
+        folder: {
+          id: (payload["folder_id"] as string) || "f1",
+          layer_id: "layer_a",
+          name: "Security",
+          path: payload["parent_folder_path"]
+            ? `${payload["parent_folder_path"] as string}/Security`
+            : "Security",
           parent_id: null,
         },
       }),
@@ -794,10 +953,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           issues: [],
         };
       },
-      changed: {
-        connect: (listener: (value: string) => void) =>
-          changeListeners.push(listener),
-      },
+      changed: signal(changeListeners),
     },
     search: {
       search: () => ({ results: [], total: 0, locked_layers_excluded: 1 }),
@@ -811,6 +967,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       synthesize_notes: (payload) => {
         captured.push(payload);
         return { request_id: "req_synth_1" };
+      },
+      file_research: (payload) => {
+        captured.push(payload);
+        return { request_id: "req_research_1" };
       },
       refresh_project: (payload) => {
         captured.push(payload);
@@ -891,10 +1051,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
       }),
       audit_log: () => ({ entries: [] }),
-      planEvent: {
-        connect: (listener: (value: string) => void) =>
-          planListeners.push(listener),
-      },
+      planEvent: signal(planListeners),
     },
     views: {
       run_view: (payload) => ({
@@ -1052,6 +1209,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       change_password: () => ({ layer: privateLayer() }),
       reissue_recovery_key: () => ({ recovery_key: FAKE_RECOVERY_KEY }),
       rotate_key: () => ({ objects_reencrypted: 12, layer: privateLayer() }),
+      forget_saved_password: () => ({
+        layer: { ...privateLayer(), password_remembered: false },
+      }),
     },
     ai: {
       list_providers: () => ({
@@ -1076,6 +1236,12 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         configured: true,
         detail: "1 model available.",
         models: [
+          {
+            id: "qwythos",
+            display_name: "qwythos",
+            context_tokens: 32768,
+            is_local: true,
+          },
           {
             id: "llama3",
             display_name: "llama3",
@@ -1171,10 +1337,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         executions = [];
         return { cleared_files: cleared };
       },
-      aiEvent: {
-        connect: (listener: (value: string) => void) =>
-          aiListeners.push(listener),
-      },
+      aiEvent: signal(aiListeners),
       plan_context: (payload) => ({
         plan:
           options.plan ??
@@ -1183,6 +1346,188 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             (payload["prompt"] as string) ?? "",
           ),
       }),
+    },
+    // Browser research. The default fake is a browser that is enabled but not
+    // running, because that is the state the panel has to render first.
+    browser: {
+      get_status: () => ({
+        status: {
+          enabled: browserEnabled,
+          backend: browserBackend,
+          running: false,
+          supports_extensions: browserBackend === "chrome",
+          port: 0,
+          browser_version: "",
+          executable: "",
+          profile_path: "",
+          tab_count: 0,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend !== "chrome",
+          mobile_mode: false,
+          detail: browserEnabled
+            ? "The browser pane is closed."
+            : "Turn on browser research in Settings to use it.",
+        },
+        engines: ["duckduckgo", "google"],
+      }),
+      launch: () => ({
+        status: {
+          enabled: true,
+          backend: browserBackend,
+          running: true,
+          supports_extensions: browserBackend === "chrome",
+          port: 0,
+          browser_version: "",
+          executable: "",
+          profile_path: "",
+          tab_count: 1,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend !== "chrome",
+          mobile_mode: false,
+          detail: "The browser pane is open on example.com.",
+        },
+        engines: ["duckduckgo", "google"],
+      }),
+      close_browser: () => ({
+        status: {
+          enabled: true,
+          backend: browserBackend,
+          running: false,
+          supports_extensions: browserBackend === "chrome",
+          port: 0,
+          browser_version: "",
+          executable: "",
+          profile_path: "",
+          tab_count: 0,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend !== "chrome",
+          mobile_mode: false,
+          detail: "The browser pane is closed.",
+        },
+        engines: ["duckduckgo", "google"],
+      }),
+      set_blur: (payload) => {
+        captured.push(payload);
+        blurEnabled = Boolean(payload["enabled"]);
+        for (const listener of blurListeners) {
+          listener(
+            JSON.stringify({
+              enabled: blurEnabled,
+              amount: 12,
+              supported: true,
+            }),
+          );
+        }
+        return { status: { blur_enabled: blurEnabled }, engines: [] };
+      },
+      // The real one flips the state where it lives, so the fake holds state
+      // too — a toggle that always answered the same thing could not catch the
+      // bug this method exists for.
+      toggle_blur: (payload) => {
+        captured.push({ ...payload, method: "toggle_blur" });
+        blurEnabled = !blurEnabled;
+        const supported = browserBackend !== "chrome";
+        for (const listener of blurListeners) {
+          listener(
+            JSON.stringify({ enabled: blurEnabled, amount: 12, supported }),
+          );
+        }
+        return {
+          status: {
+            blur_enabled: blurEnabled,
+            blur_supported: supported,
+            backend: browserBackend,
+          },
+          engines: [],
+        };
+      },
+      set_mobile: (payload) => {
+        captured.push(payload);
+        return {
+          status: { mobile_mode: Boolean(payload["enabled"]) },
+          engines: [],
+        };
+      },
+      open_external: (payload) => {
+        captured.push(payload);
+        return { opened: true };
+      },
+      pageEvent: signal(pageListeners),
+      blurEvent: signal(blurListeners),
+      search: (payload) => {
+        captured.push(payload);
+        return {
+          tab: {
+            target_id: "tab_1",
+            title: "Results",
+            url: "https://duckduckgo.com/?q=test",
+            active: true,
+          },
+        };
+      },
+      open_url: (payload) => {
+        captured.push(payload);
+        return {
+          tab: {
+            target_id: "tab_1",
+            title: "Page",
+            url: String(payload["url"]),
+            active: true,
+          },
+        };
+      },
+      list_tabs: () => ({
+        tabs: [
+          {
+            target_id: "tab_1",
+            title: "A research page",
+            url: "https://example.com/paper",
+            active: true,
+          },
+        ],
+      }),
+      // Reading is asynchronous in Python, so the fake answers the same way:
+      // a request id now, the page on `pageEvent` a tick later.
+      scrape_tab: (payload) => {
+        captured.push(payload);
+        emitPage("req_read_1", { page: scrapedPage("") });
+        return { request_id: "req_read_1" };
+      },
+      capture_tab: (payload) => {
+        captured.push(payload);
+        // A brief/outline capture keeps only a digest; the delivered "page"
+        // carries the digest text, exactly as Python does.
+        const digested = payload["mode"] && payload["mode"] !== "full";
+        const page = scrapedPage("note_capture_1");
+        if (digested) {
+          page["text"] = "## Summary\n\nA short brief.";
+          page["char_count"] = 24;
+        }
+        emitPage("req_read_2", {
+          page,
+          note: {
+            metadata: {
+              id: "note_capture_1",
+              layer_id: PUBLIC_LAYER.id,
+              title: "A research page",
+              folder_path: "Inbox",
+              aliases: [],
+              tags: [],
+              properties: { type: "capture" },
+              links: [],
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+              size_bytes: 18,
+              word_count: 3,
+            },
+            content: "Scraped body text.",
+          },
+        });
+        return { request_id: "req_read_2" };
+      },
     },
     export: {
       render_export: (payload) => ({
