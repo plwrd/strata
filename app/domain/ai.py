@@ -14,9 +14,11 @@ does not compute it. A button that is merely hidden is not a security control.
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,6 +33,44 @@ ProviderId = Literal[
     "openai-compatible",
     "claude-cli",
 ]
+
+
+# Hosts that mean "this machine, over the loopback interface". A provider that
+# declares `is_local` is only *actually* local while it is pointed at one of
+# these: an endpoint on the LAN or the internet sends the bytes off the machine
+# however the catalogue labels it. See :func:`is_local_endpoint`.
+_LOOPBACK_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+
+
+def is_local_endpoint(url: str) -> bool:
+    """Whether ``url`` addresses a service on this machine.
+
+    The locality of a provider is a *property of where it is pointed*, not of the
+    name in the catalogue. Ollama is local at ``http://127.0.0.1:11434`` and is
+    not local at ``http://gpu-box.example``, and the policy gate has to know the
+    difference — otherwise "local AI only" is enforced against a label while the
+    plaintext goes to another host.
+
+    Anything that cannot be parsed into a recognisable loopback host is treated as
+    remote: the safe answer when in doubt is the one that asks the user.
+    """
+    if not url or not url.strip():
+        # No endpoint configured at all: nothing can be sent, and the caller's
+        # own "not configured" path handles it. Do not call that remote.
+        return True
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+    host = (parts.hostname or "").strip().lower()
+    if not host:
+        return False
+    if host in _LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class Capability(str, Enum):

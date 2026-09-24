@@ -90,12 +90,15 @@ class FakePane:
         self.loaded: list[str] = []
         self.closed = False
         self.reads = 0
+        self.blur: tuple[bool, int] | None = None
+        self.mobile: bool | None = None
 
     def status(self) -> BrowserStatus:
         return BrowserStatus(
             backend="embedded",
             running=self.shown,
             supports_extensions=False,
+            mobile_mode=bool(self.mobile),
             tab_count=1 if self.url else 0,
             detail="The browser pane is open." if self.shown else "The browser pane is closed.",
         )
@@ -122,6 +125,12 @@ class FakePane:
             char_count=10,
             target_id="pane",
         )
+
+    def apply_blur(self, enabled: bool, amount: int) -> None:
+        self.blur = (enabled, amount)
+
+    def apply_mobile(self, enabled: bool) -> None:
+        self.mobile = enabled
 
     def close(self) -> None:
         self.closed = True
@@ -404,3 +413,270 @@ def test_closing_terminates_only_a_chrome_strata_started(tmp_path: Path) -> None
     # A browser Strata never started is not ours to kill.
     service._chrome._process = None
     service.close()  # must not raise
+
+
+# -- media blur --------------------------------------------------------------
+
+
+def test_blur_is_off_by_default_and_supported_on_the_pane(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path)
+    enabled, amount = service.blur_state()
+
+    assert enabled is False
+    assert amount == 12
+    assert service.blur_supported is True
+
+
+def test_toggling_blur_applies_it_to_the_pane(tmp_path: Path) -> None:
+    service, pane = _embedded(tmp_path)
+
+    assert service.toggle_blur() is True
+    assert pane.blur == (True, 12)
+
+    assert service.toggle_blur() is False
+    assert pane.blur == (False, 12)
+
+
+def test_blur_change_notifies_the_listener(tmp_path: Path) -> None:
+    """The bridge relies on this to push a hotkey toggle to the panel."""
+    service, _pane = _embedded(tmp_path)
+    seen: list[tuple[bool, int]] = []
+    service.on_blur_changed = lambda: seen.append(service.blur_state())
+
+    service.toggle_blur()
+    service.set_blur_amount(20)
+
+    assert seen and seen[0][0] is True
+
+
+def test_the_amount_comes_from_settings_and_reaches_the_pane(tmp_path: Path) -> None:
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "embedded",
+            "browser_blur_amount": 25,
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    service.set_blur(True)
+
+    assert pane.blur == (True, 25)
+
+
+def test_the_chrome_backend_does_not_support_blur(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+
+    assert service.blur_supported is False
+    # And the state does not move. It used to: the call was a no-op that still
+    # recorded "blurred", so the panel showed a blurred badge over a Chrome
+    # window that was not blurred at all. A control that cannot act must not
+    # claim it did.
+    assert service.set_blur(True) is False
+    assert service.blur_state()[0] is False
+    assert service.toggle_blur() is False
+
+
+def test_a_refused_blur_still_answers(tmp_path: Path) -> None:
+    """The press did something: it told the UI nothing changed.
+
+    Silence is what made the hotkey feel broken — the user pressed it, nothing
+    happened, and nothing said why.
+    """
+    service = _chrome(tmp_path, FakeCDP())
+    heard: list[tuple[bool, int]] = []
+    service.on_blur_changed = lambda: heard.append(service.blur_state())
+
+    service.toggle_blur()
+
+    assert heard == [(False, 12)]
+
+
+def test_a_freshly_attached_pane_gets_the_starting_blur(tmp_path: Path) -> None:
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "embedded",
+            "browser_blur_media": True,
+            "browser_blur_amount": 8,
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    assert pane.blur == (True, 8)
+
+
+# -- mobile mode -------------------------------------------------------------
+
+
+def test_mobile_is_off_by_default(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path)
+    assert service.mobile_state() is False
+    assert service.status().mobile_mode is False
+
+
+def test_toggling_mobile_applies_it_to_the_pane(tmp_path: Path) -> None:
+    service, pane = _embedded(tmp_path)
+
+    assert service.set_mobile(True) is True
+    assert pane.mobile is True
+    assert service.status().mobile_mode is True
+
+    assert service.set_mobile(False) is False
+    assert pane.mobile is False
+
+
+def test_a_freshly_attached_pane_gets_the_starting_mobile_state(tmp_path: Path) -> None:
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "embedded",
+            "browser_mobile_mode": True,
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    assert pane.mobile is True
+
+
+def test_chrome_backend_ignores_mobile(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+    # No embedded pane to restyle; the call is a harmless no-op.
+    assert service.set_mobile(True) is True
+
+
+# -- open in the real browser ------------------------------------------------
+
+
+def test_external_url_accepts_http_and_https(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path)
+    assert service.external_url("https://x.com/i/status/1") == "https://x.com/i/status/1"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["file:///etc/passwd", "javascript:alert(1)", "data:text/html,x", "https://u:p@x.com/"],
+)
+def test_external_url_refuses_non_web_and_credentialed(tmp_path: Path, url: str) -> None:
+    service, _pane = _embedded(tmp_path)
+    with pytest.raises((PermissionDeniedError, InvalidRequestError)):
+        service.external_url(url)
+
+
+def test_external_url_is_gated_on_the_feature(tmp_path: Path) -> None:
+    service, _pane = _embedded(tmp_path, enabled=False)
+    with pytest.raises(PermissionDeniedError):
+        service.external_url("https://x.com/")
+
+
+# -- Chrome: keep the session, not the history -------------------------------
+
+
+def _seed_profile(profile: Path) -> None:
+    default = profile / "Default"
+    default.mkdir(parents=True, exist_ok=True)
+    (default / "History").write_text("visits")
+    (default / "Top Sites").write_text("tops")
+    (default / "Cookies").write_text("session=stay")
+
+
+def test_history_is_cleared_but_cookies_are_kept(tmp_path: Path) -> None:
+    service = _chrome(tmp_path, FakeCDP())
+    profile = service._chrome.profile_path
+    _seed_profile(profile)
+
+    service._chrome._clear_history()
+
+    assert not (profile / "Default" / "History").exists()
+    assert not (profile / "Default" / "Top Sites").exists()
+    # The login session survives — that is the whole point of the Chrome backend.
+    assert (profile / "Default" / "Cookies").read_text() == "session=stay"
+
+
+def test_a_user_supplied_profile_history_is_left_alone(tmp_path: Path) -> None:
+    """If the user points at their everyday Chrome profile, it is their data."""
+    own = tmp_path / "mine"
+    settings = SettingsService(tmp_path / "settings.json")
+    settings.update(
+        {
+            "browser_control_enabled": True,
+            "browser_backend": "chrome",
+            "browser_profile_path": str(own),
+        }
+    )
+    service = BrowserService(settings, tmp_path)
+    _seed_profile(own)
+
+    service._chrome._clear_history()
+
+    assert (own / "Default" / "History").exists()  # untouched
+
+
+# -- one state, several ways to flip it ----------------------------------------
+#
+# Reported: the blur shortcut does not work reliably. Two causes, both of them
+# real, and neither of them in the blur script itself:
+#
+# 1. Qt WebEngine claims a chord for the page while an editable element has
+#    focus, so the Qt shortcut went missing exactly while the user was typing.
+#    Fixed in the web layer (`shortcuts.ts`), which sees the key either way.
+# 2. Every caller computed `not (what I last saw)` from its own copy, so a
+#    hotkey press and a panel click close together cancelled out. Fixed here:
+#    the flip happens where the state lives.
+
+
+def test_toggling_twice_returns_to_where_it_started(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    pane = FakePane()
+    service.attach(pane)
+
+    assert service.toggle_blur() is True
+    assert pane.blur[0] is True
+    assert service.toggle_blur() is False
+    assert pane.blur[0] is False
+
+
+def test_a_toggle_is_not_a_read_then_a_write(tmp_path: Path) -> None:
+    """Two flips from two places land on 'back where it started', never on
+    'both of us thought it was off'."""
+    service = _service(tmp_path)
+    service.attach(FakePane())
+
+    # Whatever the callers last *saw*, the flips compose.
+    first = service.toggle_blur()
+    second = service.toggle_blur()
+    third = service.toggle_blur()
+
+    assert (first, second, third) == (True, False, True)
+    assert service.blur_state()[0] is True
+
+
+def test_every_path_notifies_so_no_caller_holds_a_stale_copy(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service.attach(FakePane())
+    heard: list[bool] = []
+    service.on_blur_changed = lambda: heard.append(service.blur_state()[0])
+
+    service.toggle_blur()
+    service.set_blur(False)
+    service.set_blur_amount(20)
+
+    # The amount change notifies too: the panel shows the radius alongside the
+    # toggle, and a silent change there is the same class of bug.
+    assert heard == [True, False, False]
+
+
+def test_a_retired_webview2_backend_setting_falls_back_to_the_pane(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"browser_backend": "webview2"}), encoding="utf-8")
+
+    assert SettingsService(path).settings.browser_backend == "embedded"

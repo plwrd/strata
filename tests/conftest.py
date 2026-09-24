@@ -16,6 +16,43 @@ from app.services.container import Paths, Services
 from app.services.workspace_service import WorkspaceService
 
 
+@pytest.fixture(autouse=True, scope="session")
+def cheap_kdf() -> Iterator[None]:
+    """Derive layer keys with a cheap Argon2 profile, for tests only.
+
+    Production derives at 256 MiB per hash. A suite that creates dozens of
+    private layers asks for that allocation dozens of times, and on a busy
+    machine argon2 starts answering ``HashingError: Memory allocation error`` —
+    failures that move between unrelated tests every run and pass in isolation.
+
+    Only *new* layers are affected: the parameters are written into each layer
+    header and read back from it, so unlock still exercises the real code path
+    with whatever the header says. The production constants are untouched, and
+    ``test_encryption.py`` asserts them directly so a real weakening cannot hide
+    behind this fixture.
+    """
+    from app.infrastructure.encryption import primitives
+
+    original = primitives.KdfParams.new
+
+    @classmethod  # type: ignore[misc]
+    def cheap(cls: type[primitives.KdfParams]) -> primitives.KdfParams:
+        import secrets
+
+        return cls(
+            time_cost=1,
+            memory_kib=8_192,  # 8 MiB
+            parallelism=1,
+            salt=secrets.token_bytes(primitives.SALT_BYTES),
+        )
+
+    primitives.KdfParams.new = cheap  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        primitives.KdfParams.new = original  # type: ignore[method-assign]
+
+
 @pytest.fixture(autouse=True)
 def isolated_keychain() -> Iterator[None]:
     """Never touch the real OS keychain in tests.

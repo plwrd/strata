@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from tests.e2e._shell_support import (
+    open_graph_section,
     run_async_js,
     run_js,
     wait_for_load,
@@ -212,6 +213,7 @@ def test_selecting_a_node_in_the_graph_tree_updates_the_store(qtbot: Any, shell:
     _app, window, _services = shell
     wait_for_load(qtbot, window)
     wait_for_tree(qtbot, window)
+    open_graph_section(qtbot, window)
 
     # The shell is shared across tests: close any open menu and clear selection so
     # this test asserts its own click, not leftover state.

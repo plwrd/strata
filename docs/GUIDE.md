@@ -237,21 +237,110 @@ The loop:
    type straight into the pane's address bar.
 3. **Scrape page** reads what the pane is showing and gives you the text. It
    writes nothing — this is a look, not a save.
-4. **Capture only** files that text into the Inbox as a raw, untrusted capture,
-   with its source URL, exactly like URL import.
-5. **Analyse & file** does the interesting part, described below.
+4. **Capture** files the page into the Inbox — but *how much* is yours to
+   choose with **Capture as**, and that is the point: a scrape is mostly
+   navigation and boilerplate you never want back.
+   - **Full text** keeps the page verbatim (the old behaviour), as a raw,
+     untrusted capture with its source URL, exactly like URL import.
+   - **Brief** runs your AI model over the page and saves only a short summary
+     plus the key points. The page itself is thrown away — never written.
+   - **Key points** saves a structured pull instead: points, named entities,
+     concrete data points (figures, dates, versions), and claims to verify.
+   A **Focus** box steers the digest ("pricing and limits", "the API
+   endpoints"), and **Tags** sort the capture as it lands. A digest is stamped
+   `ai-inferred` with the execution that made it, so a brief is never mistaken
+   for the page or for something you wrote.
+5. **Analyse & file** does the interesting part, described below — and it
+   honours the same **Capture as** choice, so you can file a brief straight
+   into the graph without ever storing the page.
 
 ### When the pane is not enough
 
-The pane cannot load Chrome extensions. That is not a setting we forgot: Qt
-ships Chromium without the extensions subsystem, so there is nothing to switch
-on. A few sign-in pages also refuse embedded browsers outright.
+The pane cannot play **H.264 video** — the format x.com, YouTube and most of the
+web use. Qt's bundled browser omits the patent-encumbered H.264/AAC codecs, so
+those videos stay blank (WebM/VP9 and AV1 do play). This is a property of the
+engine, not a bug: there is no flag that adds a codec that was never compiled
+in. Images, text and scraping are unaffected.
 
-For those, Settings → Browser research → **Browser** offers *Your own Chrome*.
-Strata then launches the Chrome you already have — your extensions, a profile
-Strata owns — and reads the tab you point it at instead. Everything else in
-this section works identically; the panel grows a tab picker, because Chrome
-has real tabs and the pane shows one page.
+It also cannot load Chrome extensions. That is not a setting we forgot and not
+something a rebuild would fix: Qt ships Chromium with the extensions subsystem
+compiled out, so there is nothing to switch on. It does have two stand-ins that
+cover most of what people install extensions *for* — see **User scripts and
+blocking** below. A few sign-in pages also refuse embedded browsers outright.
+
+Settings → Browser research → **Browser** offers a way around all three.
+
+**Your own Chrome** — Strata launches the Chrome you already have, with your
+extensions and a profile Strata owns, and reads the tab you point it at. The
+panel grows a tab picker, because Chrome has real tabs and the pane shows one
+page. Choose this when a page refuses to let you sign in to an embedded
+browser, when you need an extension, or when a page's video has to play.
+
+Switching back to the pane takes effect when Strata next starts: the pane is
+built with the window.
+
+### User scripts and blocking (built-in pane)
+
+The built-in pane cannot run extensions, so it has the two pieces of one that
+Qt can actually do. Both live in Settings → Browser research, and both apply to
+the pane only — never to your own Chrome, and never to Strata's own window.
+
+**User scripts** are `.js` files injected into every page, the same shape
+Greasemonkey and Tampermonkey scripts are written in. *Add a user script…* takes
+a file. Strata honours `// @run-at document-start` from the metadata block for
+the scripts that need to patch the page before its own code runs; without it a
+script runs once the DOM is there, which is what almost every script expects.
+A script that has moved or cannot be read is named in the Research panel rather
+than skipped quietly. What a user script cannot do is anything needing the
+`chrome.*` APIs — no background worker, no toolbar button, no options page.
+
+**Blocked hosts** is one hostname per line. The pane refuses requests to those
+hosts and their subdomains, so an ad or tracker never loads, never runs and
+never sets a cookie. That is the load-bearing half of an ad blocker, and the
+half that does not need extensions at all. It is not a filter list: there are
+no cosmetic rules and no path patterns, so it will not hide an empty ad slot,
+only stop the ad. Pages you navigate to yourself are never blocked — only what
+they load — because a blank pane with no explanation reads as a broken browser.
+
+Both take effect when the pane is built, so a change applies the next time you
+start Strata. And both run code or rules you chose: a user script sees
+everything on every page the pane opens, exactly as an extension would.
+
+### Blurring media on a shared screen
+
+The pane can go soft. **Blur media** blurs every image, video and canvas and
+leaves the text sharp, so a page stays readable for research while a
+shoulder-surfer, a recording, or a screen share sees nothing worth seeing.
+
+There are three ways to flip it, and they are all the same switch:
+
+* the **Blur** button on the pane's own toolbar, beside the address bar;
+* the **Blur media** button in the Research panel;
+* `Ctrl/Cmd+Shift+X`.
+
+The hotkey is handled twice — once by the app and once by the window — because
+a keyboard chord belongs to whatever has focus. While you are typing in a note,
+the editor's engine claims the key. The button on the pane's toolbar is the one
+control nothing can intercept, which is why it is there. If you press the key
+and nothing happens, Strata now says why — usually "there is no pane open yet",
+or that you are on the Chrome backend, which is a browser Strata does not draw
+and therefore cannot blur.
+
+It blurs avatars and background-image thumbnails too, not only `<img>` tags —
+sites like x.com render those as styled `<div>`s — and it holds on pages that
+re-render as you scroll. Set the strength (and whether the pane starts blurred)
+in Settings → Browser research. Blur applies to the pane in this window —
+Strata does not reach into your own Chrome to restyle it.
+
+### Mobile site mode
+
+**Mobile site** (the toggle in the Research panel, or Settings → Browser
+research) serves sites their phone layout: the pane presents a mobile
+user-agent, so a site like x.com renders its mobile view, which suits the narrow
+pane. Toggling it reloads the current page. True touch events (taps and swipes,
+not just a mobile layout) are a process-wide Chromium setting, so that half
+takes effect the next time you start Strata; the layout switches immediately.
+The pane only — your own Chrome is never touched.
 
 ### Analyse & file
 
@@ -831,7 +920,8 @@ Settings exposed in the UI via **Command bar → More → Settings**:
 | Motion | Full / Reduced / System |
 | Graph quality | High / Balanced / Low GPU |
 | Particles / Bloom | Graph chrome toggles |
-| **Hidden for sharing** | Screen-capture exclusion (see below) |
+| **Minimize to tray** | Close/minimize hides the window to a tray icon (see below) |
+| **No taskbar button** | Drop the taskbar button entirely; live in the tray (see below) |
 
 Choosing a **template** resets custom colours to that pack (fonts and UI scale
 stay). Colour overrides — including **connected** and **idle** graph edges —
@@ -841,12 +931,26 @@ override is set.
 Semantic edges and cluster colours live under Graph controls. Semantic search
 is a Search panel checkbox. Sync relay URL is in the Collaboration panel.
 
-**Hidden for sharing** (Signal-style, **on by default**) asks the OS to exclude
-the *entire* Strata window from screenshots and screen shares. You still see the
-app normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
-do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
-`WDA_MONITOR` on older builds. Turn it off in Settings if you need to demo or
-record Strata itself.
+**Minimize to tray** (**off by default**) puts a Strata icon in the system tray.
+With it on, closing or minimizing the window *hides* it — it leaves the taskbar,
+but Strata keeps running and your workspace stays open behind the icon. Click
+the icon to bring the window back; quit deliberately from the icon's **Quit
+Strata** menu. **Start hidden in the tray** launches straight to the icon, for a
+start that does not announce itself on the taskbar.
+
+**No taskbar button** (**off by default**, Windows) goes further: it removes
+Strata's taskbar button altogether, even while the window is open — so Strata
+does not appear in the taskbar or Alt-Tab. Because that leaves the tray as the
+only way back, turning it on keeps the tray icon up and sends a minimize there;
+you summon the window from the icon. The ordinary window frame and its buttons
+are untouched.
+
+This — all of it — hides the **window**, not the **process**. Strata stays listed in Task
+Manager, `tasklist`, Process Explorer and every other process tool, on purpose:
+the only ways to hide a process from the OS are kernel rootkit techniques, an
+app that used them would be malware, and Strata will not ship one. If your goal
+is that a shoulder-surfer not see Strata, the tray is the honest version of
+that; hiding from the process list is not on offer.
 
 Further settings live in a JSON settings file in the OS config directory and
 are currently **edited by hand**, not in the UI: AI defaults (provider, model,
@@ -869,8 +973,8 @@ Strata's shortcuts are scoped to the panel you are in.
 | --- | --- | --- |
 | Anywhere | `Ctrl/Cmd+N` | New note (in the first unlocked layer) |
 | Anywhere | `Ctrl/Cmd+,` | Open / close Settings |
-| Anywhere | `Ctrl/Cmd+Shift+H` | Toggle **Hidden for sharing** (§17) — the one setting you need *before* you start sharing a screen, not after |
 | Anywhere | `Ctrl/Cmd+Shift+B` | Open / close the research browser pane (§3¾) |
+| Anywhere | `Ctrl/Cmd+Shift+X` | Blur / unblur media in the browser pane (§3¾) |
 | Editor | `Ctrl/Cmd+S` | Save now |
 | Editor | `Ctrl/Cmd+W` | Close the active tab |
 | Editor | `Ctrl/Cmd+Shift+T` | Reopen the last closed tab |

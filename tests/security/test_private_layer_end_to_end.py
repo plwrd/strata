@@ -263,9 +263,7 @@ def test_unlocking_reveals_the_content(services: Services, paths: Paths) -> None
         if node.type == "folder" and node.folder_path == SECRET_FOLDER
     )
     assert any(
-        edge.type == "folder_membership"
-        and edge.source == folder.id
-        and edge.target == note_id
+        edge.type == "folder_membership" and edge.source == folder.id and edge.target == note_id
         for edge in snapshot.edges
     )
 

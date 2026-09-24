@@ -71,6 +71,10 @@ class ResearchRequest(BaseModel):
     layer_ids: list[str] = Field(min_length=1, max_length=200)
     # Where nodes with no existing parent land. Must be one of `layer_ids`.
     target_layer_id: str = Field(default="", max_length=128)
+    # An optional steer for this run only — "pricing and limits", "just the API
+    # surface". Capped because it is pasted into a prompt, and not stored: the
+    # next analysis starts from whatever the user types then.
+    focus: str = Field(default="", max_length=500)
     confirmed_remote: bool = False
 
 
@@ -319,6 +323,7 @@ class OperationsBridge(QObject):
                     provider_id=request.provider_id,
                     model=request.model,
                     target_layer_id=request.target_layer_id,
+                    focus=request.focus,
                     confirmed_remote=request.confirmed_remote,
                 )
             except Exception as exc:

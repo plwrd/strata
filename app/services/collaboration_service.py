@@ -16,8 +16,8 @@ Security posture:
   key material for that layer.
 - A viewer cannot write. Role is checked here, in Python — the renderer's role is
   advisory (THREAT_MODEL).
-- Nothing reaches the relay except sealed blobs; the key never leaves this
-  process.
+- Nothing reaches the relay except sealed blobs — updates *and* presence; the
+  key never leaves this process.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.domain.collaboration import (
@@ -38,6 +38,7 @@ from app.domain.collaboration import (
 from app.domain.errors import (
     ConflictError,
     InvalidRequestError,
+    LayerLockedError,
     NotFoundError,
     PermissionDeniedError,
 )
@@ -49,6 +50,9 @@ from app.infrastructure.crdt.conflicts import (
 from app.infrastructure.crdt.document import LayerDocument
 from app.infrastructure.crdt.relay import LocalRelay, Relay
 from app.infrastructure.crdt.store import CRDTStore
+from app.infrastructure.crdt.updates import open_presence, seal_presence
+from app.infrastructure.encryption.primitives import DecryptionError
+from app.infrastructure.logging.logger import get_logger
 
 KeyFor = Callable[[str], bytes]
 DocRootFor = Callable[[str], Path]
@@ -57,8 +61,11 @@ SeedContent = Callable[[str], tuple[list[TreeNode], dict[str, str]]]
 Emit = Callable[[str, dict[str, object]], None]
 
 
+logger = get_logger(__name__)
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _channel_for(layer_id: str, doc_id: str) -> str:
@@ -340,8 +347,23 @@ class CollaborationService:
     # ---- presence --------------------------------------------------------
 
     def announce(self, layer_id: str, peer: PresencePeer) -> None:
+        """Publish this peer's awareness blob, sealed under the layer key.
+
+        Presence used to go out as plain JSON. It is ephemeral and it is not note
+        content, but it names the person, the note they have open and their
+        cursor offset — so an untrusted relay could watch who was working on what,
+        and could invent collaborators that the UI would display. Sealing it
+        closes both: unreadable to the relay, and a forgery fails to open.
+        """
         active = self._require(layer_id)
-        self._relay.announce(active.channel, peer.peer_id, peer.model_dump_json().encode())
+        blob = seal_presence(
+            key=self._key_for(layer_id),
+            layer_id=active.layer_id,
+            doc_id=active.doc_id,
+            peer_id=peer.peer_id,
+            payload=peer.model_dump_json().encode(),
+        )
+        self._relay.announce(active.channel, peer.peer_id, blob)
 
     def presence(self, layer_id: str) -> list[PresencePeer]:
         active = self._require(layer_id)
@@ -429,12 +451,40 @@ class CollaborationService:
             )
 
     def _read_presence(self, active: _Active) -> list[PresencePeer]:
+        """Every peer whose sealed announcement opens under this layer's key.
+
+        A blob that fails authentication is dropped without comment: at this
+        point it is the relay (or something upstream of it) offering a peer that
+        never announced itself, and the honest rendering of that is no peer.
+
+        No key means no peers, rather than an error: `status` is polled by the UI
+        and does not go through `_require`, so a layer that locked between the
+        poll and the read must degrade to "nobody here", not break the panel.
+        """
+        try:
+            key = self._key_for(active.layer_id)
+        except LayerLockedError:
+            return []
         peers: list[PresencePeer] = []
-        for _peer_id, blob in self._relay.presence(active.channel).items():
+        for peer_id, blob in self._relay.presence(active.channel).items():
             try:
-                peers.append(PresencePeer.model_validate_json(blob))
-            except (ValueError, ConflictError):
+                payload = open_presence(
+                    key=key,
+                    layer_id=active.layer_id,
+                    doc_id=active.doc_id,
+                    peer_id=peer_id,
+                    blob=blob,
+                )
+                peer = PresencePeer.model_validate_json(payload)
+            except (DecryptionError, ValueError, ConflictError):
+                logger.warning("collaboration.presence_rejected", layer_id=active.layer_id)
                 continue
+            if peer.peer_id != peer_id:
+                # The id is bound into the AAD, so this cannot happen without the
+                # key — but a peer that renames itself mid-payload is not one to
+                # show either.
+                continue
+            peers.append(peer)
         return peers
 
     def _emit_event(self, kind: str, payload: dict[str, object]) -> None:

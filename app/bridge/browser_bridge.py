@@ -25,13 +25,15 @@ from __future__ import annotations
 
 import json
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 
 from app.bridge.envelope import EmptyRequest, bridge_method
 from app.domain.browser import SEARCH_URLS, BrowserStatus, BrowserTab, ScrapedPage
+from app.domain.digest import DigestMode
 from app.domain.errors import StrataError
 from app.domain.ids import new_request_id
 from app.infrastructure.logging.logger import get_logger
@@ -55,13 +57,39 @@ class OpenUrlRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
 
 
+class BlurRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class MobileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class OpenedResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    opened: bool
+
+
 class ReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_id: str = Field(default="", max_length=256)
-    # Capture only. Ignored by `scrape_tab`, which never writes.
+    # Everything below is capture-only; `scrape_tab` never writes and ignores it.
     layer_id: str = Field(default="", max_length=128)
     capture_reason: str = Field(default="", max_length=500)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    # "full" keeps the page verbatim; "brief"/"outline" run a model first and
+    # keep only the digest — the page itself is never saved.
+    mode: DigestMode = "full"
+    instruction: str = Field(default="", max_length=500)
+    provider_id: str = Field(default="", max_length=64)
+    model: str = Field(default="", max_length=128)
+    confirmed_remote: bool = False
 
 
 class StatusResponse(BaseModel):
@@ -97,7 +125,18 @@ class _PendingRead:
     capture: bool
     layer_id: str = ""
     capture_reason: str = ""
+    tags: list[str] = field(default_factory=list)
+    mode: DigestMode = "full"
+    instruction: str = ""
+    provider_id: str = ""
+    model: str = ""
+    confirmed_remote: bool = False
     page: ScrapedPage | None = None
+    # A digest replaces the page text before it is saved; these carry it from the
+    # worker thread (where the model runs) to the Qt thread (where the note is
+    # written). None means "save the page as-is".
+    content_override: str | None = None
+    extra_properties: dict[str, str] = field(default_factory=dict)
     error: str = ""
 
 
@@ -109,6 +148,10 @@ class BrowserBridge(QObject):
     """
 
     pageEvent = Signal(str)
+    # Pushed whenever blur changes by *any* path — including the application
+    # hotkey, which the panel never sees — so a "Blur media" toggle can stay in
+    # step with the real state. Carries no page content, only on/off + radius.
+    blurEvent = Signal(str)
     # Internal hop from the reading thread back to the Qt thread, so the capture
     # (a filesystem write) happens where every other write happens.
     _readFinished = Signal(str)
@@ -118,6 +161,7 @@ class BrowserBridge(QObject):
         self._services = services
         self._pending: dict[str, _PendingRead] = {}
         self._readFinished.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+        self._services.browser.on_blur_changed = self._emit_blur
 
     # -- state ---------------------------------------------------------------
 
@@ -147,6 +191,69 @@ class BrowserBridge(QObject):
         return StatusResponse(
             status=self._services.browser.status(),
             engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(BlurRequest)
+    def set_blur(self, request: BlurRequest) -> StatusResponse:
+        """Blur (or unblur) images, video and canvas in the pane."""
+        self._services.browser.set_blur(request.enabled)
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(EmptyRequest)
+    def toggle_blur(self, _request: EmptyRequest) -> StatusResponse:
+        """Flip blur, whatever it is now.
+
+        Separate from `set_blur` because a *toggle* must not be a read followed
+        by a write. The hotkey, the pane's own button and the panel button can
+        all fire from different places at once, and each one computing
+        ``not (what I last saw)`` from its own copy is how two of them cancel out
+        and the blur appears not to respond. The state lives in one place; this
+        flips it there.
+        """
+        self._services.browser.toggle_blur()
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(MobileRequest)
+    def set_mobile(self, request: MobileRequest) -> StatusResponse:
+        """Serve sites their mobile layout by swapping the pane's user-agent."""
+        self._services.browser.set_mobile(request.enabled)
+        return StatusResponse(
+            status=self._services.browser.status(),
+            engines=sorted(SEARCH_URLS),
+        )
+
+    @Slot(str, result=str)
+    @bridge_method(OpenUrlRequest)
+    def open_external(self, request: OpenUrlRequest) -> OpenedResponse:
+        """Hand a page to the user's real browser.
+
+        The escape hatch for what the embedded pane cannot do — chiefly H.264
+        video, which its Qt build has no codec for. The URL is validated as
+        http(s) first; the OS then opens it in the default browser.
+        """
+        url = self._services.browser.external_url(request.url)
+        QDesktopServices.openUrl(QUrl(url))
+        return OpenedResponse(opened=True)
+
+    def _emit_blur(self) -> None:
+        enabled, amount = self._services.browser.blur_state()
+        self.blurEvent.emit(
+            json.dumps(
+                {
+                    "enabled": enabled,
+                    "amount": amount,
+                    "supported": self._services.browser.blur_supported,
+                }
+            )
         )
 
     # -- navigation ----------------------------------------------------------
@@ -194,6 +301,12 @@ class BrowserBridge(QObject):
             capture=capture,
             layer_id=request.layer_id,
             capture_reason=request.capture_reason,
+            tags=request.tags,
+            mode=request.mode if capture else "full",
+            instruction=request.instruction,
+            provider_id=request.provider_id,
+            model=request.model,
+            confirmed_remote=request.confirmed_remote,
         )
         thread = threading.Thread(target=self._read, args=(request_id,), daemon=True)
         thread.start()
@@ -206,12 +319,47 @@ class BrowserBridge(QObject):
             return
         try:
             pending.page = self._services.browser.read_page(pending.target_id)
+            if pending.capture and pending.mode != "full":
+                self._digest(pending)
         except StrataError as exc:
             pending.error = exc.message
         except Exception:  # a bug here must not strand the caller in silence
             logger.info("browser.read_failed")
             pending.error = "The page could not be read."
         self._readFinished.emit(request_id)
+
+    def _digest(self, pending: _PendingRead) -> None:
+        """Condense the page into a brief. Worker thread only — it calls a model."""
+        page = pending.page
+        if page is None:
+            return
+        digest, execution_id = self._services.digest.digest_sync(
+            text=page.text,
+            url=page.url,
+            title=page.title,
+            mode=pending.mode,
+            instruction=pending.instruction,
+            provider_id=pending.provider_id or "ollama",
+            model=pending.model or "default",
+            confirmed_remote=pending.confirmed_remote,
+        )
+        content = self._services.digest.render(
+            digest, mode=pending.mode, title=page.title, url=page.url
+        )
+        pending.content_override = content
+        pending.extra_properties = {
+            "review_status": "ai-inferred",
+            "generated_by": execution_id,
+            "digest_mode": pending.mode,
+            "processing_status": "processed",
+        }
+        pending.tags = list(
+            dict.fromkeys([*pending.tags, *self._services.digest.clean_tags(digest)])
+        )
+        # Show the user what was actually kept, not the discarded page.
+        pending.page = page.model_copy(
+            update={"text": content, "char_count": len(content), "truncated": False}
+        )
 
     @Slot(str)
     def _deliver(self, request_id: str) -> None:
@@ -230,11 +378,13 @@ class BrowserBridge(QObject):
 
         try:
             note = self._services.capture.capture(
-                content=page.text,
+                content=pending.content_override or page.text,
                 title=page.title[:MAX_CAPTURE_TITLE],
                 layer_id=pending.layer_id,
                 source_url=page.url,
                 capture_reason=pending.capture_reason,
+                tags=pending.tags or None,
+                extra_properties=pending.extra_properties or None,
             )
         except StrataError as exc:
             self._emit(request_id, {"kind": "error", "error": exc.message})

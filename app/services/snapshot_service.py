@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.domain.errors import InvalidRequestError, NotFoundError
@@ -40,7 +40,7 @@ LAYERS_SUBDIR = "layers"
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 @dataclass(frozen=True)

@@ -8,14 +8,82 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.domain.browser import SEARCH_URLS
 from app.infrastructure.logging.logger import get_logger
 from app.infrastructure.storage.paths import replace_atomic
+
+# A research pane is not a browser install. More than a handful of scripts is
+# a sign the setting is being used as one, and each is third-party code with
+# sight of every page the pane visits.
+MAX_BROWSER_USER_SCRIPTS = 20
+# Generous, because a blocklist is the one of these two that people paste in
+# bulk — but still a list a human curated, not a subscribed filter feed.
+MAX_BROWSER_BLOCKED_HOSTS = 2000
+
+
+def _clean_paths(value: Any, field: str, limit: int) -> list[str]:
+    """Strip, drop blanks and duplicates, cap. Order and case preserved.
+
+    Existence is deliberately not checked: a settings file has to load on a
+    machine where a path has since moved, and the pane reports what it could
+    not find when it tries. Refusing to start the app over it is the wrong trade.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str) or not isinstance(value, Iterable):
+        raise ValueError(f"{field} must be a list")
+    cleaned: list[str] = []
+    for entry in value:
+        text = str(entry).strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    if len(cleaned) > limit:
+        raise ValueError(f"{field} holds at most {limit} entries")
+    return cleaned
+
+
+MAX_URL_LENGTH = 2000
+_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _clean_endpoint(value: Any, field: str) -> str:
+    """A plain ``http(s)`` endpoint, or a refusal.
+
+    Every URL in this file names somewhere Strata will *send* data — a model
+    endpoint, a collaboration relay. So each is held to the same three rules:
+
+    * ``http``/``https`` only. Any other scheme reaching an HTTP client is either
+      a mistake or an attempt to make it read something it should not.
+    * A host is required. ``http:///notes`` is not an endpoint.
+    * No embedded credentials. A password in a settings file is a password in a
+      bug report, and `user:pass@host` also hides the real host from a reader
+      glancing at the box.
+
+    Note what this does *not* do: it does not decide whether an endpoint is
+    local. That question belongs to the AI policy gate, which asks it of the
+    endpoint actually in use (:func:`app.domain.ai.is_local_endpoint`).
+    """
+    text = str(value).strip()
+    if not text:
+        return ""
+    if len(text) > MAX_URL_LENGTH:
+        raise ValueError(f"{field} is too long")
+    parts = urlsplit(text)
+    if parts.scheme.lower() not in _URL_SCHEMES:
+        raise ValueError(f"{field} must be an http:// or https:// URL")
+    if not parts.hostname:
+        raise ValueError(f"{field} must include a host")
+    if parts.username or parts.password:
+        raise ValueError(f"{field} must not embed credentials")
+    return text
+
 
 logger = get_logger(__name__)
 
@@ -140,6 +208,33 @@ class AppSettings(BaseModel):
     browser_profile_path: str = ""
     browser_debug_port: int = 9333
     browser_search_engine: str = "duckduckgo"
+    # Blur images, video and canvas in the browser pane, so a shoulder-surfer or
+    # a screen share sees text but not media. `browser_blur_media` is only the
+    # starting state — the pane is toggled live with a hotkey; the radius is the
+    # adjustable part. Embedded pane only.
+    browser_blur_media: bool = False
+    browser_blur_amount: int = 12
+    # The Qt pane's two stand-ins for extensions, which it cannot load at all
+    # (Chromium's extensions subsystem is not compiled into Qt WebEngine, and
+    # no flag adds it). Between them they cover what people install extensions
+    # *for*: `browser_user_scripts` are Tampermonkey-style `.js` files injected
+    # at document-creation, and `browser_blocked_hosts` are domains whose
+    # requests the pane refuses — a hosts-file ad blocker, in effect.
+    browser_user_scripts: list[str] = Field(default_factory=list)
+    browser_blocked_hosts: list[str] = Field(default_factory=list)
+    # Mobile mode: the browser pane serves a mobile user-agent so sites render
+    # their touch/mobile layout. Synthetic touch events are advertised to pages
+    # from the next launch (a process-global Chromium flag; see application.py).
+    browser_mobile_mode: bool = False
+
+    # -- Auto-lock ------------------------------------------------------------
+    #
+    # Lock every private layer (dropping the keys from memory) after this many
+    # minutes with no input anywhere on the system; 0 turns it off. And, on by
+    # default, when Windows locks, the session disconnects, or the machine
+    # sleeps.
+    auto_lock_minutes: int = 15
+    auto_lock_on_system_lock: bool = True
 
     # -- Onboarding ----------------------------------------------------------
     #
@@ -147,18 +242,30 @@ class AppSettings(BaseModel):
     # More → Tutorial does not clear this; Skip/Finish set it true again.
     onboarding_tour_completed: bool = False
 
-    # -- Screen security -----------------------------------------------------
+    # -- System tray ---------------------------------------------------------
     #
-    # Signal-style "Hidden for sharing" (on by default): when True, the OS
-    # excludes the entire Strata window from screenshots and screen shares
-    # (Windows: WDA_EXCLUDEFROMCAPTURE, with WDA_MONITOR fallback). The window
-    # stays visible on your display.
-    hide_for_sharing: bool = True
+    # When on, closing or minimizing the window *hides* it: it leaves the
+    # taskbar but Strata keeps running behind a tray icon, and quitting is a
+    # deliberate act from the tray menu. `start_in_tray` starts hidden, for a
+    # launch that does not announce itself.
+    #
+    # This hides the window, never the process. Strata stays fully visible to
+    # Task Manager and every other process tool by design — see app/desktop/tray.py.
+    minimize_to_tray: bool = False
+    start_in_tray: bool = False
+    # Drop the taskbar button entirely (Windows), even while the window is open.
+    # Pairs with the tray, which is the way back to a window that has no taskbar
+    # button — so turning this on keeps the tray icon up and sends minimize to it.
+    hide_from_taskbar: bool = False
 
     @field_validator("browser_backend", mode="before")
     @classmethod
     def _check_backend(cls, value: Any) -> str:
         backend = str(value).strip().lower()
+        # "webview2" was a backend once; a settings file that still names it
+        # gets the built-in pane.
+        if backend == "webview2":
+            return "embedded"
         if backend not in ("embedded", "chrome"):
             raise ValueError("browser_backend must be 'embedded' or 'chrome'")
         return backend
@@ -176,6 +283,50 @@ class AppSettings(BaseModel):
             raise ValueError("browser_debug_port must be between 1024 and 65535")
         return port
 
+    @field_validator("browser_user_scripts", mode="before")
+    @classmethod
+    def _clean_user_scripts(cls, value: Any) -> list[str]:
+        return _clean_paths(value, "browser_user_scripts", MAX_BROWSER_USER_SCRIPTS)
+
+    @field_validator("browser_blocked_hosts", mode="before")
+    @classmethod
+    def _clean_blocked_hosts(cls, value: Any) -> list[str]:
+        """Hostnames, lower-cased, without scheme or path.
+
+        People paste `https://ads.example.com/tag.js` into a blocklist box, and
+        a list that silently keeps that entry blocks nothing while looking as
+        though it works. Reduce each entry to its host and drop what has none.
+        """
+        raw = _clean_paths(value, "browser_blocked_hosts", MAX_BROWSER_BLOCKED_HOSTS)
+        hosts: list[str] = []
+        for entry in raw:
+            host = entry.lower()
+            if "//" in host:
+                host = host.split("//", 1)[1]
+            host = host.split("/", 1)[0].split("@")[-1].split(":")[0].strip(".")
+            if host and " " not in host and host not in hosts:
+                hosts.append(host)
+        return hosts
+
+    @field_validator("auto_lock_minutes", mode="before")
+    @classmethod
+    def _clamp_auto_lock(cls, value: Any) -> int:
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("auto_lock_minutes must be a number") from exc
+        return max(0, min(minutes, 24 * 60))
+
+    @field_validator("browser_blur_amount", mode="before")
+    @classmethod
+    def _clamp_blur_amount(cls, value: Any) -> int:
+        try:
+            amount = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("browser_blur_amount must be a number") from exc
+        # Below 1 is not a blur; above 100 is a solid smear with no gain.
+        return max(1, min(100, amount))
+
     @field_validator("browser_search_engine", mode="before")
     @classmethod
     def _check_search_engine(cls, value: Any) -> str:
@@ -183,6 +334,40 @@ class AppSettings(BaseModel):
         if engine not in SEARCH_URLS:
             raise ValueError("browser_search_engine must be an engine Strata knows")
         return engine
+
+    @field_validator("relay_url", mode="before")
+    @classmethod
+    def _check_relay_url(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return _clean_endpoint(value, "relay_url")
+
+    @field_validator("provider_base_urls", mode="before")
+    @classmethod
+    def _check_provider_base_urls(cls, value: Any) -> dict[str, str]:
+        """Validate every provider endpoint override.
+
+        An override moves where a model request is *sent*. Left unchecked, the
+        entry for a provider the catalogue calls local ("Runs on this machine.
+        Nothing leaves it.") could name any host on the internet, and a layer
+        restricted to local AI would be gated on the label while its plaintext
+        went elsewhere. The gate now recomputes locality from this value
+        (`AIService.capabilities_for`); this validator is the other half — it
+        keeps the value a URL an HTTP client will actually dial.
+        """
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("provider_base_urls must be an object")
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_url in value.items():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            endpoint = _clean_endpoint(raw_url, f"provider_base_urls.{key}")
+            if endpoint:
+                cleaned[key] = endpoint
+        return cleaned
 
     @field_validator("ui_scale", mode="before")
     @classmethod
@@ -207,9 +392,7 @@ class AppSettings(BaseModel):
                 continue
             hex_value = str(raw_hex).strip()
             if not _HEX6.match(hex_value):
-                raise ValueError(
-                    f"theme_colors.{key} must be a #RRGGBB hex colour"
-                )
+                raise ValueError(f"theme_colors.{key} must be a #RRGGBB hex colour")
             cleaned[key] = hex_value.lower()
         return cleaned
 

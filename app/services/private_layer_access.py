@@ -13,7 +13,8 @@ not exist. Losing the reverse would look like data loss.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,7 @@ from app.infrastructure.storage.paths import safe_filename
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class PrivateLayerAccess:
@@ -47,15 +48,22 @@ class PrivateLayerAccess:
         self._header = header
         self._store = EncryptedLayerStore(layer_id, root, padding=header.padding_enabled)
         self._manifest: Manifest | None = None
+        # Commits can come from more than one thread, and two interleaved
+        # commits could each write a manifest missing the other's entry.
+        self._commit_lock = threading.RLock()
 
     @property
     def manifest(self) -> Manifest:
-        if self._manifest is None:
-            self._manifest = self._store.read_manifest(self._key, self._header.manifest_object_id)
-        return self._manifest
+        with self._commit_lock:
+            if self._manifest is None:
+                self._manifest = self._store.read_manifest(
+                    self._key, self._header.manifest_object_id
+                )
+            return self._manifest
 
     def _commit(self) -> None:
-        self._store.write_manifest(self._key, self._header.manifest_object_id, self.manifest)
+        with self._commit_lock:
+            self._store.write_manifest(self._key, self._header.manifest_object_id, self.manifest)
 
     def _live(self, kind: str | None = None) -> list[ManifestEntry]:
         return [

@@ -22,6 +22,7 @@ from app.services.collaboration_service import CollaborationService
 from app.services.connection_service import ConnectionService
 from app.services.context_export_service import ContextExportService
 from app.services.conversation_service import ConversationService
+from app.services.digest_service import WebDigestService
 from app.services.encryption_service import EncryptionService
 from app.services.graph_service import GraphService
 from app.services.job_service import JobService
@@ -91,6 +92,7 @@ class Services:
         )
         self.ai_generation = AIGenerationService(self.ai)
         self.capture = CaptureService(self.workspace, self.notes, self.settings)
+        self.digest = WebDigestService(self.ai, self.exports)
         self.browser = BrowserService(self.settings, paths.data_dir)
         self.knowledge = KnowledgeService(self.ai, self.notes, self.exports)
         self.retrieval = RetrievalService(self.search)

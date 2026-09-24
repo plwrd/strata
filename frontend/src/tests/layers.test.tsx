@@ -244,7 +244,7 @@ describe("LayerPanel", () => {
     ).toBeDisabled();
   });
 
-  it("shows the recovery key once and will not let it be dismissed unacknowledged", async () => {
+  it("keeps the recovery key hidden until asked, and is skippable", async () => {
     const user = userEvent.setup();
     stubClipboard(vi.fn().mockResolvedValue(undefined));
     render(<LayerPanel />);
@@ -264,14 +264,19 @@ describe("LayerPanel", () => {
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent(/Shown once/i);
     expect(dialog).toHaveTextContent(/There is no second copy/i);
-    expect(screen.getByTestId("recovery-key")).toHaveTextContent("AAAA-BBBB");
 
-    // The user cannot click past it until they say they saved it.
-    expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
-    await user.click(
-      screen.getByRole("checkbox", { name: /saved this recovery key/i }),
-    );
+    // Hidden by default — the key is not on screen until the user asks.
+    expect(screen.queryByTestId("recovery-key")).toBeNull();
+    expect(screen.getByTestId("recovery-key-hidden")).toBeInTheDocument();
+
+    // A password alone is enough, so it can be dismissed straight away.
     expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
+
+    // Show reveals it on request; Hide puts it away again.
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    expect(screen.getByTestId("recovery-key")).toHaveTextContent("AAAA-BBBB");
+    await user.click(screen.getByRole("button", { name: "Hide" }));
+    expect(screen.queryByTestId("recovery-key")).toBeNull();
   });
 });
 

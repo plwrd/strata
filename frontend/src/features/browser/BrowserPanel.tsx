@@ -23,8 +23,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, BridgeCallError } from "../../bridge/client";
 import type {
+  BlurStreamEvent,
   BrowserStatus,
   BrowserTab,
+  DigestMode,
   PageStreamEvent,
   ScrapedPage,
 } from "../../bridge/types";
@@ -53,6 +55,8 @@ const ENGINE_LABELS: Record<string, string> = {
 export function BrowserPanel(): JSX.Element {
   const state = useStore();
   const [status, setStatus] = useState<BrowserStatus | null>(null);
+  const [blur, setBlur] = useState(false);
+  const [mobile, setMobile] = useState(false);
   const [engines, setEngines] = useState<string[]>([]);
   const [engine, setEngine] = useState("");
   const [query, setQuery] = useState("");
@@ -61,6 +65,14 @@ export function BrowserPanel(): JSX.Element {
   const [page, setPage] = useState<ScrapedPage | null>(null);
   const [captureNoteId, setCaptureNoteId] = useState("");
   const [reason, setReason] = useState("");
+  // Analyse is deliberately two steps: the first click opens the options, the
+  // second runs. It used to fire on the first click, which gave no chance to
+  // steer a run that then costs a model call and a review.
+  const [analysing, setAnalysing] = useState(false);
+  const [focus, setFocus] = useState("");
+  const [mode, setMode] = useState<DigestMode>("full");
+  const [instruction, setInstruction] = useState("");
+  const [tagsText, setTagsText] = useState("");
   const [scopeIds, setScopeIds] = useState<string[]>([]);
   const [fileLayerId, setFileLayerId] = useState("");
   const [busy, setBusy] = useState<Busy>("idle");
@@ -87,19 +99,41 @@ export function BrowserPanel(): JSX.Element {
 
   useEffect(() => {
     void refreshStatus();
-    void bridge.browser.onPage((raw) => {
-      const event = JSON.parse(raw) as PageStreamEvent;
-      const pending = pendingRead.current;
-      if (!pending || event.requestId !== pending.requestId) return;
-      pendingRead.current = null;
-      if (event.kind === "error" || !event.page) {
-        pending.reject(event.error ?? "The page could not be read.");
-        return;
-      }
-      pending.resolve(event.page, event.note?.metadata.id ?? "");
-    });
-    // Once, on mount: the panel asks the host what it can do, and subscribes
-    // for the life of the panel.
+    let drop: (() => void) | null = null;
+    let cancelled = false;
+    void bridge.browser
+      .onPage((raw) => {
+        const event = JSON.parse(raw) as PageStreamEvent;
+        const pending = pendingRead.current;
+        if (!pending || event.requestId !== pending.requestId) return;
+        pendingRead.current = null;
+        if (event.kind === "error" || !event.page) {
+          pending.reject(event.error ?? "The page could not be read.");
+          return;
+        }
+        pending.resolve(event.page, event.note?.metadata.id ?? "");
+      })
+      .then((unsubscribe) => {
+        if (cancelled) unsubscribe();
+        else drop = unsubscribe;
+      });
+    let dropBlur: (() => void) | null = null;
+    void bridge.browser
+      .onBlur((raw) => {
+        const event = JSON.parse(raw) as BlurStreamEvent;
+        setBlur(event.enabled);
+      })
+      .then((unsubscribe) => {
+        if (cancelled) unsubscribe();
+        else dropBlur = unsubscribe;
+      });
+    return () => {
+      cancelled = true;
+      drop?.();
+      dropBlur?.();
+    };
+    // Once per mount: the panel asks the host what it can do, and listens for
+    // the reads it starts and for blur changes it did not make.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -135,11 +169,37 @@ export function BrowserPanel(): JSX.Element {
     try {
       const result = await bridge.browser.getStatus();
       setStatus(result.status);
+      setBlur(result.status.blur_enabled);
+      setMobile(result.status.mobile_mode);
       setEngines(result.engines);
       if (result.status.running) await refreshTabs();
     } catch (caught) {
       setError(describe(caught));
     }
+  };
+
+  const toggleBlur = (): void => {
+    // Optimistic: the button flips at once; `onBlur` confirms, and also catches
+    // the application hotkey, which never comes through this handler.
+    //
+    // The *call* is a toggle, not `setBlur(!blur)`. This component's `blur` is a
+    // copy, and the hotkey changes the real one without passing through here —
+    // so a press and a click close together each sent "make it the opposite of
+    // what I last saw" and cancelled each other out. Flipping at the source
+    // cannot do that.
+    setBlur(!blur);
+    void bridge.browser
+      .toggleBlur()
+      .then(({ status }) => setBlur(status.blur_enabled))
+      .catch((caught) => setError(describe(caught)));
+  };
+
+  const toggleMobile = (): void => {
+    const next = !mobile;
+    setMobile(next);
+    void bridge.browser
+      .setMobile(next)
+      .catch((caught) => setError(describe(caught)));
   };
 
   const refreshTabs = async (): Promise<void> => {
@@ -200,18 +260,33 @@ export function BrowserPanel(): JSX.Element {
       setNotice("");
     });
 
+  const captureRequest = () => ({
+    target_id: targetId,
+    layer_id: fileLayerId,
+    capture_reason: reason,
+    tags: tagsText
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    mode,
+    instruction,
+    provider_id: state.providerId,
+    model: state.model || "default",
+    confirmed_remote: false,
+  });
+
   const capture = (): Promise<void> =>
     run("capturing", async () => {
       const result = await awaitRead(() =>
-        bridge.browser.captureTab({
-          target_id: targetId,
-          layer_id: fileLayerId,
-          capture_reason: reason,
-        }),
+        bridge.browser.captureTab(captureRequest()),
       );
       setPage(result.page);
       setCaptureNoteId(result.noteId);
-      setNotice(`Captured “${result.page.title}” into the Inbox.`);
+      setNotice(
+        mode === "full"
+          ? `Captured “${result.page.title}” into the Inbox.`
+          : `Saved a ${mode === "outline" ? "key-points" : "brief"} digest into the Inbox.`,
+      );
       await state.reloadTree();
     });
 
@@ -222,11 +297,7 @@ export function BrowserPanel(): JSX.Element {
       let noteId = captureNoteId;
       if (!noteId) {
         const result = await awaitRead(() =>
-          bridge.browser.captureTab({
-            target_id: targetId,
-            layer_id: fileLayerId,
-            capture_reason: reason,
-          }),
+          bridge.browser.captureTab(captureRequest()),
         );
         setPage(result.page);
         noteId = result.noteId;
@@ -239,11 +310,21 @@ export function BrowserPanel(): JSX.Element {
         note_ids: [noteId],
         layer_ids: scopeIds,
         target_layer_id: fileLayerId,
+        focus: focus.trim(),
         confirmed_remote: false,
       });
       state.handOffPlanRequest(request_id, scopeIds);
+      setAnalysing(false);
       setNotice("Analysing — the proposal will open in Changes for review.");
     });
+
+  const openInRealBrowser = (): void => {
+    const url = page?.url || tabs[0]?.url || "";
+    if (!url) return;
+    void bridge.browser
+      .openExternal(url)
+      .catch((caught) => setError(describe(caught)));
+  };
 
   const toggleScope = (layerId: string): void =>
     setScopeIds((current) =>
@@ -280,6 +361,27 @@ export function BrowserPanel(): JSX.Element {
         {status?.detail ?? "Checking the browser…"}
       </p>
 
+      {running && embedded && (
+        <>
+          <p className="research__hint">
+            The built-in browser plays WebM/AV1 video but not H.264 — the format
+            x.com, YouTube and most sites use — so their videos stay blank. Open
+            the page in your real browser to watch it, or switch the browser to{" "}
+            <strong>Your own Chrome</strong> in Settings. Images, text and
+            scraping work here regardless.
+          </p>
+          <button
+            type="button"
+            className="button"
+            disabled={working || !(page?.url || tabs[0]?.url)}
+            title="Open the current page in your default browser"
+            onClick={openInRealBrowser}
+          >
+            Open in browser
+          </button>
+        </>
+      )}
+
       <div className="research__actions">
         {!running ? (
           <button
@@ -304,7 +406,36 @@ export function BrowserPanel(): JSX.Element {
             {embedded ? "Close pane" : "Close browser"}
           </button>
         )}
+        {running && status?.blur_supported && (
+          <button
+            type="button"
+            className={`button ${blur ? "button--primary" : ""}`}
+            aria-pressed={blur}
+            title="Blur images, video and canvas (Ctrl/Cmd+Shift+X)"
+            onClick={toggleBlur}
+          >
+            {blur ? "Media blurred" : "Blur media"}
+          </button>
+        )}
+        {running && embedded && (
+          <button
+            type="button"
+            className={`button ${mobile ? "button--primary" : ""}`}
+            aria-pressed={mobile}
+            title="Serve sites their mobile layout"
+            onClick={toggleMobile}
+          >
+            {mobile ? "Mobile site" : "Desktop site"}
+          </button>
+        )}
       </div>
+      {running && status?.blur_supported && (
+        <p className="research__hint">
+          Blur hides images, video and canvas so the page is safe to have on a
+          shared screen; text stays readable. Toggle it anywhere with{" "}
+          <kbd>Ctrl/Cmd+Shift+X</kbd>, and set the strength in Settings.
+        </p>
+      )}
 
       <div className="research__search">
         <label className="composer__field">
@@ -385,6 +516,44 @@ export function BrowserPanel(): JSX.Element {
         </div>
       )}
 
+      {/* Capture mode: how much of the page to keep. Brief and Key points run a
+          model over the page and save only the digest — the page is discarded. */}
+      <label className="composer__field">
+        <span className="label">Capture as</span>
+        <select
+          className="select"
+          value={mode}
+          aria-label="Capture mode"
+          onChange={(event) => setMode(event.target.value as DigestMode)}
+        >
+          <option value="full">Full text — keep the whole page</option>
+          <option value="brief">Brief — AI summary + key points</option>
+          <option value="outline">Key points — AI structured extract</option>
+        </select>
+      </label>
+      {mode !== "full" && (
+        <label className="composer__field">
+          <span className="label">Focus (optional)</span>
+          <input
+            className="input"
+            value={instruction}
+            placeholder="e.g. pricing and limits, or the API endpoints"
+            aria-label="Digest focus"
+            onChange={(event) => setInstruction(event.target.value)}
+          />
+        </label>
+      )}
+      <label className="composer__field">
+        <span className="label">Tags (optional, comma-separated)</span>
+        <input
+          className="input"
+          value={tagsText}
+          placeholder="e.g. vector-search, benchmarks"
+          aria-label="Capture tags"
+          onChange={(event) => setTagsText(event.target.value)}
+        />
+      </label>
+
       <div className="research__actions">
         <button
           type="button"
@@ -400,9 +569,22 @@ export function BrowserPanel(): JSX.Element {
           disabled={working || !running}
           onClick={() => void capture()}
         >
-          {busy === "capturing" ? "Capturing…" : "Capture only"}
+          {busy === "capturing"
+            ? mode === "full"
+              ? "Capturing…"
+              : "Digesting…"
+            : mode === "full"
+              ? "Capture only"
+              : "Digest & capture"}
         </button>
       </div>
+      {mode !== "full" && (
+        <p className="research__hint">
+          The page is run through your AI model and only the digest is kept —
+          the full text is never saved. Uses{" "}
+          {state.model || "the default model"}.
+        </p>
+      )}
 
       {page && (
         <div className="research__preview">
@@ -472,14 +654,51 @@ export function BrowserPanel(): JSX.Element {
         />
       </label>
 
-      <button
-        type="button"
-        className="button button--primary"
-        disabled={working || !canFile}
-        onClick={() => void analyseAndFile()}
-      >
-        {busy === "filing" ? "Analysing…" : "Analyse & file"}
-      </button>
+      {!analysing ? (
+        <button
+          type="button"
+          className="button button--primary"
+          disabled={working || !canFile}
+          onClick={() => setAnalysing(true)}
+        >
+          Analyse &amp; file…
+        </button>
+      ) : (
+        <div className="research__options">
+          <label className="composer__field">
+            <span className="label">Focus (optional)</span>
+            <input
+              className="input"
+              value={focus}
+              placeholder="e.g. pricing and limits, or just the API surface"
+              aria-label="Analysis focus"
+              onChange={(event) => setFocus(event.target.value)}
+            />
+          </label>
+          <p className="research__hint">
+            Steers this run only — it is not saved. Leave it empty to let the
+            model decide what matters.
+          </p>
+          <div className="research__actions">
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={working || !canFile}
+              onClick={() => void analyseAndFile()}
+            >
+              {busy === "filing" ? "Analysing…" : "Start analysis"}
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={working}
+              onClick={() => setAnalysing(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <p className="research__hint">
         Finds the nodes this page belongs to in the ticked layers, then proposes
         subnodes and added context. Nothing is written until you approve it in

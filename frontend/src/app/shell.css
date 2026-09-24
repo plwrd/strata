@@ -2412,6 +2412,21 @@ body:has(.dialog-backdrop) .stage__graph {
   line-height: 1.45;
 }
 
+/* Screen protection: what the OS granted, not what was asked for. A refusal
+   has to read as a refusal — it is the line someone plans a call around. */
+.settings-dialog__hint--ok {
+  color: var(--status-success);
+}
+
+.settings-dialog__hint--warning {
+  color: var(--status-warning);
+  font-weight: 600;
+}
+
+.settings-dialog__hint--muted {
+  color: var(--text-tertiary);
+}
+
 .settings-dialog__segmented {
   flex-wrap: wrap;
 }

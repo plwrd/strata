@@ -5,11 +5,12 @@ Two ways to put a page in front of you, one set of models:
 * **embedded** — a browser pane inside the Strata window (Qt WebEngine, its own
   persistent profile). The default. No loopback port, no second process, and
   sign-ins survive restarts. It cannot load Chrome extensions: Qt ships
-  Chromium without the extensions subsystem, and no setting changes that.
+  Chromium without the extensions subsystem, and no setting changes that. It
+  also cannot play H.264 or AAC — that Qt build carries no proprietary codecs.
 * **chrome** — the Chrome you already have, driven over the DevTools protocol
-  on a loopback port against a Strata-owned profile. For the pages the embedded
-  view genuinely cannot do: anything that needs your extensions, and the
-  sign-in flows that refuse embedded browsers.
+  on a loopback port against a Strata-owned profile. For the sign-in flows that
+  refuse embedded browsers, and for extensions installed from the store rather
+  than unpacked.
 
 Both produce the same :class:`ScrapedPage` from the same extraction, so the
 research pipeline downstream cannot tell them apart — and neither can the parts
@@ -64,6 +65,13 @@ class BrowserStatus(BaseModel):
     executable: str = ""
     profile_path: str = ""
     tab_count: int = 0
+    # Media blur (embedded pane only). `blur_supported` is false for the Chrome
+    # backend, which Strata does not reach into to restyle.
+    blur_enabled: bool = False
+    blur_amount: int = 12
+    blur_supported: bool = False
+    # Mobile layout (embedded pane only): the pane serves a mobile user-agent.
+    mobile_mode: bool = False
     # One plain sentence for the UI — why it is not running, or what it is.
     detail: str = ""
 

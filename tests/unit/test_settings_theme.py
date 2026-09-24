@@ -49,9 +49,7 @@ def test_drops_unknown_colour_keys() -> None:
 
 def test_rejects_invalid_hex() -> None:
     with pytest.raises(ValidationError):
-        AppSettings.model_validate(
-            {"theme_colors": {"accent_primary": "red"}}
-        )
+        AppSettings.model_validate({"theme_colors": {"accent_primary": "red"}})
 
 
 def test_clamps_ui_scale() -> None:

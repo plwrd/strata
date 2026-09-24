@@ -34,13 +34,22 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       default_provider: "ollama",
       default_model: "qwythos",
       onboarding_tour_completed: true,
-      hide_for_sharing: true,
+      minimize_to_tray: false,
+      start_in_tray: false,
+      hide_from_taskbar: false,
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
+      browser_user_scripts: [] as string[],
+      browser_blocked_hosts: [] as string[],
       browser_executable_path: "",
       browser_profile_path: "",
       browser_debug_port: 9333,
       browser_search_engine: "duckduckgo",
+      browser_blur_media: false,
+      browser_blur_amount: 12,
+      browser_mobile_mode: false,
+      auto_lock_minutes: 15,
+      auto_lock_on_system_lock: true,
       ...overrides,
     },
     mode: "explore",
@@ -120,7 +129,7 @@ describe("SettingsDialog", () => {
     );
   });
 
-  it("opens from Command bar More, without motion/sharing toggles there", async () => {
+  it("opens from Command bar More, without the motion toggle there", async () => {
     render(<CommandBar />);
 
     await userEvent.click(screen.getByRole("button", { name: "More" }));
@@ -128,27 +137,26 @@ describe("SettingsDialog", () => {
       screen.getByRole("button", { name: "Settings" }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Motion:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Hidden for sharing/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(
       screen.getByRole("dialog", { name: "Settings" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Hidden for sharing")).toBeInTheDocument();
     expect(
       screen.getByRole("group", { name: "Motion preference" }),
     ).toBeInTheDocument();
   });
 
-  it("toggles hide-for-sharing through applySettings", async () => {
+  it("turns off locking on system lock through applySettings", async () => {
     const applySettings = vi.spyOn(useStore.getState(), "applySettings");
     render(<SettingsDialog onClose={() => undefined} />);
-
     await userEvent.click(
-      screen.getByRole("checkbox", { name: /Hidden for sharing/ }),
+      screen.getByRole("checkbox", { name: /lock when Windows locks/ }),
     );
     await waitFor(() =>
-      expect(applySettings).toHaveBeenCalledWith({ hide_for_sharing: false }),
+      expect(applySettings).toHaveBeenCalledWith({
+        auto_lock_on_system_lock: false,
+      }),
     );
   });
 
@@ -161,6 +169,70 @@ describe("SettingsDialog", () => {
     );
     await waitFor(() =>
       expect(applySettings).toHaveBeenCalledWith({ battery_saver: true }),
+    );
+  });
+
+  it("offers user scripts and a blocklist only for the built-in pane", () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(
+      screen.getByRole("button", { name: /Add a user script/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Blocked hosts" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the Qt stand-ins when your own Chrome is chosen", () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "chrome" });
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(
+      screen.queryByRole("button", { name: /Add a user script/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Blocked hosts" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("turns the blocklist box into one host per line", async () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    const box = screen.getByRole("textbox", { name: "Blocked hosts" });
+    await userEvent.click(box);
+    await userEvent.paste("ads.example.com\n\n  tracker.net  \n");
+
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        browser_blocked_hosts: ["ads.example.com", "tracker.net"],
+      }),
+    );
+  });
+
+  it("shows a user script by file name and can remove it", async () => {
+    seedReady({
+      browser_control_enabled: true,
+      browser_backend: "embedded",
+      browser_user_scripts: ["C:/scripts/dark-mode.js", "C:/scripts/reader.js"],
+    });
+    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
+    render(<SettingsDialog onClose={() => undefined} />);
+
+    expect(screen.getByText("dark-mode.js")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Remove user script C:/scripts/dark-mode.js",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(applySettings).toHaveBeenCalledWith({
+        browser_user_scripts: ["C:/scripts/reader.js"],
+      }),
     );
   });
 });

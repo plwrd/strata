@@ -26,7 +26,23 @@ import type {
 } from "../bridge/types";
 
 type Handler = (payload: Record<string, unknown>) => unknown;
-type Signal = { connect: (listener: (value: string) => void) => void };
+type Signal = {
+  connect: (listener: (value: string) => void) => void;
+  disconnect: (listener: (value: string) => void) => void;
+};
+
+/** A signal proxy over a listener array, with the disconnect Qt really has. */
+function signal(listeners: ((value: string) => void)[]): Signal {
+  return {
+    connect: (listener) => {
+      listeners.push(listener);
+    },
+    disconnect: (listener) => {
+      const index = listeners.indexOf(listener);
+      if (index >= 0) listeners.splice(index, 1);
+    },
+  };
+}
 
 export interface FakeVersion {
   created_at: string;
@@ -250,10 +266,7 @@ function makeCollaboration(): Record<string, Handler | Signal> {
       return { state: stateOf(p["layer_id"] as string), conflicts: [] };
     },
 
-    collabEvent: {
-      connect: (listener: (value: string) => void) =>
-        collabListeners.push(listener),
-    },
+    collabEvent: signal(collabListeners),
   };
 }
 
@@ -409,6 +422,9 @@ export const planListeners: ((value: string) => void)[] = [];
 /** Listeners registered against the `browser.pageEvent` signal. */
 export const pageListeners: ((value: string) => void)[] = [];
 
+/** Listeners registered against the `browser.blurEvent` signal. */
+export const blurListeners: ((value: string) => void)[] = [];
+
 /** Listeners registered against the `collaboration.collabEvent` signal. */
 export const collabListeners: ((value: string) => void)[] = [];
 
@@ -502,6 +518,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   aiListeners.length = 0;
   planListeners.length = 0;
   pageListeners.length = 0;
+  blurListeners.length = 0;
   collabListeners.length = 0;
   _docs.clear();
   // The client memoises its channel, so a fresh fake must invalidate it or the
@@ -522,6 +539,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
   const versionsSupported = options.versionsSupported ?? true;
   const browserEnabled = options.browserEnabled ?? true;
   const browserBackend = options.browserBackend ?? "embedded";
+  // Blur is a live toggle, so the fake holds it: a stateless stub cannot tell a
+  // toggle from a set, which is the distinction under test.
+  let blurEnabled = false;
   const savedPrompts: SavedPrompt[] = (options.prompts ?? []).map((entry) => ({
     ...entry,
   }));
@@ -613,13 +633,22 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_provider: "ollama",
           default_model: "qwythos",
           onboarding_tour_completed: true,
-          hide_for_sharing: true,
+          minimize_to_tray: false,
+          start_in_tray: false,
+          hide_from_taskbar: false,
           browser_control_enabled: false,
           browser_backend: "embedded",
+          browser_user_scripts: [],
+          browser_blocked_hosts: [],
           browser_executable_path: "",
           browser_profile_path: "",
           browser_debug_port: 9333,
           browser_search_engine: "duckduckgo",
+          browser_blur_media: false,
+          browser_blur_amount: 12,
+          browser_mobile_mode: false,
+          auto_lock_minutes: 15,
+          auto_lock_on_system_lock: true,
         },
       }),
       update_settings: (payload) => ({
@@ -648,13 +677,22 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             default_provider: "ollama",
             default_model: "qwythos",
             onboarding_tour_completed: true,
-            hide_for_sharing: true,
+            minimize_to_tray: false,
+            start_in_tray: false,
+            hide_from_taskbar: false,
             browser_control_enabled: false,
             browser_backend: "embedded",
+            browser_user_scripts: [],
+            browser_blocked_hosts: [],
             browser_executable_path: "",
             browser_profile_path: "",
             browser_debug_port: 9333,
             browser_search_engine: "duckduckgo",
+            browser_blur_media: false,
+            browser_blur_amount: 12,
+            browser_mobile_mode: false,
+            auto_lock_minutes: 15,
+            auto_lock_on_system_lock: true,
             ...(payload["values"] as object),
           }),
       }),
@@ -910,10 +948,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           issues: [],
         };
       },
-      changed: {
-        connect: (listener: (value: string) => void) =>
-          changeListeners.push(listener),
-      },
+      changed: signal(changeListeners),
     },
     search: {
       search: () => ({ results: [], total: 0, locked_layers_excluded: 1 }),
@@ -1011,10 +1046,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         },
       }),
       audit_log: () => ({ entries: [] }),
-      planEvent: {
-        connect: (listener: (value: string) => void) =>
-          planListeners.push(listener),
-      },
+      planEvent: signal(planListeners),
     },
     views: {
       run_view: (payload) => ({
@@ -1300,10 +1332,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
         executions = [];
         return { cleared_files: cleared };
       },
-      aiEvent: {
-        connect: (listener: (value: string) => void) =>
-          aiListeners.push(listener),
-      },
+      aiEvent: signal(aiListeners),
       plan_context: (payload) => ({
         plan:
           options.plan ??
@@ -1327,6 +1356,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           executable: "",
           profile_path: "",
           tab_count: 0,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend !== "chrome",
+          mobile_mode: false,
           detail: browserEnabled
             ? "The browser pane is closed."
             : "Turn on browser research in Settings to use it.",
@@ -1344,6 +1377,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           executable: "",
           profile_path: "",
           tab_count: 1,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend !== "chrome",
+          mobile_mode: false,
           detail: "The browser pane is open on example.com.",
         },
         engines: ["duckduckgo", "google"],
@@ -1359,14 +1396,62 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           executable: "",
           profile_path: "",
           tab_count: 0,
+          blur_enabled: false,
+          blur_amount: 12,
+          blur_supported: browserBackend !== "chrome",
+          mobile_mode: false,
           detail: "The browser pane is closed.",
         },
         engines: ["duckduckgo", "google"],
       }),
-      pageEvent: {
-        connect: (listener: (value: string) => void) =>
-          pageListeners.push(listener),
+      set_blur: (payload) => {
+        captured.push(payload);
+        blurEnabled = Boolean(payload["enabled"]);
+        for (const listener of blurListeners) {
+          listener(
+            JSON.stringify({
+              enabled: blurEnabled,
+              amount: 12,
+              supported: true,
+            }),
+          );
+        }
+        return { status: { blur_enabled: blurEnabled }, engines: [] };
       },
+      // The real one flips the state where it lives, so the fake holds state
+      // too — a toggle that always answered the same thing could not catch the
+      // bug this method exists for.
+      toggle_blur: (payload) => {
+        captured.push({ ...payload, method: "toggle_blur" });
+        blurEnabled = !blurEnabled;
+        const supported = browserBackend !== "chrome";
+        for (const listener of blurListeners) {
+          listener(
+            JSON.stringify({ enabled: blurEnabled, amount: 12, supported }),
+          );
+        }
+        return {
+          status: {
+            blur_enabled: blurEnabled,
+            blur_supported: supported,
+            backend: browserBackend,
+          },
+          engines: [],
+        };
+      },
+      set_mobile: (payload) => {
+        captured.push(payload);
+        return {
+          status: { mobile_mode: Boolean(payload["enabled"]) },
+          engines: [],
+        };
+      },
+      open_external: (payload) => {
+        captured.push(payload);
+        return { opened: true };
+      },
+      pageEvent: signal(pageListeners),
+      blurEvent: signal(blurListeners),
       search: (payload) => {
         captured.push(payload);
         return {
@@ -1408,8 +1493,16 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
       },
       capture_tab: (payload) => {
         captured.push(payload);
+        // A brief/outline capture keeps only a digest; the delivered "page"
+        // carries the digest text, exactly as Python does.
+        const digested = payload["mode"] && payload["mode"] !== "full";
+        const page = scrapedPage("note_capture_1");
+        if (digested) {
+          page["text"] = "## Summary\n\nA short brief.";
+          page["char_count"] = 24;
+        }
         emitPage("req_read_2", {
-          page: scrapedPage("note_capture_1"),
+          page,
           note: {
             metadata: {
               id: "note_capture_1",

@@ -64,6 +64,13 @@ TYPE_EMBEDDING: Final = 5
 # vice versa, and so the relay's blobs are typed at the AAD.
 TYPE_CRDT_UPDATE: Final = 6
 TYPE_CRDT_STATE: Final = 7
+# An awareness/presence blob: who is here, in which note, at which offset. It is
+# ephemeral and it is not document content, but it is still the user's data —
+# a relay that can read it learns who is working on what and when. Sealed like
+# everything else, and typed so a presence blob can never be applied as a CRDT
+# update.
+TYPE_PRESENCE: Final = 8
+# 9 and 10 are retired. Do not reuse them.
 
 OBJECT_TYPES: Final = frozenset(
     {
@@ -74,6 +81,7 @@ OBJECT_TYPES: Final = frozenset(
         TYPE_EMBEDDING,
         TYPE_CRDT_UPDATE,
         TYPE_CRDT_STATE,
+        TYPE_PRESENCE,
     }
 )
 

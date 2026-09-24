@@ -80,3 +80,6 @@ humazie/dashboard/test-results/
 humazie/dashboard/playwright-report/
 humazie/test-results/
 humazie/playwright-report/
+
+# A retired virtualenv kept locally after the Python upgrade.
+.venv-*/

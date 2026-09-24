@@ -13,7 +13,7 @@ counts and stage names.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class JobHandle:

@@ -432,9 +432,7 @@ class NotesBridge(QObject):
     @Slot(str, result=str)
     @bridge_method(MoveFolderRequest)
     def move_folder(self, request: MoveFolderRequest) -> FolderResponse:
-        folder = self._services.notes.move_folder(
-            request.folder_id, request.parent_folder_path
-        )
+        folder = self._services.notes.move_folder(request.folder_id, request.parent_folder_path)
         self._announce()
         return FolderResponse(folder=TreeFolder(**folder.model_dump()))
 

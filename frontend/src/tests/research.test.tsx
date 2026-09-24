@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserPanel } from "../features/browser/BrowserPanel";
 import { useStore } from "../state/store";
 import {
+  blurListeners,
   captured,
   installFakeBridge,
   PUBLIC_LAYER,
@@ -82,14 +83,23 @@ describe("BrowserPanel", () => {
     await userEvent.click(
       screen.getByRole("checkbox", { name: /Deals \(private\)/ }),
     );
+    // Two steps on purpose: the first click opens the options, the second runs.
     await userEvent.click(
-      await screen.findByRole("button", { name: "Analyse & file" }),
+      await screen.findByRole("button", { name: /Analyse & file/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Analysis focus" }),
+      "pricing and limits",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Start analysis" }),
     );
 
     await waitFor(() => {
       const payload = captured.find((entry) => "layer_ids" in entry);
       expect(payload?.["layer_ids"]).toEqual([PUBLIC_LAYER.id]);
       expect(payload?.["note_ids"]).toEqual(["note_capture_1"]);
+      expect(payload?.["focus"]).toBe("pricing and limits");
     });
     // The plan is reviewed in Changes, never applied from this panel.
     await waitFor(() =>
@@ -125,6 +135,157 @@ describe("BrowserPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("blurs media and stays in step with the hotkey", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+
+    const button = await screen.findByRole("button", { name: "Blur media" });
+    await userEvent.click(button);
+
+    // The click asked Python to *flip* it, rather than to set the opposite of
+    // what this component last saw — the panel and the hotkey change the same
+    // state, and two "make it the opposite" calls cancel out.
+    await waitFor(() => {
+      const payload = captured.find(
+        (entry) => entry["method"] === "toggle_blur",
+      );
+      expect(payload).toBeDefined();
+    });
+    expect(
+      await screen.findByRole("button", { name: "Media blurred" }),
+    ).toBeInTheDocument();
+
+    // A hotkey toggle Python pushes over blurEvent flips the button back, even
+    // though this panel never made the change.
+    for (const listener of blurListeners) {
+      listener(JSON.stringify({ enabled: false, amount: 12, supported: true }));
+    }
+    expect(
+      await screen.findByRole("button", { name: "Blur media" }),
+    ).toBeInTheDocument();
+  });
+
+  it("digests the page instead of saving it whole when asked", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+
+    // Pick a brief, add a focus and tags — the "manage and sort" controls.
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Capture mode" }),
+      "brief",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Digest focus" }),
+      "pricing",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Capture tags" }),
+      "vectors, pricing",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Digest & capture" }),
+    );
+
+    await waitFor(() => {
+      const payload = captured.find((entry) => "mode" in entry);
+      expect(payload?.["mode"]).toBe("brief");
+      expect(payload?.["instruction"]).toBe("pricing");
+      expect(payload?.["tags"]).toEqual(["vectors", "pricing"]);
+    });
+    // The preview shows the digest that was kept, not the whole page.
+    expect(await screen.findByText(/A short brief/)).toBeInTheDocument();
+  });
+
+  it("opens the current page in the real browser for video", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+    // A scrape gives the panel a current URL to hand off.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Scrape page" }),
+    );
+    await screen.findByText("Scraped body text.");
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open in browser" }),
+    );
+
+    await waitFor(() => {
+      const payload = captured.find(
+        (entry) => "url" in entry && !("layer_id" in entry),
+      );
+      expect(payload?.["url"]).toBe("https://example.com/paper");
+    });
+  });
+
+  it("warns that the embedded pane cannot play H.264 video", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+    expect(await screen.findByText(/not H\.264/)).toBeInTheDocument();
+  });
+
+  it("does not show the H.264 warning for the Chrome backend", async () => {
+    installFakeBridge({ browserBackend: "chrome" });
+    seedLayers();
+    render(<BrowserPanel />);
+    const opens = await screen.findAllByRole("button", {
+      name: "Open browser",
+    });
+    await userEvent.click(opens[0]!);
+    expect(screen.queryByText(/not H\.264/)).not.toBeInTheDocument();
+  });
+
+  it("switches the pane to a mobile layout", async () => {
+    render(<BrowserPanel />);
+    await screen.findByText(/pane is closed/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Desktop site" }),
+    );
+
+    await waitFor(() => {
+      const payload = captured.find(
+        (entry) => "enabled" in entry && !("amount" in entry),
+      );
+      // set_mobile was asked to turn on.
+      expect(
+        captured.some((e) => "enabled" in e && e["enabled"] === true),
+      ).toBe(true);
+      void payload;
+    });
+    expect(
+      await screen.findByRole("button", { name: "Mobile site" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the blur control for the Chrome backend", async () => {
+    installFakeBridge({ browserBackend: "chrome" });
+    seedLayers();
+    render(<BrowserPanel />);
+    const opens = await screen.findAllByRole("button", {
+      name: "Open browser",
+    });
+    await userEvent.click(opens[0]!);
+
+    expect(
+      screen.queryByRole("button", { name: "Blur media" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("explains itself instead of failing when the feature is off", async () => {
     installFakeBridge({ browserEnabled: false });
     seedLayers();
@@ -134,7 +295,33 @@ describe("BrowserPanel", () => {
       await screen.findByText(/Browser research is off/),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Analyse & file" }),
+      screen.queryByRole("button", { name: /Analyse & file/ }),
     ).not.toBeInTheDocument();
+  });
+  it("asks before it analyses, instead of starting on the first click", async () => {
+    // Analysing costs a model call and a review; the click used to start one
+    // with no chance to steer it.
+    installFakeBridge();
+    seedLayers();
+    render(<BrowserPanel />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open browser pane" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Analyse & file/ }),
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Analysis focus" }),
+    ).toBeInTheDocument();
+    expect(captured.find((entry) => "layer_ids" in entry)).toBeUndefined();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(
+      screen.queryByRole("textbox", { name: "Analysis focus" }),
+    ).not.toBeInTheDocument();
+    expect(captured.find((entry) => "layer_ids" in entry)).toBeUndefined();
   });
 });

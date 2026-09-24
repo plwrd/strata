@@ -259,7 +259,7 @@ def test_a_page_is_always_filed_as_a_node_even_when_the_model_says_nothing(
     # The page's own text stands in for the summary it did not get.
     assert "Vector indexes trade recall" in node.content
     assert "https://example.com/vector-indexes" in node.content
-    assert any("did not return an analysis" in warning for warning in proposal.warnings)
+    assert any("expected format" in warning for warning in proposal.warnings)
 
 
 def test_the_node_carries_the_analysis_when_there_is_one(workspace: Services) -> None:

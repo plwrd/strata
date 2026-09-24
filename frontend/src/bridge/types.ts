@@ -782,10 +782,13 @@ export interface AppSettings {
   /** False until the first-run tutorial is skipped or finished. */
   onboarding_tour_completed: boolean;
   /**
-   * Signal-style (on by default): exclude the whole Strata window from
-   * screenshots / screen shares. Enforced by the native shell, not the web UI.
+   * When on, closing or minimizing hides the window to a tray icon instead of
+   * quitting — it leaves the taskbar, but the process stays honestly listed.
+   * `start_in_tray` launches hidden. Enforced by the native shell.
    */
-  hide_for_sharing: boolean;
+  minimize_to_tray: boolean;
+  start_in_tray: boolean;
+  hide_from_taskbar: boolean;
   /**
    * Off by default: lets Strata launch and read a Chrome window of its own, so
    * research reaches logged-in and JavaScript-rendered pages. Blank executable
@@ -794,10 +797,20 @@ export interface AppSettings {
    */
   browser_control_enabled: boolean;
   browser_backend: BrowserBackend;
+  browser_user_scripts: string[];
+  browser_blocked_hosts: string[];
   browser_executable_path: string;
   browser_profile_path: string;
   browser_debug_port: number;
   browser_search_engine: string;
+  /** Blur images, video and canvas in the browser pane. Amount is the radius. */
+  browser_blur_media: boolean;
+  browser_blur_amount: number;
+  browser_mobile_mode: boolean;
+  /** Lock private layers after this many idle minutes; 0 = never. */
+  auto_lock_minutes: number;
+  /** Lock on Windows lock, session disconnect and sleep. */
+  auto_lock_on_system_lock: boolean;
 }
 
 export interface JobRecord {
@@ -860,6 +873,7 @@ export interface CollaborationState {
 // is untrusted data and is rendered as text, never as markup.
 
 export type BrowserBackend = "embedded" | "chrome";
+export type DigestMode = "full" | "brief" | "outline";
 
 export interface BrowserStatus {
   enabled: boolean;
@@ -873,7 +887,20 @@ export interface BrowserStatus {
   executable: string;
   profile_path: string;
   tab_count: number;
+  // Media blur (embedded pane only).
+  blur_enabled: boolean;
+  blur_amount: number;
+  blur_supported: boolean;
+  // Mobile layout (embedded pane serves a mobile user-agent).
+  mobile_mode: boolean;
   detail: string;
+}
+
+/** Pushed when pane blur changes — including from the application hotkey. */
+export interface BlurStreamEvent {
+  enabled: boolean;
+  amount: number;
+  supported: boolean;
 }
 
 export interface BrowserTab {

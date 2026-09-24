@@ -199,6 +199,7 @@ export interface StrataState {
   setSettingsOpen: (open: boolean) => void;
   /** Open or close the research browser pane (Ctrl/Cmd+Shift+B). */
   toggleBrowserPane: () => Promise<void>;
+  toggleBrowserBlur: () => Promise<void>;
   /** Hand a running plan job to the Changes panel and switch to it. */
   handOffPlanRequest: (requestId: string, layerIds: string[]) => void;
   /** Take the handed-off job, once. Null when there is none. */
@@ -206,6 +207,7 @@ export interface StrataState {
   setMode: (mode: AppMode) => void;
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
+  chooseUserScript: () => Promise<void>;
 
   reloadGraph: () => Promise<void>;
   reloadTree: () => Promise<void>;
@@ -445,7 +447,8 @@ export const useStore = create<StrataState>((set, get) => ({
   async initialise() {
     try {
       const health = await bridge.workspace.health();
-      const settings = (await bridge.settings.get()).settings;
+      const settingsReply = await bridge.settings.get();
+      const settings = settingsReply.settings;
       const state = await bridge.workspace.openDefault();
       const providerInfo = await bridge.ai.providers();
       const schemas = (await bridge.notes.schemas()).schemas;
@@ -537,6 +540,25 @@ export const useStore = create<StrataState>((set, get) => ({
       set({ lastError: describeError(error) });
     }
   },
+  toggleBrowserBlur: async () => {
+    try {
+      const { status } = await bridge.browser.toggleBlur();
+      if (!status.blur_supported) {
+        // The key did something; it just could not do *this*. Silence is what
+        // made the shortcut feel broken.
+        set({
+          lastError:
+            status.backend === "chrome"
+              ? "Media blur only works in the built-in pane — Chrome is a browser Strata does not draw."
+              : "Open the research pane first (Ctrl/Cmd+Shift+B) — there is nothing to blur yet.",
+        });
+        return;
+      }
+      set((state) => ({ browserRevision: state.browserRevision + 1 }));
+    } catch (error) {
+      set({ lastError: describeError(error) });
+    }
+  },
   handOffPlanRequest: (requestId, layerIds) =>
     set({
       handedOffPlanRequestId: requestId,
@@ -558,9 +580,22 @@ export const useStore = create<StrataState>((set, get) => ({
   setExplorerFrozen: (frozen) => set({ explorerFrozen: frozen }),
 
   async applySettings(values) {
-    const settings = (await bridge.settings.update(values)).settings;
+    const reply = await bridge.settings.update(values);
+    const settings = reply.settings;
     set({ settings });
     applyDocumentSettings(settings);
+  },
+
+  async chooseUserScript() {
+    // The picker is native, so cancelling comes back as a rejection rather
+    // than an empty result. Cancelling is not an error the user needs told.
+    try {
+      const settings = (await bridge.settings.chooseUserScript()).settings;
+      set({ settings });
+      applyDocumentSettings(settings);
+    } catch {
+      return;
+    }
   },
 
   async reloadGraph() {

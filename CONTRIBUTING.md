@@ -66,8 +66,8 @@ Environment notes:
 
 | | |
 | --- | --- |
-| Python | **3.10+**. The dev machine runs 3.10.11; CI matrixes 3.10, 3.11, 3.12. See [A-001](ASSUMPTIONS.md). |
-| **Do not use 3.11/3.12-only syntax** | No `except*`, no PEP 695 generics (`class C[T]`, `type X = ...`), no `typing.override`. `mypy` is pinned to `python_version = "3.10"` and will catch you. |
+| Python | **3.11+**. Develop on 3.12 (`uv python install 3.12` is the quickest way); CI matrixes 3.11, 3.12, 3.13. See [A-001](ASSUMPTIONS.md). |
+| **Do not use 3.12-only syntax** | No PEP 695 generics (`class C[T]`, `type X = ...`), no `typing.override`. `mypy` is pinned to `python_version = "3.11"` and will catch you. |
 | Node | For the frontend build only. The shipped app contains no Node runtime. |
 | Qt | PySide6 6.8 / Qt 6, Qt WebEngine, Qt WebChannel. |
 
@@ -244,3 +244,15 @@ Markers are declared in `pyproject.toml`: `security`, `gui`, `slow`.
 
 Every one of these is a test that should *fail loudly* if someone quietly relaxes a security property.
 That is the entire point of the directory.
+
+## Dependencies are hash-locked
+
+`requirements.lock` pins every package **and every wheel by SHA-256**; CI installs
+with `pip install --require-hashes -r requirements.lock`, so a tampered or
+re-uploaded release fails the build instead of running. After changing a
+dependency in `pyproject.toml` (a Dependabot security bump included),
+regenerate the lock and commit both files together — CI fails if they disagree:
+
+```bash
+uv pip compile pyproject.toml --extra dev --generate-hashes --universal   --python-version 3.11 --no-header -o requirements.lock
+```

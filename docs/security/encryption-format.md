@@ -172,6 +172,16 @@ a note", never *which* note or what it is about.
 | `0x0B` | CRDT update (reserved; M9, pending [A-005](../../ASSUMPTIONS.md)) |
 | `0x0C`–`0xFF` | Reserved |
 
+> **Implementation note.** The table above is the reserved space. What
+> `app/infrastructure/encryption/container.py` actually writes today is a
+> smaller, densely numbered set: `1` manifest, `2` note, `3` attachment, `4`
+> index, `5` embedding, `6` CRDT update, `7` CRDT base state, `8` awareness /
+> presence blob (ADR-0006). `OBJECT_TYPES` is the authority a reader should
+> check; an unknown type is refused, never best-effort parsed. Reconciling the
+> two numberings is a format change and needs its own ADR.
+>
+> `9` and `10` are retired and must not be reused.
+
 ### 3.5 `flags` bitfield
 
 | Bit | Meaning when set |

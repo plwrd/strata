@@ -2,9 +2,7 @@
  * Global shortcuts for the settings people actually reach for.
  *
  * The mapping is tested against the real store, so a shortcut that calls the
- * wrong action fails here. `Ctrl/Cmd+Shift+H` matters most — it is the one you
- * press because someone just asked to see your screen, and it has to work
- * without opening anything.
+ * wrong action fails here.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +30,7 @@ describe("global shortcuts", () => {
       settingsOpen: false,
       browserRevision: 0,
       lastError: null,
-      settings: { hide_for_sharing: true } as never,
+      settings: {} as never,
     });
   });
 
@@ -44,20 +42,8 @@ describe("global shortcuts", () => {
     expect(useStore.getState().settingsOpen).toBe(false);
   });
 
-  it("toggles Hidden for sharing without opening a dialog", async () => {
-    expect(press("H", { shift: true })).toBe(true);
-
-    await waitFor(() =>
-      expect(useStore.getState().settings?.hide_for_sharing).toBe(false),
-    );
-    const payload = captured.find(
-      (entry) =>
-        "values" in entry &&
-        "hide_for_sharing" in (entry["values"] as Record<string, unknown>),
-    );
-    expect(payload).toBeDefined();
-    // The dialog never opened: this is the whole point of the shortcut.
-    expect(useStore.getState().settingsOpen).toBe(false);
+  it("leaves Ctrl+Shift+H unbound", () => {
+    expect(press("H", { shift: true })).toBe(false);
   });
 
   it("opens the research browser pane with Ctrl+Shift+B", async () => {
@@ -80,6 +66,55 @@ describe("global shortcuts", () => {
       expect(useStore.getState().lastError).toMatch(/Settings/),
     );
     expect(useStore.getState().browserRevision).toBe(0);
+  });
+
+  // Ctrl/Cmd+Shift+X — blur the research pane's media.
+  //
+  // This lives in the web layer as well as in Qt, and that duplication is the
+  // fix: Qt WebEngine claims a chord for the page whenever an editable element
+  // has focus, so the native shortcut went missing exactly while someone was
+  // typing — the case the guide promises it works in.
+
+  it("toggles media blur with Ctrl+Shift+X", async () => {
+    expect(press("X", { shift: true })).toBe(true);
+
+    await waitFor(() => {
+      const payload = captured.find(
+        (entry) => entry["method"] === "toggle_blur",
+      );
+      expect(payload).toBeDefined();
+    });
+    expect(useStore.getState().lastError).toBeNull();
+  });
+
+  it("flips blur at the source rather than setting the opposite", async () => {
+    // Two presses land back where they started. A read-modify-write from a
+    // stale copy is how a hotkey press and a panel click cancelled out.
+    expect(press("X", { shift: true })).toBe(true);
+    await waitFor(() =>
+      expect(
+        captured.filter((entry) => entry["method"] === "toggle_blur"),
+      ).toHaveLength(1),
+    );
+
+    expect(press("X", { shift: true })).toBe(true);
+    await waitFor(() =>
+      expect(
+        captured.filter((entry) => entry["method"] === "toggle_blur"),
+      ).toHaveLength(2),
+    );
+    // Never a set with a computed value.
+    expect(captured.some((entry) => "enabled" in entry)).toBe(false);
+  });
+
+  it("says why when there is nothing to blur, instead of nothing", async () => {
+    installFakeBridge({ browserBackend: "chrome" });
+
+    expect(press("X", { shift: true })).toBe(true);
+
+    await waitFor(() =>
+      expect(useStore.getState().lastError).toMatch(/built-in pane/i),
+    );
   });
 
   it("leaves chords it does not own alone", () => {

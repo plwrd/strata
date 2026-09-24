@@ -1,0 +1,135 @@
+"""The browser pane's media-blur injection.
+
+The pane blurs media by setting an inline ``filter`` with ``!important`` through
+the CSSOM, not by injecting a ``<style>``. That choice is the fix for two real
+failures on live sites (x.com): a site's own ``!important`` rule out-specifies a
+bare ``img`` stylesheet rule, and a strict ``style-src`` CSP blocks an injected
+``<style>`` outright — neither defeats an inline programmatic write.
+
+These check the generated script without opening a window (the helpers are
+pure): the radius is clamped, it cannot break out of the script string, the
+selector reaches the elements sites actually use for avatars and media, and the
+script carries the specificity/CSP/flicker mitigations.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+# The pane module imports PySide6 at load; skip cleanly where Qt is absent.
+pytest.importorskip("PySide6.QtWebEngineCore")
+
+from app.desktop.browser_pane import _BLUR_SELECTOR, blur_source
+
+
+def test_off_disables_the_injection() -> None:
+    source = blur_source(False, 16)
+    assert "const ON = false" in source
+
+
+def test_on_sets_an_inline_important_filter() -> None:
+    source = blur_source(True, 16)
+    assert "const ON = true" in source
+    # Inline !important via the CSSOM — beats a site's own !important rule, and is
+    # not subject to the page's style-src CSP the way an injected <style> is.
+    assert 'setProperty("filter", value, "important")' in source
+    assert "RADIUS = 16" in source
+
+
+def test_the_selector_covers_what_sites_really_use() -> None:
+    # Avatars and thumbnails are often background-image <div>s, not <img>; photos
+    # and players are <picture>/<iframe>. The old img-only rule missed them.
+    for needed in ("img", "video", "canvas", "picture", "iframe", "background-image"):
+        assert needed in _BLUR_SELECTOR
+    # Bare <svg> stays out, so the page's icons are not all fuzzed.
+    assert "svg" not in _BLUR_SELECTOR
+
+
+def test_video_is_promoted_to_its_own_layer() -> None:
+    # A blurred <video> flickers against the GPU overlay; translateZ(0) settles it.
+    source = blur_source(True, 16)
+    assert "translateZ(0)" in source
+    assert 'el.tagName === "VIDEO"' in source
+
+
+def test_dynamic_media_is_caught_after_load() -> None:
+    # Single-page apps add media nodes after first paint; an observer re-applies.
+    source = blur_source(True, 16)
+    assert "MutationObserver" in source
+
+
+def test_late_attributes_are_observed_not_just_added_nodes() -> None:
+    # x.com inserts an avatar <div> first and sets its background-image a tick
+    # later, and lazy-loads <img>/<video> via a later src — attribute changes,
+    # not child additions. The observer must watch those attributes.
+    source = blur_source(True, 16)
+    assert "attributes: true" in source
+    assert '"style", "src", "srcset", "poster"' in source
+
+
+def test_scroll_triggers_a_sweep_for_recycled_content() -> None:
+    # Infinite scroll recycles nodes and may not fire a useful mutation per card;
+    # a throttled sweep on scroll is the safety net.
+    assert 'addEventListener("scroll"' in blur_source(True, 16)
+
+
+def test_a_reinjection_tears_down_the_previous_run() -> None:
+    # Re-running (toggle, or a fresh navigation) must not stack observers and
+    # scroll listeners; the previous run is stopped first.
+    assert "prev.stop()" in blur_source(True, 16)
+
+
+@pytest.mark.parametrize(
+    ("amount", "expected"),
+    [(-5, 1), (0, 1), (1, 1), (16, 16), (100, 100), (9999, 100)],
+)
+def test_the_radius_is_clamped(amount: int, expected: int) -> None:
+    assert f"RADIUS = {expected}" in blur_source(True, amount)
+
+
+def test_the_amount_cannot_break_out_of_the_injected_script() -> None:
+    """A hostile radius is coerced through int(); it cannot inject CSS or JS."""
+    with pytest.raises((ValueError, TypeError)):
+        blur_source(True, "16px; } evil()")  # type: ignore[arg-type]
+
+
+def test_the_selector_is_embedded_as_a_json_string() -> None:
+    source = blur_source(True, 16)
+    # The selector is a JSON string literal, not spliced in raw.
+    assert "\"img,video,canvas,picture,iframe,[style*='background-image']\"" in source
+
+
+def test_media_is_blurred_before_it_is_painted() -> None:
+    """A rule adopted at document-creation, not a filter applied afterwards.
+
+    The inline pass can only run once an element exists, which leaves a frame
+    where a photo is sharp — and a lazily-loaded one is sharp until the
+    observer next runs. A constructed stylesheet is in force before the parser
+    produces anything, so the first paint is already blurred. CSSOM rather than
+    an injected <style> for the same reason as the inline pass: a strict
+    style-src CSP blocks the element, not this.
+    """
+    source = blur_source(True, 16)
+    assert "new CSSStyleSheet()" in source
+    assert "adoptedStyleSheets" in source
+    assert "replaceSync" in source
+
+
+def test_the_observer_attaches_to_the_document_itself() -> None:
+    """Regression: the blur used to appear only once the user scrolled.
+
+    The observer targeted ``document.documentElement``, which is null at
+    document-creation — so it never attached, and the throttled scroll handler
+    was left as the only thing that ever swept. ``document`` exists from the
+    first instruction and its subtree covers everything the parser builds.
+    """
+    source = blur_source(True, 16)
+    assert "obs.observe(document," in source
+    assert "document.documentElement ||" not in source
+
+
+def test_turning_blur_off_empties_the_rule() -> None:
+    """A stale rule left in an adopted sheet would blur a pane that is off."""
+    source = blur_source(False, 16)
+    assert "const ON = false" in source
+    assert "sheet.replaceSync(ON ?" in source

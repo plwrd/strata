@@ -19,10 +19,8 @@ that as the security event it is (docs/security-and-privacy.md §3):
 
 from __future__ import annotations
 
-import ipaddress
 import re
-import socket
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
@@ -32,6 +30,7 @@ from app.domain.errors import InvalidRequestError, PermissionDeniedError
 from app.domain.note import Note
 from app.domain.schema import INBOX_FOLDER
 from app.infrastructure.logging.logger import get_logger
+from app.infrastructure.net_guard import guard_public_url
 from app.services.note_service import NoteService
 from app.services.settings_service import SettingsService
 from app.services.workspace_service import WorkspaceService
@@ -45,7 +44,7 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class CaptureService:
@@ -71,8 +70,15 @@ class CaptureService:
         source_author: str = "",
         capture_reason: str = "",
         tags: list[str] | None = None,
+        extra_properties: dict[str, str] | None = None,
     ) -> Note:
-        """Create a raw capture in the layer's Inbox. Fast path, no questions."""
+        """Create a capture in the layer's Inbox.
+
+        ``extra_properties`` lets a caller stamp provenance on a capture that is
+        not raw page text — an AI digest carries ``review_status: ai-inferred``,
+        the execution that made it, and its ``digest_mode`` — without every
+        caller having to know the capture schema.
+        """
         text = content.strip()
         if not text and not title.strip():
             raise InvalidRequestError("There is nothing to capture.")
@@ -93,6 +99,9 @@ class CaptureService:
             properties["capture_reason"] = capture_reason
         if tags:
             properties["tags"] = [tag.strip() for tag in tags if tag.strip()][:20]
+        if extra_properties:
+            # A digest is not raw material — it has already been processed.
+            properties.update(extra_properties)
 
         note = self._notes.create_note(
             layer_id=target_layer,
@@ -204,52 +213,7 @@ class CaptureService:
         )
 
     def _guard_url(self, url: str) -> None:
-        parts = urlsplit(url)
-        if parts.scheme.lower() not in _ALLOWED_SCHEMES:
-            raise PermissionDeniedError("Only http and https URLs can be imported.")
-        host = parts.hostname or ""
-        if not host:
-            raise InvalidRequestError("That is not a valid URL.")
-        if parts.username or parts.password:
-            raise PermissionDeniedError("URLs with embedded credentials are not imported.")
-
-        for address in self._resolve(host):
-            if self._is_forbidden(address):
-                # One generic message: the guard does not confirm what exists
-                # on the network it just refused to touch.
-                raise PermissionDeniedError("This address is not reachable from URL import.")
-
-    @staticmethod
-    def _resolve(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-        try:
-            literal = ipaddress.ip_address(host)
-            return [literal]
-        except ValueError:
-            pass
-        try:
-            infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-        except OSError:
-            raise InvalidRequestError("The host could not be resolved.") from None
-        addresses = []
-        for info in infos:
-            try:
-                addresses.append(ipaddress.ip_address(str(info[4][0])))
-            except ValueError:
-                continue
-        if not addresses:
-            raise InvalidRequestError("The host could not be resolved.")
-        return addresses
-
-    @staticmethod
-    def _is_forbidden(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-        return (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_multicast
-            or address.is_reserved
-            or address.is_unspecified
-        )
+        guard_public_url(url, message="This address is not reachable from URL import.")
 
 
 class _TextExtractor(HTMLParser):
@@ -278,6 +242,11 @@ class _TextExtractor(HTMLParser):
     def handle_data(self, data: str) -> None:
         if not self._skip_depth and data.strip():
             self.parts.append(data)
+
+
+def html_to_text(html: str) -> str:
+    """Markup to readable text: no rendering, no scripts, no fetches."""
+    return _html_to_text(html)
 
 
 def _html_to_text(html: str) -> str:

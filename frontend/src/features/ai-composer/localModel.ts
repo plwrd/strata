@@ -34,5 +34,6 @@ export function pickInstalledModel(
     if (found) return found;
   }
   if (qwythos) return qwythos;
-  return match(pref) ?? ids[0];
+  // `ids` is non-empty here, but the index signature does not say so.
+  return match(pref) ?? ids[0] ?? DEFAULT_LOCAL_MODEL;
 }

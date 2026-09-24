@@ -12,7 +12,7 @@ opaque properties rather than being interpreted.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,11 +33,11 @@ MARKDOWN_SUFFIX = ".md"
 
 
 def _iso(timestamp: float) -> str:
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.fromtimestamp(timestamp, tz=UTC).isoformat(timespec="seconds")
 
 
 def now_iso() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:

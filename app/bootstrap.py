@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from app.domain.ai import is_local_endpoint
 from app.infrastructure.logging.logger import configure_logging, get_logger
 from app.services.container import Paths, Services
 
@@ -60,23 +62,58 @@ def user_paths() -> Paths:
 
 
 def environment() -> str:
-    return os.environ.get(ENV_ENV, "development" if not is_frozen() else "production")
+    """Which build this is. A packaged build is always production.
+
+    Development mode is not cosmetic: it opens the developer tools onto the page
+    that holds the WebChannel and restores its context menu. Letting an
+    environment variable turn that on in a shipped build would mean a shortcut
+    with one extra line in it hands someone a console inside the privileged
+    window — so the variable is honoured only from a source checkout.
+    """
+    if is_frozen():
+        return "production"
+    return os.environ.get(ENV_ENV, "development")
 
 
 def dev_server() -> str | None:
     """When set, the window loads Vite instead of the bundled files.
 
-    The bridge is identical either way — dev mode does not mock Python.
+    The bridge is identical either way — dev mode does not mock Python. That is
+    exactly why this is refused in a packaged build: the window that loads this
+    URL is the window with the WebChannel on it, so whatever answers gets every
+    bridge — notes, unlocked layers, settings, the browser. An environment
+    variable is not an authorisation (anyone who can set `HKCU\Environment` or
+    edit a shortcut can set one), so a shipped Strata ignores it entirely and
+    only a source checkout can point the window somewhere else.
+
+    Even there it must be a loopback URL: a dev server is ``localhost``, and
+    "load this origin into the privileged window" is not a thing to accept for
+    an arbitrary host.
     """
-    return os.environ.get(DEV_SERVER_ENV) or None
+    if is_frozen():
+        # A packaged build has a frontend of its own; there is no legitimate
+        # reason for one to load a different origin.
+        if os.environ.get(DEV_SERVER_ENV):
+            get_logger(__name__).warning("bootstrap.dev_server_ignored_in_packaged_build")
+        return None
+    configured = (os.environ.get(DEV_SERVER_ENV) or "").strip()
+    if not configured:
+        return None
+    if not is_local_endpoint(configured) or urlsplit(configured).scheme not in ("http", "https"):
+        get_logger(__name__).warning("bootstrap.dev_server_refused_not_loopback")
+        return None
+    return configured
 
 
 def build_services() -> Services:
     paths = user_paths()
     env = environment()
+    # A shipped build leaves nothing on disk to read back: production logs to
+    # stderr only (which a packaged GUI has nowhere to keep), so no strata.log
+    # is ever written. A source checkout still gets the file, for debugging.
     configure_logging(
         level="DEBUG" if env == "development" else "INFO",
-        log_file=paths.log_dir / "strata.log",
+        log_file=paths.log_dir / "strata.log" if env == "development" else None,
     )
     logger = get_logger(__name__)
     services = Services(paths, environment=env)

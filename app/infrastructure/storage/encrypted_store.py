@@ -113,7 +113,9 @@ class Manifest:
     def to_bytes(self) -> bytes:
         payload = {
             "format_version": self.format_version,
-            "entries": [entry.to_json() for entry in self.entries.values()],
+            # `list(...)` first: a commit can come from a worker thread, and
+            # iterating a dict another thread inserts into raises.
+            "entries": [entry.to_json() for entry in list(self.entries.values())],
         }
         return json.dumps(payload, separators=(",", ":")).encode("utf-8")
 

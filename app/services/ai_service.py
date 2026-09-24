@@ -20,7 +20,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 from app.domain.ai import (
     AIEvent,
@@ -30,6 +31,7 @@ from app.domain.ai import (
     ProviderCapabilities,
     ProviderHealth,
     evaluate_policy,
+    is_local_endpoint,
 )
 from app.domain.errors import PermissionDeniedError, UnsupportedError
 from app.domain.export import PrivacyReceipt
@@ -107,7 +109,17 @@ def build_system_prompt(model: str) -> str:
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
+
+
+def _endpoint_label(url: str) -> str:
+    """Just the host of an endpoint, for a message the user will read.
+
+    The path and any query are dropped: this string ends up in the UI and in a
+    privacy note, and neither is a place to echo a URL back in full.
+    """
+    host = urlsplit(url.strip()).hostname or ""
+    return host or "another host"
 
 
 class AIService:
@@ -131,7 +143,39 @@ class AIService:
         return self._credentials
 
     def catalogue(self) -> list[ProviderCapabilities]:
-        return list(CATALOGUE.values())
+        return [self.capabilities_for(provider_id) for provider_id in CATALOGUE]
+
+    def capabilities_for(self, provider_id: str) -> ProviderCapabilities:
+        """The provider's capabilities *as currently configured*.
+
+        The catalogue's ``is_local`` is a claim about the default endpoint. A base
+        URL override can move a "local" provider onto another host, and at that
+        point the bytes leave this machine however the catalogue labels it — so
+        the flag the policy gate reads is recomputed from the endpoint in use,
+        never taken from the label alone.
+
+        This is the single place that reconciliation happens: :meth:`policy_for`,
+        :meth:`provider` and the UI catalogue all read it, so there is no path
+        that checks a label and then sends somewhere else.
+        """
+        capabilities = CATALOGUE.get(provider_id)
+        if capabilities is None:
+            raise UnsupportedError("Unknown provider.", details={"providerId": provider_id})
+        if not capabilities.is_local:
+            return capabilities
+        endpoint = self._base_url(provider_id)
+        if is_local_endpoint(endpoint):
+            return capabilities
+        return capabilities.model_copy(
+            update={
+                "is_local": False,
+                "note": (
+                    f"Pointed at {_endpoint_label(endpoint)}, which is not this machine. "
+                    "Strata treats it as a remote provider: layers restricted to local AI "
+                    "will not be sent to it."
+                ),
+            }
+        )
 
     def is_configured(self, provider_id: str) -> bool:
         capabilities = CATALOGUE.get(provider_id)
@@ -146,9 +190,10 @@ class AIService:
         return overrides.get(provider_id) or DEFAULT_BASE_URLS.get(provider_id, "")
 
     def provider(self, provider_id: str) -> AIProvider:
-        capabilities = CATALOGUE.get(provider_id)
-        if capabilities is None:
-            raise UnsupportedError("Unknown provider.", details={"providerId": provider_id})
+        # The *effective* capabilities: a provider carries the honest locality of
+        # the endpoint it was built for, so the receipt and the execution record
+        # cannot disagree with the gate that allowed the call.
+        capabilities = self.capabilities_for(provider_id)
 
         if provider_id == "anthropic":
             return AnthropicProvider(self._credentials.get("anthropic"))
@@ -178,9 +223,7 @@ class AIService:
     def policy_for(
         self, layer_ids: list[str], provider_id: str, *, for_embeddings: bool = False
     ) -> PolicyDecision:
-        capabilities = CATALOGUE.get(provider_id)
-        if capabilities is None:
-            raise UnsupportedError("Unknown provider.", details={"providerId": provider_id})
+        capabilities = self.capabilities_for(provider_id)
 
         layers: list[LayerDescriptor] = [
             self._workspace.require_layer(layer_id) for layer_id in dict.fromkeys(layer_ids)
@@ -425,9 +468,9 @@ class AIService:
         remote, the caller is *told* that rather than having it happen quietly.
         """
         candidates = [
-            capabilities
-            for capabilities in CATALOGUE.values()
-            if self.is_configured(capabilities.provider_id)
+            self.capabilities_for(provider_id)
+            for provider_id in CATALOGUE
+            if self.is_configured(provider_id)
         ]
         if not candidates:
             return None, "No provider is configured."

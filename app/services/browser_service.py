@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import quote_plus, urlsplit
@@ -54,6 +55,21 @@ MAX_PAGE_CHARS = 400_000
 MAX_QUERY_CHARS = 500
 LAUNCH_TIMEOUT_SECONDS = 20.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+# Chrome keeps browsing history in these files inside its profile. Removing
+# them (cookies, logins and site data untouched) is how the research browser
+# "keeps the session, not the history". Globs, because names vary by version.
+_HISTORY_GLOBS = (
+    "History",
+    "History-journal",
+    "History-wal",
+    "History-shm",
+    "Archived History",
+    "Archived History-journal",
+    "Visited Links",
+    "Top Sites",
+    "Top Sites-journal",
+)
 
 # Candidate executables, best first, per platform. The setting overrides all of
 # them; this list only exists so the common case needs no configuration.
@@ -223,6 +239,7 @@ class ChromeSource:
         executable = self._resolve_executable()
         profile = self.profile_path
         profile.mkdir(parents=True, exist_ok=True)
+        self._clear_history()  # start each session with no prior browsing history
         arguments = [
             executable,
             f"--remote-debugging-port={self._port}",
@@ -230,6 +247,8 @@ class ChromeSource:
             f"--user-data-dir={profile}",
             "--no-first-run",
             "--no-default-browser-check",
+            # A <video> promoted to a hardware overlay plane flickers.
+            "--disable-direct-composition-video-overlays",
             "about:blank",
         ]
         try:
@@ -322,6 +341,27 @@ class ChromeSource:
                 return page
         raise ProviderError("That tab is no longer open.")
 
+    def _clear_history(self) -> None:
+        """Drop browsing history from the Strata-owned profile; keep cookies.
+
+        Only the profile Strata owns — if the user pointed `browser_profile_path`
+        at their everyday Chrome profile, that is their data and is left alone.
+        """
+        if self._settings.settings.browser_profile_path.strip():
+            return
+        default = self.profile_path / "Default"
+        removed = 0
+        for name in _HISTORY_GLOBS:
+            target = default / name
+            try:
+                if target.exists():
+                    target.unlink()
+                    removed += 1
+            except OSError:
+                pass  # locked or gone — best-effort
+        if removed:
+            logger.info("browser.history_cleared", files=removed)
+
     def close(self) -> None:
         """Stop the browser *Strata* started — never one the user launched.
 
@@ -338,6 +378,7 @@ class ChromeSource:
                 process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 process.kill()
+            self._clear_history()  # leave nothing behind once the window is gone
             logger.info("browser.closed")
         except OSError:
             logger.info("browser.close_failed")
@@ -350,6 +391,14 @@ class BrowserService:
         self._settings = settings
         self._chrome = ChromeSource(settings, profile_root)
         self._embedded: PageSource | None = None
+        # Runtime blur state. Amount is a setting; on/off starts from the setting
+        # but is then toggled live (hotkey or panel), so it lives here, not there.
+        self._blur_enabled = settings.settings.browser_blur_media
+        # Mobile mode (serve a mobile user-agent) starts from its setting too.
+        self._mobile = settings.settings.browser_mobile_mode
+        # Notified whenever blur changes by any path, so the panel can reflect a
+        # hotkey toggle it did not make. Set by the bridge.
+        self.on_blur_changed: Callable[[], None] | None = None
 
     def attach(self, source: PageSource) -> None:
         """Register the embedded pane, once the Qt window has built it.
@@ -358,13 +407,16 @@ class BrowserService:
         pane arrives from ``app.desktop`` at startup and is a fake in tests.
         """
         self._embedded = source
+        self._apply_blur()
+        self._apply_mobile()
 
     # -- state ---------------------------------------------------------------
 
     @property
     def backend(self) -> BrowserBackend:
-        configured = self._settings.settings.browser_backend
-        return "chrome" if configured == "chrome" else "embedded"
+        if self._settings.settings.browser_backend == "chrome":
+            return "chrome"
+        return "embedded"
 
     def _source(self) -> PageSource:
         if self.backend == "chrome":
@@ -385,6 +437,87 @@ class BrowserService:
                 "Browser research is switched off in this workspace's settings."
             )
 
+    # -- media blur ----------------------------------------------------------
+
+    @property
+    def _blur_amount(self) -> int:
+        return int(self._settings.settings.browser_blur_amount)
+
+    @property
+    def blur_supported(self) -> bool:
+        # The in-window pane can be restyled; a separate real Chrome is not
+        # Strata's to reach into and repaint.
+        return self.backend == "embedded" and self._embedded is not None
+
+    def blur_state(self) -> tuple[bool, int]:
+        return self._blur_enabled, self._blur_amount
+
+    def set_blur(self, enabled: bool) -> bool:
+        """Set blur, and report what the state actually *is* afterwards.
+
+        A backend that cannot be restyled does not get its state flipped. The
+        Chrome backend is a browser Strata does not own, so there is nothing to
+        blur there — and recording "blurred" for it would put a badge on the
+        panel over a page that is not blurred at all. Never claim a protection
+        that was not applied.
+        """
+        if not self.blur_supported:
+            logger.info("browser.blur_unsupported", backend=self.backend)
+            self._notify_blur()
+            return self._blur_enabled
+        self._blur_enabled = bool(enabled)
+        self._apply_blur()
+        self._notify_blur()
+        return self._blur_enabled
+
+    def toggle_blur(self) -> bool:
+        """Flip blur at its source.
+
+        The one place the state lives, so a hotkey and a button pressed at the
+        same moment cannot each compute ``not (what I last saw)`` from a
+        different copy and cancel out.
+        """
+        return self.set_blur(not self._blur_enabled)
+
+    def set_blur_amount(self, amount: int) -> None:
+        """Re-apply a changed radius to a live pane.
+
+        The amount itself lives in settings (it survives a restart, unlike the
+        on/off, which is a live toggle). ``amount`` is accepted so the caller
+        reads naturally and so a future caller cannot pass one that is silently
+        ignored — it must match what was persisted.
+        """
+        if int(amount) != self._blur_amount:
+            logger.info("browser.blur_amount_mismatch", passed=int(amount))
+        self._apply_blur()
+        self._notify_blur()
+
+    def _apply_blur(self) -> None:
+        embedded = self._embedded
+        apply = getattr(embedded, "apply_blur", None)
+        if self.blur_supported and callable(apply):
+            apply(self._blur_enabled, self._blur_amount)
+
+    def _notify_blur(self) -> None:
+        if self.on_blur_changed is not None:
+            self.on_blur_changed()
+
+    # -- mobile mode ---------------------------------------------------------
+
+    def mobile_state(self) -> bool:
+        return self._mobile
+
+    def set_mobile(self, enabled: bool) -> bool:
+        self._mobile = bool(enabled)
+        self._apply_mobile()
+        return self._mobile
+
+    def _apply_mobile(self) -> None:
+        embedded = self._embedded
+        apply = getattr(embedded, "apply_mobile", None)
+        if self.blur_supported and callable(apply):
+            apply(self._mobile)
+
     def status(self) -> BrowserStatus:
         """Never raises: "can I use this?" is a question, not an operation."""
         enabled = self._settings.settings.browser_control_enabled
@@ -403,7 +536,15 @@ class BrowserService:
                 backend=self.backend,
                 detail=getattr(exc, "message", "The browser is not available."),
             )
-        return status.model_copy(update={"enabled": True})
+        return status.model_copy(
+            update={
+                "enabled": True,
+                "blur_enabled": self._blur_enabled,
+                "blur_amount": self._blur_amount,
+                "blur_supported": self.blur_supported,
+                "mobile_mode": self._mobile,
+            }
+        )
 
     # -- navigation ----------------------------------------------------------
 
@@ -426,8 +567,8 @@ class BrowserService:
             raise InvalidRequestError("That search engine is not one Strata knows.")
         return self.open_url(template.format(query=quote_plus(cleaned)))
 
-    def open_url(self, url: str) -> BrowserTab:
-        self.require_enabled()
+    def _validate_web_url(self, url: str) -> str:
+        """A cleaned http(s) URL, or a refusal. Shared by pane-open and hand-off."""
         cleaned = url.strip()
         parts = urlsplit(cleaned)
         if parts.scheme.lower() not in _ALLOWED_SCHEMES:
@@ -436,7 +577,23 @@ class BrowserService:
             raise InvalidRequestError("That is not a valid URL.")
         if parts.username or parts.password:
             raise PermissionDeniedError("URLs with embedded credentials are not opened.")
+        return cleaned
 
+    def external_url(self, url: str) -> str:
+        """Validate a page URL for handing to the OS browser.
+
+        The pane cannot play H.264 video (its Qt build has no such codec), so the
+        escape hatch is to open the page in the user's real browser, which can.
+        The action itself (QDesktopServices) lives in the bridge, on the Qt
+        thread; this just gates and cleans the URL, reusing the pane's own guard.
+        """
+        self.require_enabled()
+        return self._validate_web_url(url)
+
+    def open_url(self, url: str) -> BrowserTab:
+        self.require_enabled()
+        cleaned = self._validate_web_url(url)
+        parts = urlsplit(cleaned)
         source = self._source()
         source.ensure_ready()
         tab = source.open_url(cleaned)

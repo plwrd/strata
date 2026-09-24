@@ -253,7 +253,7 @@ function ColorRow(props: {
 }
 
 export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
-  const { settings, applySettings } = useStore();
+  const { settings, applySettings, chooseUserScript } = useStore();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -268,7 +268,6 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
   const quality = settings?.graph_quality ?? "balanced";
   const particles = settings?.particles_enabled ?? true;
   const bloom = settings?.bloom_enabled ?? true;
-  const hidden = settings?.hide_for_sharing ?? true;
   const fontBody = settings?.font_body ?? "inter";
   const fontDisplay = settings?.font_display ?? "chakra";
   const fontMono = settings?.font_mono ?? "jetbrains";
@@ -570,28 +569,108 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
 
           <section
             className="settings-dialog__section"
-            aria-labelledby="settings-privacy"
+            aria-labelledby="settings-autolock"
           >
-            <h3 id="settings-privacy" className="settings-dialog__heading">
-              Screen security
+            <h3 id="settings-autolock" className="settings-dialog__heading">
+              Auto-lock
+            </h3>
+            <label className="composer__field">
+              <span className="label">
+                Lock private layers after{" "}
+                {(settings?.auto_lock_minutes ?? 15) === 0
+                  ? "— never"
+                  : `${settings?.auto_lock_minutes ?? 15} idle minutes`}
+              </span>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={1440}
+                value={settings?.auto_lock_minutes ?? 15}
+                aria-label="Auto-lock after idle minutes"
+                onChange={(event) =>
+                  void applySettings({
+                    auto_lock_minutes: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.auto_lock_on_system_lock ?? true}
+                onChange={(event) =>
+                  void applySettings({
+                    auto_lock_on_system_lock: event.target.checked,
+                  })
+                }
+              />
+              <span>Also lock when Windows locks or the computer sleeps</span>
+            </label>
+            <p className="settings-dialog__hint">
+              Locking removes the keys from memory. Idle means no keyboard or
+              mouse input anywhere on the computer; 0 turns the timer off.
+              Website sign-ins in the browser pane are kept.
+            </p>
+          </section>
+
+          <section
+            className="settings-dialog__section"
+            aria-labelledby="settings-tray"
+          >
+            <h3 id="settings-tray" className="settings-dialog__heading">
+              System tray
             </h3>
             <label className="search__toggle">
               <input
                 type="checkbox"
-                checked={hidden}
+                checked={settings?.minimize_to_tray ?? false}
                 onChange={(event) =>
                   void applySettings({
-                    hide_for_sharing: event.target.checked,
+                    minimize_to_tray: event.target.checked,
                   })
                 }
               />
-              <span>Hidden for sharing</span>
-              <kbd className="settings-dialog__key">Ctrl/Cmd+Shift+H</kbd>
+              <span>Minimize to tray</span>
             </label>
             <p className="settings-dialog__hint">
-              On by default (Signal-style). You still see Strata; screenshots
-              and screen shares do not. Turn off only when you need to demo or
-              record the app itself.
+              When on, closing or minimizing hides the window to a tray icon
+              instead of quitting — it leaves the taskbar, but Strata keeps
+              running and the workspace stays open. Quit from the tray menu.
+            </p>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.start_in_tray ?? false}
+                disabled={!(settings?.minimize_to_tray ?? false)}
+                onChange={(event) =>
+                  void applySettings({ start_in_tray: event.target.checked })
+                }
+              />
+              <span>Start hidden in the tray</span>
+            </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.hide_from_taskbar ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    hide_from_taskbar: event.target.checked,
+                  })
+                }
+              />
+              <span>No taskbar button</span>
+            </label>
+            <p className="settings-dialog__hint">
+              Removes Strata's taskbar button entirely (Windows), even while the
+              window is open — it lives in the tray instead, so the tray icon
+              stays on and minimizing sends it there. Your way back is the tray.
+            </p>
+            <p className="settings-dialog__hint">
+              All of this hides the <em>window</em>, never the process. Strata
+              stays listed in Task Manager and every other process tool — that
+              is by design, and any app that hid its own process would be
+              malware.
             </p>
           </section>
 
@@ -640,12 +719,83 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
               </select>
             </label>
             <p className="settings-dialog__hint">
-              The pane keeps its own sign-ins and needs nothing installed, but
-              it cannot load Chrome extensions — Qt ships Chromium without the
-              extensions subsystem. Choose your own Chrome when a page needs
-              your extensions, or refuses to let you sign in to an embedded
-              browser.
+              The pane keeps its own sign-ins and needs nothing installed. It
+              cannot play H.264 or AAC, so most video stays blank, and it cannot
+              load extensions — Qt ships Chromium without the extensions
+              subsystem. Choose your own Chrome when a page needs either, or
+              refuses to let you sign in to an embedded browser.
             </p>
+            {settings?.browser_backend === "embedded" && (
+              <div className="composer__field">
+                <span className="label">User scripts</span>
+                <ul className="settings-dialog__list">
+                  {(settings?.browser_user_scripts ?? []).map((file) => (
+                    <li key={file} className="settings-dialog__row">
+                      <code title={file}>{file.split(/[\\/]/).pop()}</code>
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        aria-label={`Remove user script ${file}`}
+                        onClick={() =>
+                          void applySettings({
+                            browser_user_scripts: (
+                              settings?.browser_user_scripts ?? []
+                            ).filter((kept) => kept !== file),
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void chooseUserScript()}
+                >
+                  Add a user script…
+                </button>
+                <p className="settings-dialog__hint">
+                  The built-in pane cannot load extensions at all — Qt ships
+                  Chromium without the extensions subsystem. A user script is
+                  the closest thing it has: a <code>.js</code> file injected
+                  into every page, the same shape Greasemonkey and Tampermonkey
+                  scripts are written in. <code>@run-at document-start</code> is
+                  honoured; without it a script runs once the page is there. It
+                  runs with the page's own privileges and sees everything on it,
+                  so add only scripts you have read or trust.
+                </p>
+              </div>
+            )}
+            {settings?.browser_backend === "embedded" && (
+              <label className="composer__field">
+                <span className="label">Blocked hosts</span>
+                <textarea
+                  className="input"
+                  rows={4}
+                  aria-label="Blocked hosts"
+                  placeholder={"ads.example.com\ntracker.net"}
+                  value={(settings?.browser_blocked_hosts ?? []).join("\n")}
+                  onChange={(event) =>
+                    void applySettings({
+                      browser_blocked_hosts: event.target.value
+                        .split("\n")
+                        .map((line) => line.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+                <p className="settings-dialog__hint">
+                  One host per line. The pane refuses requests to these and
+                  their subdomains, so an ad or tracker never loads, never runs
+                  and never sets a cookie — the half of an ad blocker Qt can
+                  actually do. It is not a filter list: no cosmetic rules, no
+                  path patterns. Pages you navigate to yourself are never
+                  blocked, only what they load.
+                </p>
+              </label>
+            )}
             <label className="composer__field">
               <span className="label">Search engine</span>
               <select
@@ -679,6 +829,60 @@ export function SettingsDialog(props: { onClose: () => void }): JSX.Element {
                 }
               />
             </label>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.browser_blur_media ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    browser_blur_media: event.target.checked,
+                  })
+                }
+              />
+              <span>Blur media by default</span>
+            </label>
+            <label className="composer__field">
+              <span className="label">
+                Blur strength ({settings?.browser_blur_amount ?? 12}px)
+              </span>
+              <input
+                className="input"
+                type="range"
+                min={1}
+                max={40}
+                value={settings?.browser_blur_amount ?? 12}
+                aria-label="Blur strength"
+                onChange={(event) =>
+                  void applySettings({
+                    browser_blur_amount: Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <p className="settings-dialog__hint">
+              Blur hides images, video and canvas in the browser pane so a page
+              is safe to have on a shared screen — text stays readable. Toggle
+              it live with <kbd>Ctrl/Cmd+Shift+X</kbd>. The pane only; your own
+              Chrome is not restyled.
+            </p>
+            <label className="search__toggle">
+              <input
+                type="checkbox"
+                checked={settings?.browser_mobile_mode ?? false}
+                onChange={(event) =>
+                  void applySettings({
+                    browser_mobile_mode: event.target.checked,
+                  })
+                }
+              />
+              <span>Mobile site mode</span>
+            </label>
+            <p className="settings-dialog__hint">
+              The pane serves a mobile user-agent, so sites render their
+              touch/mobile layout — you can also toggle it live in the Research
+              panel. Synthetic touch events are advertised to pages from the
+              next launch (a process-wide setting). The pane only.
+            </p>
           </section>
         </div>
       </div>

@@ -15,11 +15,10 @@ model marks as its own inference are listed apart from what the sources say.
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.errors import ProviderError
 from app.domain.ids import new_execution_id, new_job_id
@@ -28,11 +27,10 @@ from app.domain.schema import REPORTS_FOLDER
 from app.infrastructure.logging.logger import get_logger
 from app.services.ai_service import AIService
 from app.services.context_export_service import ContextExportService
+from app.services.model_answer import parse_model_json
 from app.services.note_service import NoteService
 
 logger = get_logger(__name__)
-
-_JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 _CITATION = re.compile(r"\[?(STRATA-SOURCE-\d{3})\]?")
 
 SynthesisKind = Literal[
@@ -167,7 +165,7 @@ class SynthesisService:
             elif event.kind == "error":
                 raise ProviderError(event.error or "The model failed to synthesise.")
 
-        result = self._parse(full)
+        result, parse_problem = parse_model_json(full, SynthesisResult)
         valid_ids = {source.source_id for source in plan.sources}
         result, stripped = _validate_citations(result, valid_ids)
 
@@ -184,6 +182,10 @@ class SynthesisService:
                 f"{stripped} citation(s) referenced sources that were never sent and "
                 "were stripped — the model tried to invent them."
             )
+        if parse_problem:
+            # Previously swallowed: an unreadable answer produced an empty
+            # synthesis with nothing said about why.
+            warnings.append(parse_problem)
         if not result.sections and not result.main_idea:
             warnings.append("The model returned no usable synthesis.")
 
@@ -223,31 +225,6 @@ class SynthesisService:
             return loop.run_until_complete(self.synthesize(**kwargs))  # type: ignore[arg-type]
         finally:
             loop.close()
-
-    @staticmethod
-    def _parse(text: str) -> SynthesisResult:
-        match = _JSON_BLOCK.search(text)
-        if not match:
-            return SynthesisResult()
-        try:
-            payload = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return SynthesisResult()
-        if not isinstance(payload, dict):
-            return SynthesisResult()
-        try:
-            return SynthesisResult.model_validate(payload)
-        except ValidationError:
-            salvaged = SynthesisResult()
-            for field in SynthesisResult.model_fields:
-                if field not in payload:
-                    continue
-                try:
-                    partial = SynthesisResult.model_validate({field: payload[field]})
-                except ValidationError:
-                    continue
-                setattr(salvaged, field, getattr(partial, field))
-            return salvaged
 
 
 def _validate_citations(

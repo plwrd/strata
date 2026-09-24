@@ -61,6 +61,10 @@ import type {
 } from "./types";
 import { PROTOCOL_VERSION } from "./types";
 
+interface SettingsReply {
+  settings: AppSettings;
+}
+
 export class BridgeCallError extends Error {
   readonly code: ErrorCode;
   readonly retryable: boolean;
@@ -83,10 +87,14 @@ export class BridgeUnavailableError extends Error {
 }
 
 type SlotFn = (payload: string, callback: (response: string) => void) => void;
-type BridgeObject = Record<
-  string,
-  SlotFn | { connect: (cb: (value: string) => void) => void }
->;
+type SignalObject = {
+  connect: (cb: (value: string) => void) => void;
+  // Qt's WebChannel signal proxies expose this; it is typed optional because a
+  // very old qwebchannel.js would not, and losing the disconnect must degrade
+  // to a stale-but-filtered listener rather than a crash.
+  disconnect?: (cb: (value: string) => void) => void;
+};
+type BridgeObject = Record<string, SlotFn | SignalObject>;
 
 interface QWebChannelInstance {
   objects: Record<string, BridgeObject>;
@@ -205,6 +213,9 @@ async function call<T>(
   return envelope.data as T;
 }
 
+/** Undo a subscription. Safe to call more than once, and safe to call late. */
+export type Unsubscribe = () => void;
+
 /**
  * Subscribe to a Qt Signal exposed on a bridge object.
  *
@@ -212,12 +223,17 @@ async function call<T>(
  * request/response. Payloads are strings, and the callers below parse them —
  * there is no channel through which Python can hand the page an object it did not
  * ask for.
+ *
+ * Returns an unsubscribe. A component that mounts more than once — the changes
+ * panel lives in both the inspector and the command stage — would otherwise add
+ * a listener per mount and never drop one, so the connection count climbs for
+ * as long as the session lasts.
  */
 async function subscribe(
   objectName: string,
   signalName: string,
   listener: (payload: string) => void,
-): Promise<void> {
+): Promise<Unsubscribe> {
   const channel = await connect();
   const target = channel.objects[objectName];
   const signal = target?.[signalName];
@@ -231,6 +247,13 @@ async function subscribe(
     );
   }
   signal.connect(listener);
+
+  let live = true;
+  return () => {
+    if (!live) return;
+    live = false;
+    signal.disconnect?.(listener);
+  };
 }
 
 export interface ExportRequest {
@@ -588,11 +611,15 @@ export const bridge = {
   },
 
   settings: {
-    get: () => call<{ settings: AppSettings }>("settings", "get_settings"),
+    get: () => call<SettingsReply>("settings", "get_settings"),
     update: (values: Partial<AppSettings>) =>
-      call<{ settings: AppSettings }>("settings", "update_settings", {
+      call<SettingsReply>("settings", "update_settings", {
         values,
       }),
+    // Opens a native file picker and records the choice. Rejects with a
+    // CancelledError when the user closes the dialog, which callers ignore.
+    chooseUserScript: () =>
+      call<SettingsReply>("settings", "choose_user_script"),
   },
 
   operations: {
@@ -619,6 +646,8 @@ export const bridge = {
       note_ids: string[];
       layer_ids: string[];
       target_layer_id?: string;
+      // A steer for this run only, not a stored setting.
+      focus?: string;
       confirmed_remote?: boolean;
     }) => call<{ request_id: string }>("operations", "file_research", request),
     synthesizeNotes: (request: {
@@ -695,9 +724,48 @@ export const bridge = {
       target_id?: string;
       layer_id?: string;
       capture_reason?: string;
+      tags?: string[];
+      // "full" saves the page verbatim; "brief"/"outline" save only an AI digest.
+      mode?: "full" | "brief" | "outline";
+      instruction?: string;
+      provider_id?: string;
+      model?: string;
+      confirmed_remote?: boolean;
     }) => call<{ request_id: string }>("browser", "capture_tab", request),
     onPage: (listener: (payload: string) => void) =>
       subscribe("browser", "pageEvent", listener),
+    // Blur images, video and canvas in the pane. The application hotkey does the
+    // same thing; `onBlur` keeps the panel's toggle in step with either.
+    setBlur: (enabled: boolean) =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "set_blur",
+        {
+          enabled,
+        },
+      ),
+    // Flip it at the source. A toggle must not be a read followed by a write:
+    // the hotkey and the panel button can fire from different places, and each
+    // one computing `!(what I last saw)` from its own copy is how two presses
+    // cancel out and the blur looks unresponsive.
+    toggleBlur: () =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "toggle_blur",
+      ),
+    onBlur: (listener: (payload: string) => void) =>
+      subscribe("browser", "blurEvent", listener),
+    // Serve sites their mobile layout (mobile user-agent); the pane reloads.
+    setMobile: (enabled: boolean) =>
+      call<{ status: BrowserStatus; engines: string[] }>(
+        "browser",
+        "set_mobile",
+        { enabled },
+      ),
+    // Hand the page to the user's real browser — the escape hatch for what the
+    // embedded pane cannot do, chiefly H.264 video its Qt build has no codec for.
+    openExternal: (url: string) =>
+      call<{ opened: boolean }>("browser", "open_external", { url }),
   },
 
   snapshots: {
