@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.domain.errors import InvalidRequestError
 from app.domain.export import (
@@ -62,7 +62,7 @@ def estimate_tokens(text: str) -> int:
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class ContextExportService:

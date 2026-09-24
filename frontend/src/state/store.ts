@@ -20,7 +20,6 @@ import {
 import type {
   AIStreamEvent,
   AppSettings,
-  CaptureProtection,
   CollaborationState,
   ConflictRecord,
   ContentMode,
@@ -107,12 +106,6 @@ export interface StrataState {
   mode: AppMode;
   dimension: GraphDimension;
   settings: AppSettings | null;
-  /**
-   * What the OS granted for "Hidden for sharing" — not what was asked for.
-   * The settings dialog renders this rather than the toggle's own value, so a
-   * platform that refused the request cannot be displayed as protection.
-   */
-  captureProtection: CaptureProtection;
   activeLensId: string;
 
   // graph display options
@@ -214,7 +207,6 @@ export interface StrataState {
   setMode: (mode: AppMode) => void;
   setDimension: (dimension: GraphDimension) => void;
   applySettings: (values: Partial<AppSettings>) => Promise<void>;
-  chooseBrowserExtension: () => Promise<void>;
   chooseUserScript: () => Promise<void>;
 
   reloadGraph: () => Promise<void>;
@@ -388,7 +380,6 @@ export const useStore = create<StrataState>((set, get) => ({
   mode: "explore",
   dimension: "3d",
   settings: null,
-  captureProtection: "unknown",
   activeLensId: "lens_all",
   semanticEdges: false,
   clusterColors: false,
@@ -472,7 +463,6 @@ export const useStore = create<StrataState>((set, get) => ({
         connection: "ready",
         health,
         settings,
-        captureProtection: settingsReply.capture_protection ?? "unknown",
         workspace: state,
         layers: state.workspace?.layers ?? [],
         providers: providerInfo.providers,
@@ -592,28 +582,15 @@ export const useStore = create<StrataState>((set, get) => ({
   async applySettings(values) {
     const reply = await bridge.settings.update(values);
     const settings = reply.settings;
-    set({
-      settings,
-      captureProtection: reply.capture_protection ?? "unknown",
-    });
+    set({ settings });
     applyDocumentSettings(settings);
   },
 
   async chooseUserScript() {
-    try {
-      const settings = (await bridge.settings.chooseUserScript()).settings;
-      set({ settings });
-      applyDocumentSettings(settings);
-    } catch {
-      return;
-    }
-  },
-
-  async chooseBrowserExtension() {
     // The picker is native, so cancelling comes back as a rejection rather
     // than an empty result. Cancelling is not an error the user needs told.
     try {
-      const settings = (await bridge.settings.chooseExtension()).settings;
+      const settings = (await bridge.settings.chooseUserScript()).settings;
       set({ settings });
       applyDocumentSettings(settings);
     } catch {

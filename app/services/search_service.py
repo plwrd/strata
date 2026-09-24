@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -222,7 +222,7 @@ class SearchService:
         wanted_tags = {tag.lower() for tag in (tags or [])}
 
         graph_scores = self._graph_proximity(near_object_id) if near_object_id else {}
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
 
         results: dict[str, SearchResult] = {}
         signals: dict[str, dict[str, float]] = {}
@@ -458,7 +458,7 @@ def _age_days(updated_at: str, now: datetime) -> float | None:
     except ValueError:
         return None
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
     return max(0.0, (now - moment).total_seconds() / 86400)
 
 

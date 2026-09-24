@@ -179,6 +179,8 @@ a note", never *which* note or what it is about.
 > presence blob (ADR-0006). `OBJECT_TYPES` is the authority a reader should
 > check; an unknown type is refused, never best-effort parsed. Reconciling the
 > two numberings is a format change and needs its own ADR.
+>
+> `9` and `10` are retired and must not be reused.
 
 ### 3.5 `flags` bitfield
 

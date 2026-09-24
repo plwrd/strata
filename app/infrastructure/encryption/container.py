@@ -70,6 +70,7 @@ TYPE_CRDT_STATE: Final = 7
 # everything else, and typed so a presence blob can never be applied as a CRDT
 # update.
 TYPE_PRESENCE: Final = 8
+# 9 and 10 are retired. Do not reuse them.
 
 OBJECT_TYPES: Final = frozenset(
     {

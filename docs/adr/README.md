@@ -34,7 +34,6 @@ ADR-NNNN`; do not edit the substance of an accepted ADR in place.
 | [0009](0009-context-export-format.md) | AI context export format | Accepted | 2026-07-14 |
 | [0010](0010-3d-graph-architecture.md) | 2D/3D graph architecture | Accepted | 2026-07-14 |
 | [0011](0011-python-version-target.md) | Python version target (`>=3.10`) | Accepted | 2026-07-14 |
-| [0012](0012-webview2-browser-pane.md) | WebView2 for the research browser pane, bound over COM | Accepted | 2026-09-10 |
 
 ## Conventions
 

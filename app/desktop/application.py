@@ -9,7 +9,6 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.bootstrap import APP_NAME, build_services, dev_server, frontend_root, resource_root
-from app.desktop.capture_flags import capture_flags
 from app.desktop.main_window import MainWindow
 from app.desktop.webengine import CONTENT_SECURITY_POLICY, register_scheme
 from app.infrastructure.logging.logger import get_logger
@@ -35,21 +34,6 @@ def _touch_requested() -> bool:
         return False
 
 
-def _hide_for_sharing_requested() -> bool:
-    """Whether capture exclusion is on, read before QApplication exists.
-
-    Same launch-time constraint as `_touch_requested`: the compositor flags this
-    decides are process-global to Chromium, so they can only be set at start.
-    """
-    try:
-        from app.bootstrap import user_paths
-        from app.services.settings_service import SettingsService
-
-        return SettingsService(user_paths().settings_file).settings.hide_for_sharing
-    except Exception:  # pragma: no cover - launch must be robust to any settings error
-        return True  # the setting's own default; fail towards hiding, not exposing
-
-
 def _chromium_flags() -> str:
     flags = [
         # No renderer may reach the network; every request goes through Python.
@@ -58,10 +42,8 @@ def _chromium_flags() -> str:
         "--disable-speech-api",
         "--no-first-run",
         "--disable-remote-fonts",
-        # Keep every frame on the path `SetWindowDisplayAffinity` can reach.
-        # The reasoning, and why this is one shared list across all three
-        # Chromium engines, is in `app.desktop.capture_flags`.
-        *capture_flags(hiding=_hide_for_sharing_requested()),
+        # A <video> promoted to a hardware overlay plane makes the window flicker.
+        "--disable-direct-composition-video-overlays",
     ]
     if _touch_requested():
         # Advertise touch so sites serve their touch/mobile UI. Safe for Strata's
@@ -74,8 +56,7 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
     import os
 
     # setdefault, not assignment: an explicit QTWEBENGINE_CHROMIUM_FLAGS in the
-    # environment wins, which is how the compositor flags above get A/B tested
-    # against a real recorder without a rebuild.
+    # environment wins, so the flags above can be A/B tested without a rebuild.
     os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", _chromium_flags())
 
     # Must happen before QApplication exists.

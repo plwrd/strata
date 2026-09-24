@@ -315,41 +315,6 @@ def test_settings_round_trip(workspace: Services) -> None:
     assert reloaded["motion"] == "reduced"
 
 
-def test_settings_report_the_capture_protection_the_os_granted(workspace: Services) -> None:
-    """The dialog must render the OS's answer, not the toggle's own value.
-
-    A window that says "hidden for sharing" while the platform granted nothing
-    is the one failure mode this feature cannot have — someone shares a screen
-    on the strength of it.
-    """
-    from PySide6.QtCore import QObject
-
-    from app.desktop.screen_security import CaptureState
-
-    class _Window(QObject):
-        def capture_state(self) -> CaptureState:
-            return CaptureState.FAILED
-
-        def apply_hide_for_sharing(self, _enabled: bool) -> None:
-            return None
-
-    window = _Window()
-    bridge = SettingsBridge(workspace, window)
-
-    answer = data(call(bridge, "update_settings", {"values": {"hide_for_sharing": True}}))
-
-    assert answer["settings"]["hide_for_sharing"] is True
-    assert answer["capture_protection"] == "failed"
-    assert data(call(bridge, "get_settings"))["capture_protection"] == "failed"
-
-
-def test_capture_protection_is_unknown_without_a_window(workspace: Services) -> None:
-    """Never guess: a bridge with no window says so rather than claiming a state."""
-    answer = data(call(SettingsBridge(workspace), "get_settings"))
-
-    assert answer["capture_protection"] == "unknown"
-
-
 def test_unknown_settings_keys_are_ignored(workspace: Services) -> None:
     settings = data(
         call(

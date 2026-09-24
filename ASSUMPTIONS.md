@@ -15,26 +15,26 @@ the less exposed option and recorded the inconvenience here.
 
 ---
 
-## A-001 — Python 3.10+ as the floor, not 3.12
+## A-001 — Python 3.11+ as the floor; 3.12 for development and releases
 
-**Status:** Active (revisit at M11)
+**Status:** Active (raised from 3.10 on 2026-09-22)
 
-**Decision.** `requires-python = ">=3.10"`. The development machine has only **Python 3.10.11**
-installed. CI matrixes **3.10, 3.11, and 3.12**, and the 3.12 job is the one that gates release
-builds where a 3.12 runtime is available.
+**Decision.** `requires-python = ">=3.11"`. Python 3.10 reaches end of security support in
+October 2026. The development machine and release builds run **3.12**; CI matrixes **3.11, 3.12
+and 3.13**.
 
 **Consequences.**
-- **No 3.11/3.12-only syntax.** No `except*`, no PEP 695 `type` statements or generic syntax
-  (`class C[T]`), no `typing.override`, no `Self` without a `typing_extensions` fallback.
-- `mypy` is configured with `python_version = "3.10"` so the type checker enforces the floor rather
+- **No 3.12-only syntax.** No PEP 695 `type` statements or generic syntax (`class C[T]`), no
+  `typing.override`. 3.11 features (`except*`, `typing.Self`, `tomllib`) are fine.
+- `mypy` is configured with `python_version = "3.11"` so the type checker enforces the floor rather
   than trusting review.
 - PySide6 6.8 supports 3.9–3.13, so this costs us nothing on the Qt side.
 
 **Rationale.** Writing 3.12-only code on a machine that cannot run it produces code that is typechecked
 but never executed. A floor we can actually run locally is worth more than a ceiling we can only lint.
 
-**Revisit when.** The dev machine standardizes on 3.12+, or a dependency requires 3.11+. Then raise
-the floor deliberately and drop the 3.10 CI job in the same commit.
+**Revisit when.** 3.11 nears end of security support (October 2027), or a dependency needs 3.12.
+Raise the floor deliberately and drop the oldest CI job in the same commit.
 
 ---
 
@@ -371,7 +371,7 @@ honest and useful — a user who knows mtimes leak can decide whether that matte
 
 | ID | Assumption | Status |
 | --- | --- | --- |
-| A-001 | Python 3.10 floor; CI matrixes 3.10–3.12 | Active |
+| A-001 | Python 3.11 floor; dev/release on 3.12; CI matrixes 3.11–3.13 | Active |
 | A-002 | XChaCha20-Poly1305 via PyNaCl | Active |
 | A-003 | Argon2id t=3, m=256 MiB, p=4 | Active |
 | A-004 | Ephemeral-first private index; encrypted persistent index behind a flag | Active |

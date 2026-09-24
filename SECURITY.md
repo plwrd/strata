@@ -219,6 +219,15 @@ build is never shipped in place of one that was meant to be signed. macOS
 *notarization* (stapling an Apple-issued ticket) is a further step that needs an
 Apple ID and app-specific password; it is not yet wired.
 
+**Signing a local build.** `packaging\windows\build.ps1 -CertPath <your.pfx>`
+(or set `CODE_SIGN_CERT_PATH` / `CODE_SIGN_PASSWORD`) signs the frozen
+`Strata.exe`, and the installer if one is built, with the same SHA-256 digest and
+RFC-3161 timestamp the release pipeline uses, then verifies the result. This is
+what a developer runs to produce a build a machine will trust: an unsigned binary
+is treated as untrusted by SmartScreen and by process monitors that score
+unsigned software as suspicious. A **self-signed** certificate does not chain to a
+trusted root, so it clears neither — use a certificate from a recognised CA.
+
 If the **signing key** is ever compromised, signatures and update verification both fail as controls
 ([T-28](THREAT_MODEL.md)). Key custody is therefore a release-engineering requirement, not an app
 feature.

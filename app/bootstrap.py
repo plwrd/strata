@@ -108,9 +108,12 @@ def dev_server() -> str | None:
 def build_services() -> Services:
     paths = user_paths()
     env = environment()
+    # A shipped build leaves nothing on disk to read back: production logs to
+    # stderr only (which a packaged GUI has nowhere to keep), so no strata.log
+    # is ever written. A source checkout still gets the file, for debugging.
     configure_logging(
         level="DEBUG" if env == "development" else "INFO",
-        log_file=paths.log_dir / "strata.log",
+        log_file=paths.log_dir / "strata.log" if env == "development" else None,
     )
     logger = get_logger(__name__)
     services = Services(paths, environment=env)

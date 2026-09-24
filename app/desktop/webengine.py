@@ -41,16 +41,21 @@ APP_URL = f"{SCHEME}://{HOST}/index.html"
 # reach the network at all: every outbound call goes through Python, where the
 # per-layer AI policy is enforced. Note that Qt WebChannel communicates in-process
 # and is unaffected by connect-src.
+# `strata:` beside `'self'`: once this policy is delivered as a real
+# header (not only the <meta> copy), Chromium does not match `'self'` for a
+# custom scheme's resources (nor a `strata://app` host-source), so the bundle's own
+# scripts are refused. The scheme-source is equivalent in practice: only Strata's
+# handler serves `strata:`, and it refuses every host but `app`.
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; "
     # blob: is required for Vite ES module workers and nested drei/troika workers.
-    "script-src 'self' blob:; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: blob:; "
-    "font-src 'self' data:; "
-    "connect-src 'self'; "
-    "worker-src 'self' blob:; "
-    "media-src 'self' blob:; "
+    "script-src 'self' strata: blob:; "
+    "style-src 'self' strata: 'unsafe-inline'; "
+    "img-src 'self' strata: data: blob:; "
+    "font-src 'self' strata: data:; "
+    "connect-src 'self' strata:; "
+    "worker-src 'self' strata: blob:; "
+    "media-src 'self' strata: blob:; "
     "frame-ancestors 'none'; "
     "base-uri 'none'; "
     "form-action 'none'"
@@ -176,7 +181,10 @@ def _set_security_headers(job: QWebEngineUrlRequestJob) -> None:
     if setter is None:  # pragma: no cover - depends on the Qt build
         return
     try:
-        setter({QByteArray(name): QByteArray(value) for name, value in _RESPONSE_HEADERS})
+        # A QMultiMap: each name maps to a *list* of values. A bare QByteArray
+        # value is iterated byte by byte by the binding, which sent every
+        # character as a header of its own and left the CSP unparseable.
+        setter({QByteArray(name): [QByteArray(value)] for name, value in _RESPONSE_HEADERS})
     except (TypeError, RuntimeError):  # pragma: no cover - defensive
         logger.warning("scheme.headers_unsupported")
 

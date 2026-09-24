@@ -68,7 +68,7 @@ export interface FakeBridgeOptions {
   /** False models a workspace where browser research was never switched on. */
   browserEnabled?: boolean;
   /** Which research browser the fake reports. Defaults to the pane. */
-  browserBackend?: "embedded" | "webview2" | "chrome";
+  browserBackend?: "embedded" | "chrome";
   /** Seed the health report served via `workspace.knowledge_health`. */
   health?: HealthReport;
   failWith?: { code: string; message: string };
@@ -633,13 +633,11 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           default_provider: "ollama",
           default_model: "qwythos",
           onboarding_tour_completed: true,
-          hide_for_sharing: true,
           minimize_to_tray: false,
           start_in_tray: false,
           hide_from_taskbar: false,
           browser_control_enabled: false,
           browser_backend: "embedded",
-          browser_extensions: [],
           browser_user_scripts: [],
           browser_blocked_hosts: [],
           browser_executable_path: "",
@@ -649,13 +647,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
           browser_blur_media: false,
           browser_blur_amount: 12,
           browser_mobile_mode: false,
+          auto_lock_minutes: 15,
+          auto_lock_on_system_lock: true,
         },
       }),
-      // The real one opens a native folder picker. The fake stands in for a
-      // user who cancelled, which is the branch the store has to survive.
-      choose_browser_extension: () => {
-        throw new Error("No extension folder was chosen.");
-      },
       update_settings: (payload) => ({
         // Recorded like every other write, so a test can assert what was asked
         // for and not only what came back.
@@ -682,13 +677,11 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             default_provider: "ollama",
             default_model: "qwythos",
             onboarding_tour_completed: true,
-            hide_for_sharing: true,
             minimize_to_tray: false,
             start_in_tray: false,
             hide_from_taskbar: false,
             browser_control_enabled: false,
             browser_backend: "embedded",
-            browser_extensions: [],
             browser_user_scripts: [],
             browser_blocked_hosts: [],
             browser_executable_path: "",
@@ -698,6 +691,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): void {
             browser_blur_media: false,
             browser_blur_amount: 12,
             browser_mobile_mode: false,
+            auto_lock_minutes: 15,
+            auto_lock_on_system_lock: true,
             ...(payload["values"] as object),
           }),
       }),

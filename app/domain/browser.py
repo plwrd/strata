@@ -7,16 +7,10 @@ Two ways to put a page in front of you, one set of models:
   sign-ins survive restarts. It cannot load Chrome extensions: Qt ships
   Chromium without the extensions subsystem, and no setting changes that. It
   also cannot play H.264 or AAC — that Qt build carries no proprietary codecs.
-* **webview2** — the same pane, in the same window, rendered by the Microsoft
-  Edge WebView2 runtime (Windows only). Chosen when video matters: Edge ships
-  the codecs Qt's build does not. It can also load unpacked browser extensions,
-  which the Qt pane cannot. Being inside Strata's own window, it stays under
-  the window's screen-capture exclusion — see ADR-0012.
 * **chrome** — the Chrome you already have, driven over the DevTools protocol
   on a loopback port against a Strata-owned profile. For the sign-in flows that
   refuse embedded browsers, and for extensions installed from the store rather
-  than unpacked. It is a browser Strata does not own, so it is the one backend
-  that cannot be kept out of a screen recording.
+  than unpacked.
 
 Both produce the same :class:`ScrapedPage` from the same extraction, so the
 research pipeline downstream cannot tell them apart — and neither can the parts
@@ -34,11 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # the engine sees a normal browser request from a normal browser session.
 SearchEngine = Literal["duckduckgo", "google", "bing", "brave", "kagi", "startpage"]
 
-BrowserBackend = Literal["embedded", "webview2", "chrome"]
-
-# The two that render inside the Strata window. They differ by engine, not by
-# how the app drives them — the pane contract and the capture story are shared.
-IN_WINDOW_BACKENDS: frozenset[str] = frozenset({"embedded", "webview2"})
+BrowserBackend = Literal["embedded", "chrome"]
 
 SEARCH_URLS: dict[str, str] = {
     "duckduckgo": "https://duckduckgo.com/?q={query}",

@@ -268,59 +268,16 @@ compiled out, so there is nothing to switch on. It does have two stand-ins that
 cover most of what people install extensions *for* — see **User scripts and
 blocking** below. A few sign-in pages also refuse embedded browsers outright.
 
-Settings → Browser research → **Browser** offers two answers, and they are not
-equivalent where privacy is concerned.
-
-**Pane in this window (Edge engine)** — Windows only. The same pane, in the same
-place, rendered by the Microsoft Edge WebView2 runtime instead of Qt's Chromium.
-Edge ships the codecs Qt's build does not, so **video plays**. Because it is
-still inside Strata's window, *Hidden for sharing* (§17) still covers it —
-including the engine's own menus and dropdowns, which run in a browser process
-Strata starts and can account for. It needs the Edge WebView2 runtime, which is
-already present on Windows 11 and most Windows 10 machines; Strata ships only a
-166 KB loader and installs nothing. If the runtime is missing the pane says so
-and research falls back to the built-in engine — the setting will show what is
-actually running, not what was asked for.
+Settings → Browser research → **Browser** offers a way around all three.
 
 **Your own Chrome** — Strata launches the Chrome you already have, with your
 extensions and a profile Strata owns, and reads the tab you point it at. The
 panel grows a tab picker, because Chrome has real tabs and the pane shows one
 page. Choose this when a page refuses to let you sign in to an embedded
-browser, or when you need an extension you can only install from the store —
-and know the trade: it is a browser Strata does not own, so **it is the one
-option that cannot be kept out of a screen recording**. Strata excludes the
-windows of the process it launched, but a browser opens more windows over its
-life, and a promise that quietly stops holding is worse than none.
+browser, when you need an extension, or when a page's video has to play.
 
-Switching engines takes effect when Strata next starts: the pane is built with
-the window.
-
-### Extensions in the pane
-
-The Edge engine can load **extensions** — an ad blocker, a reader mode, a
-paywall helper — so the pane is no longer the poor relation of your own Chrome.
-Settings → Browser research → **Extensions** → *Add an extension folder…* opens
-a folder picker; remove one with the button beside it.
-
-Two things to know before you use it.
-
-**It takes a folder, not a `.crx`.** WebView2 has no store-install path, so you
-point Strata at an *unpacked* extension — the directory that contains
-`manifest.json`. Most extensions can be unpacked from their `.crx` (it is a zip
-with a header) or cloned from source. Strata loads up to ten, and tells you in
-the Research panel which ones loaded and which folder it could not find, so a
-blocker that has quietly stopped running does not look like one that is working.
-
-**An extension is third-party code with sight of everything you research.** It
-runs in the pane, reads every page you open there, and can send what it reads
-anywhere it likes — that is what extensions are. It *cannot* reach your
-workspace: the pane has no bridge to Strata, holds no channel to Python, and
-that is true of extensions exactly as it is of the pages they run on. Add ones
-you would trust with your reading; the list is empty until you put something in
-it, and adding each one is a deliberate act.
-
-Extensions load when the engine's browser process starts, so a change here
-takes effect the next time you start Strata.
+Switching back to the pane takes effect when Strata next starts: the pane is
+built with the window.
 
 ### User scripts and blocking (built-in pane)
 
@@ -363,8 +320,7 @@ There are three ways to flip it, and they are all the same switch:
 
 The hotkey is handled twice — once by the app and once by the window — because
 a keyboard chord belongs to whatever has focus. While you are typing in a note,
-the editor's engine claims the key; when the Edge pane has focus, the keys go to
-Edge and never reach Strata at all. The button on the pane's toolbar is the one
+the editor's engine claims the key. The button on the pane's toolbar is the one
 control nothing can intercept, which is why it is there. If you press the key
 and nothing happens, Strata now says why — usually "there is no pane open yet",
 or that you are on the Chrome backend, which is a browser Strata does not draw
@@ -373,10 +329,8 @@ and therefore cannot blur.
 It blurs avatars and background-image thumbnails too, not only `<img>` tags —
 sites like x.com render those as styled `<div>`s — and it holds on pages that
 re-render as you scroll. Set the strength (and whether the pane starts blurred)
-in Settings → Browser research. Blur applies to whichever engine backs the pane
-in this window — Strata does not reach into your own Chrome to restyle it. It pairs with *Hidden for
-sharing* (§17), which excludes the whole window from capture pipelines: blur is
-for a screen someone can see, *Hidden for sharing* is for one being captured.
+in Settings → Browser research. Blur applies to the pane in this window —
+Strata does not reach into your own Chrome to restyle it.
 
 ### Mobile site mode
 
@@ -966,7 +920,6 @@ Settings exposed in the UI via **Command bar → More → Settings**:
 | Motion | Full / Reduced / System |
 | Graph quality | High / Balanced / Low GPU |
 | Particles / Bloom | Graph chrome toggles |
-| **Hidden for sharing** | Screen-capture exclusion (see below) |
 | **Minimize to tray** | Close/minimize hides the window to a tray icon (see below) |
 | **No taskbar button** | Drop the taskbar button entirely; live in the tray (see below) |
 
@@ -977,40 +930,6 @@ override is set.
 
 Semantic edges and cluster colours live under Graph controls. Semantic search
 is a Search panel checkbox. Sync relay URL is in the Collaboration panel.
-
-**Hidden for sharing** (Signal-style, **on by default**) asks the OS to exclude
-the *entire* Strata window from screenshots and screen shares. You still see the
-app normally; capture tools (Zoom, Teams, Snipping Tool, OBS, Windows Recall, …)
-do not. On Windows Strata prefers `WDA_EXCLUDEFROMCAPTURE` and falls back to
-`WDA_MONITOR` on older builds. Exclusion is per OS window, so Strata applies it
-to *every* window it opens — not only the main one but each popup, menu, native
-dropdown and dialog as it appears, and it re-asserts after a minimize/restore or
-a taskbar-style change. Because a window Qt does not model (the bundled Chromium
-makes some of its own) would otherwise be missed, Strata also sweeps every
-top-level window its process owns, including ones created but not yet shown, so
-a popup is covered before it paints its first frame.
-
-The exclusion is enforced by the Windows desktop compositor, which means it can
-only cover what the compositor draws. A video promoted to a *hardware overlay
-plane* is scanned out beside the compositor's output rather than through it, so
-it would escape the exclusion — and the hand-off is what made the window flicker.
-Strata therefore launches *both* of its browser engines with video overlays off,
-and with hardware video decode off while *Hidden for sharing* is on. Video costs
-a little more CPU as a result, and it stays inside the exclusion. If you want to
-measure that trade-off, `QTWEBENGINE_CHROMIUM_FLAGS` in the environment
-overrides the whole set for the built-in engine.
-
-Turn it off in Settings if you need to demo or record Strata itself.
-
-One honest limit: this covers the windows Strata itself owns. Both in-window
-research engines qualify — the built-in pane draws into a Strata window, and the
-Edge engine puts its menus in a browser process Strata starts, which the
-exclusion sweep covers. The **Chrome backend** (§9) does not: it drives a
-*separate* browser you already have installed, and while Strata excludes the
-windows of the process it launched, it cannot follow every window that browser
-goes on to open. Video and capture protection are no longer a trade — the Edge
-engine gives you both, and your own Chrome is the one choice that gives up the
-second.
 
 **Minimize to tray** (**off by default**) puts a Strata icon in the system tray.
 With it on, closing or minimizing the window *hides* it — it leaves the taskbar,
@@ -1030,9 +949,8 @@ This — all of it — hides the **window**, not the **process**. Strata stays l
 Manager, `tasklist`, Process Explorer and every other process tool, on purpose:
 the only ways to hide a process from the OS are kernel rootkit techniques, an
 app that used them would be malware, and Strata will not ship one. If your goal
-is that a shoulder-surfer not see Strata, the tray plus *Hidden for sharing*
-(above) is the honest version of that; hiding from the process list is not on
-offer.
+is that a shoulder-surfer not see Strata, the tray is the honest version of
+that; hiding from the process list is not on offer.
 
 Further settings live in a JSON settings file in the OS config directory and
 are currently **edited by hand**, not in the UI: AI defaults (provider, model,
@@ -1055,7 +973,6 @@ Strata's shortcuts are scoped to the panel you are in.
 | --- | --- | --- |
 | Anywhere | `Ctrl/Cmd+N` | New note (in the first unlocked layer) |
 | Anywhere | `Ctrl/Cmd+,` | Open / close Settings |
-| Anywhere | `Ctrl/Cmd+Shift+H` | Toggle **Hidden for sharing** (§17) — the one setting you need *before* you start sharing a screen, not after |
 | Anywhere | `Ctrl/Cmd+Shift+B` | Open / close the research browser pane (§3¾) |
 | Anywhere | `Ctrl/Cmd+Shift+X` | Blur / unblur media in the browser pane (§3¾) |
 | Editor | `Ctrl/Cmd+S` | Save now |

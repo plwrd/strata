@@ -34,13 +34,11 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       default_provider: "ollama",
       default_model: "qwythos",
       onboarding_tour_completed: true,
-      hide_for_sharing: true,
       minimize_to_tray: false,
       start_in_tray: false,
       hide_from_taskbar: false,
       browser_control_enabled: false,
       browser_backend: "embedded" as const,
-      browser_extensions: [] as string[],
       browser_user_scripts: [] as string[],
       browser_blocked_hosts: [] as string[],
       browser_executable_path: "",
@@ -50,6 +48,8 @@ function seedReady(overrides: Record<string, unknown> = {}): void {
       browser_blur_media: false,
       browser_blur_amount: 12,
       browser_mobile_mode: false,
+      auto_lock_minutes: 15,
+      auto_lock_on_system_lock: true,
       ...overrides,
     },
     mode: "explore",
@@ -129,7 +129,7 @@ describe("SettingsDialog", () => {
     );
   });
 
-  it("opens from Command bar More, without motion/sharing toggles there", async () => {
+  it("opens from Command bar More, without the motion toggle there", async () => {
     render(<CommandBar />);
 
     await userEvent.click(screen.getByRole("button", { name: "More" }));
@@ -137,82 +137,26 @@ describe("SettingsDialog", () => {
       screen.getByRole("button", { name: "Settings" }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Motion:/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Hidden for sharing/)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(
       screen.getByRole("dialog", { name: "Settings" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Hidden for sharing")).toBeInTheDocument();
     expect(
       screen.getByRole("group", { name: "Motion preference" }),
     ).toBeInTheDocument();
   });
 
-  it("toggles hide-for-sharing through applySettings", async () => {
+  it("turns off locking on system lock through applySettings", async () => {
     const applySettings = vi.spyOn(useStore.getState(), "applySettings");
     render(<SettingsDialog onClose={() => undefined} />);
-
     await userEvent.click(
-      screen.getByRole("checkbox", { name: /Hidden for sharing/ }),
+      screen.getByRole("checkbox", { name: /lock when Windows locks/ }),
     );
     await waitFor(() =>
-      expect(applySettings).toHaveBeenCalledWith({ hide_for_sharing: false }),
-    );
-  });
-
-  // --- screen protection: the status is the OS's answer, not the toggle ------
-  //
-  // "Hidden for sharing" is a request. Rendering it as though it were the
-  // outcome is how a user ends up screen-sharing a window they were told was
-  // hidden, so each state gets its own sentence and a refusal is an alert.
-
-  it("says the window is hidden only when the system actually hid it", () => {
-    useStore.setState({ captureProtection: "excluded" });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    expect(screen.getByTestId("capture-protection")).toHaveTextContent(
-      /screenshots and screen shares do not/i,
-    );
-  });
-
-  it("warns when the platform has no capture control at all", () => {
-    useStore.setState({ captureProtection: "unsupported" });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    const status = screen.getByTestId("capture-protection");
-    expect(status).toHaveTextContent(/not available on this platform/i);
-    expect(status).toHaveTextContent(/visible to screenshots and screen shares/i);
-    // And what to do instead, since there is nothing to turn on.
-    expect(status).toHaveTextContent(/lock your private layers/i);
-    expect(status).toHaveAttribute("role", "alert");
-  });
-
-  it("warns when the system refused to hide the window", () => {
-    useStore.setState({ captureProtection: "failed" });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    const status = screen.getByTestId("capture-protection");
-    expect(status).toHaveTextContent(/refused/i);
-    expect(status).toHaveAttribute("role", "alert");
-  });
-
-  it("names the blackout fallback rather than calling it the same thing", () => {
-    useStore.setState({ captureProtection: "blacked-out" });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    expect(screen.getByTestId("capture-protection")).toHaveTextContent(
-      /black rectangle/i,
-    );
-  });
-
-  it("does not claim protection while hiding is switched off", () => {
-    seedReady({ hide_for_sharing: false });
-    useStore.setState({ captureProtection: "off" });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    expect(screen.getByTestId("capture-protection")).toHaveTextContent(
-      /appears in screenshots/i,
+      expect(applySettings).toHaveBeenCalledWith({
+        auto_lock_on_system_lock: false,
+      }),
     );
   });
 
@@ -227,68 +171,8 @@ describe("SettingsDialog", () => {
       expect(applySettings).toHaveBeenCalledWith({ battery_saver: true }),
     );
   });
-  it("keeps the extension list out of the way unless the Edge engine is on", () => {
-    seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
-    render(<SettingsDialog onClose={() => undefined} />);
 
-    expect(
-      screen.queryByRole("button", { name: /Add an extension folder/ }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("lists the extension folders the Edge pane will load", () => {
-    seedReady({
-      browser_control_enabled: true,
-      browser_backend: "webview2",
-      browser_extensions: ["C:/tools/ublock", "C:/tools/reader"],
-    });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    expect(screen.getByText("C:/tools/ublock")).toBeInTheDocument();
-    expect(screen.getByText("C:/tools/reader")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Add an extension folder/ }),
-    ).toBeInTheDocument();
-  });
-
-  it("removes one extension without disturbing the others", async () => {
-    seedReady({
-      browser_control_enabled: true,
-      browser_backend: "webview2",
-      browser_extensions: ["C:/tools/ublock", "C:/tools/reader"],
-    });
-    const applySettings = vi.spyOn(useStore.getState(), "applySettings");
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Remove extension C:/tools/ublock" }),
-    );
-
-    await waitFor(() =>
-      expect(applySettings).toHaveBeenCalledWith({
-        browser_extensions: ["C:/tools/reader"],
-      }),
-    );
-  });
-
-  it("survives the user cancelling the folder picker", async () => {
-    seedReady({ browser_control_enabled: true, browser_backend: "webview2" });
-    render(<SettingsDialog onClose={() => undefined} />);
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Add an extension folder/ }),
-    );
-
-    // Cancelling rejects; the dialog must stay usable rather than surface it.
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /Add an extension folder/ }),
-      ).toBeInTheDocument(),
-    );
-  });
   it("offers user scripts and a blocklist only for the built-in pane", () => {
-    // The Edge pane loads real extensions; these are what Qt has instead, and
-    // showing both sets at once would imply they stack.
     seedReady({ browser_control_enabled: true, browser_backend: "embedded" });
     render(<SettingsDialog onClose={() => undefined} />);
 
@@ -298,13 +182,10 @@ describe("SettingsDialog", () => {
     expect(
       screen.getByRole("textbox", { name: "Blocked hosts" }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Add an extension folder/ }),
-    ).not.toBeInTheDocument();
   });
 
-  it("hides the Qt stand-ins when the Edge engine is chosen", () => {
-    seedReady({ browser_control_enabled: true, browser_backend: "webview2" });
+  it("hides the Qt stand-ins when your own Chrome is chosen", () => {
+    seedReady({ browser_control_enabled: true, browser_backend: "chrome" });
     render(<SettingsDialog onClose={() => undefined} />);
 
     expect(

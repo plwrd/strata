@@ -23,7 +23,7 @@ attached to it.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.domain.errors import InvalidRequestError, ProviderError
 from app.domain.ids import new_execution_id, new_job_id
@@ -105,7 +105,7 @@ Rules:
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class ResearchService:

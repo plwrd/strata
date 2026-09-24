@@ -16,7 +16,7 @@ Every page the plan creates carries provenance: `review_status: ai-inferred`,
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from app.domain.errors import ProviderError
@@ -105,7 +105,7 @@ Rules:
 
 
 def _now() -> str:
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 class KnowledgeService:
